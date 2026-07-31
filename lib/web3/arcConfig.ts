@@ -28,24 +28,24 @@ import { defineChain, keccak256, toBytes } from "viem";
  * Viem will use this nativeCurrency config automatically.
  */
 export const arcTestnet = defineChain({
-  id: 5042002,
-  name: "Arc Testnet",
-  nativeCurrency: {
-    name: "USD Coin",
-    symbol: "USDC",
-    decimals: 6,           // ← 6, not 18 — critical for gas display
-  },
-  rpcUrls: {
-    default: { http: ["https://rpc.testnet.arc.network"] },
-    public:  { http: ["https://rpc.testnet.arc.network"] },
-  },
-  blockExplorers: {
-    default: {
-      name: "ArcScan",
-      url:  "https://testnet.arcscan.app",
-    },
-  },
-  testnet: true,
+	id: 5042002,
+	name: "Arc Testnet",
+	nativeCurrency: {
+		name: "USD Coin",
+		symbol: "USDC",
+		decimals: 6, // ← 6, not 18 — critical for gas display
+	},
+	rpcUrls: {
+		default: { http: ["https://rpc.testnet.arc.network"] },
+		public: { http: ["https://rpc.testnet.arc.network"] },
+	},
+	blockExplorers: {
+		default: {
+			name: "ArcScan",
+			url: "https://testnet.arcscan.app",
+		},
+	},
+	testnet: true,
 });
 
 // ─── WAGMI CONFIG ─────────────────────────────────────────────────────────────
@@ -55,39 +55,41 @@ export const arcTestnet = defineChain({
  * <QueryClientProvider client={queryClient}>.
  */
 export const wagmiConfig = createConfig({
-  chains:     [arcTestnet],
-  connectors: [injected()],         // MetaMask, Rabby, Frame, etc.
-  transports: {
-    [arcTestnet.id]: http("https://rpc.testnet.arc.network"),
-  },
+	chains: [arcTestnet],
+	connectors: [injected()], // MetaMask, Rabby, Frame, etc.
+	transports: {
+		[arcTestnet.id]: http("https://rpc.testnet.arc.network"),
+	},
 });
 
 // ─── CONTRACT ADDRESSES ───────────────────────────────────────────────────────
 /** ArcP2PEscrowService — update after deployment */
 export const ESCROW_ADDRESS =
-  "0x0000000000000000000000000000000000000000" as `0x${string}`;
+	"0x0000000000000000000000000000000000000000" as `0x${string}`;
 
 /** Circle USDC on Arc Testnet — update to actual deployment address */
 export const USDC_ADDRESS =
-  "0x0000000000000000000000000000000000000001" as `0x${string}`;
+	"0x0000000000000000000000000000000000000001" as `0x${string}`;
 
 // ─── ARCSCAN LINK BUILDERS ────────────────────────────────────────────────────
-export const ARCSCAN_TX   = (hash: string)    => `https://testnet.arcscan.app/tx/${hash}`;
-export const ARCSCAN_ADDR = (address: string) => `https://testnet.arcscan.app/address/${address}`;
+export const ARCSCAN_TX = (hash: string) =>
+	`https://testnet.arcscan.app/tx/${hash}`;
+export const ARCSCAN_ADDR = (address: string) =>
+	`https://testnet.arcscan.app/address/${address}`;
 
 // ─── USDC HELPERS (6 DECIMALS) ────────────────────────────────────────────────
 /** Convert micro-USDC BigInt → human-readable string: 1_000_000n → "1.00" */
 export function formatUsdc(microUsdc: bigint, decimals = 2): string {
-  const whole = microUsdc / 1_000_000n;
-  const frac  = microUsdc % 1_000_000n;
-  return `${whole}.${String(frac).padStart(6, "0").slice(0, decimals)}`;
+	const whole = microUsdc / 1_000_000n;
+	const frac = microUsdc % 1_000_000n;
+	return `${whole}.${String(frac).padStart(6, "0").slice(0, decimals)}`;
 }
 
 /** Convert human string → micro-USDC BigInt: "1.50" → 1_500_000n */
 export function parseUsdc(humanAmount: string): bigint {
-  const [whole, frac = ""] = humanAmount.split(".");
-  const fracPadded = frac.padEnd(6, "0").slice(0, 6);
-  return BigInt(whole) * 1_000_000n + BigInt(fracPadded);
+	const [whole, frac = ""] = humanAmount.split(".");
+	const fracPadded = frac.padEnd(6, "0").slice(0, 6);
+	return BigInt(whole) * 1_000_000n + BigInt(fracPadded);
 }
 
 /**
@@ -99,12 +101,12 @@ export function parseUsdc(humanAmount: string): bigint {
  * @param sortCode    e.g. "058" (optional, leave "" if not applicable)
  */
 export function hashBankDetails(
-  bankName: string,
-  accountNo: string,
-  sortCode: string = ""
+	bankName: string,
+	accountNo: string,
+	sortCode: string = "",
 ): `0x${string}` {
-  const raw = `${bankName}|${accountNo}|${sortCode}`;
-  return keccak256(toBytes(raw));
+	const raw = `${bankName}|${accountNo}|${sortCode}`;
+	return keccak256(toBytes(raw));
 }
 
 // ─── ESCROW ABI ───────────────────────────────────────────────────────────────
@@ -113,184 +115,184 @@ export function hashBankDetails(
  * needs to call. Extend with the full ABI if you need admin functions.
  */
 export const ESCROW_ABI = [
-  // ── Write functions ──
-  {
-    name: "initiateTrade",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "_cryptoAmount",        type: "uint256" },
-      { name: "_hashedBankDetails",   type: "bytes32" },
-    ],
-    outputs: [{ name: "tradeId", type: "uint256" }],
-  },
-  {
-    name: "fundBuyerCollateral",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "_tradeId",    type: "uint256" },
-      { name: "_collateral", type: "uint256" },
-    ],
-    outputs: [],
-  },
-  {
-    name: "markFiatSent",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [{ name: "_tradeId", type: "uint256" }],
-    outputs: [],
-  },
-  {
-    name: "releaseFunds",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [{ name: "_tradeId", type: "uint256" }],
-    outputs: [],
-  },
-  {
-    name: "raiseDispute",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [{ name: "_tradeId", type: "uint256" }],
-    outputs: [],
-  },
-  {
-    name: "reclaimExpiredTrade",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [{ name: "_tradeId", type: "uint256" }],
-    outputs: [],
-  },
-  // ── Read functions ──
-  {
-    name: "getTrade",
-    type: "function",
-    stateMutability: "view",
-    inputs: [{ name: "_tradeId", type: "uint256" }],
-    outputs: [
-      {
-        type: "tuple",
-        components: [
-          { name: "seller",                   type: "address" },
-          { name: "buyer",                    type: "address" },
-          { name: "cryptoAmount",             type: "uint256" },
-          { name: "buyerCollateral",          type: "uint256" },
-          { name: "privacyHashedBankDetails", type: "bytes32" },
-          { name: "status",                   type: "uint8"   },
-          { name: "createdAt",                type: "uint64"  },
-          { name: "fundedAt",                 type: "uint64"  },
-          { name: "fiatSentAt",               type: "uint64"  },
-          { name: "proofId",                  type: "bytes32" },
-        ],
-      },
-    ],
-  },
-  {
-    name: "calculateNetRelease",
-    type: "function",
-    stateMutability: "view",
-    inputs: [{ name: "_tradeId", type: "uint256" }],
-    outputs: [
-      { name: "buyerReceives", type: "uint256" },
-      { name: "platformFee",   type: "uint256" },
-    ],
-  },
-  {
-    name: "feeBps",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ type: "uint16" }],
-  },
-  // ── Events ──
-  {
-    name: "TradeInitiated",
-    type: "event",
-    inputs: [
-      { name: "tradeId",           type: "uint256", indexed: true  },
-      { name: "seller",            type: "address", indexed: true  },
-      { name: "cryptoAmount",      type: "uint256", indexed: false },
-      { name: "hashedBankDetails", type: "bytes32", indexed: false },
-    ],
-  },
-  {
-    name: "TradeFunded",
-    type: "event",
-    inputs: [
-      { name: "tradeId",        type: "uint256", indexed: true  },
-      { name: "buyer",          type: "address", indexed: true  },
-      { name: "buyerCollateral",type: "uint256", indexed: false },
-    ],
-  },
-  {
-    name: "TradeCompleted",
-    type: "event",
-    inputs: [
-      { name: "tradeId",        type: "uint256", indexed: true  },
-      { name: "buyer",          type: "address", indexed: true  },
-      { name: "amountAfterFee", type: "uint256", indexed: false },
-      { name: "fee",            type: "uint256", indexed: false },
-    ],
-  },
-  {
-    name: "TradeDisputed",
-    type: "event",
-    inputs: [
-      { name: "tradeId",   type: "uint256", indexed: true },
-      { name: "raisedBy",  type: "address", indexed: true },
-    ],
-  },
-  {
-    name: "TradeResolved",
-    type: "event",
-    inputs: [
-      { name: "tradeId",      type: "uint256", indexed: true  },
-      { name: "winner",       type: "address", indexed: true  },
-      { name: "buyerSlashed", type: "bool",    indexed: false },
-    ],
-  },
+	// ── Write functions ──
+	{
+		name: "initiateTrade",
+		type: "function",
+		stateMutability: "nonpayable",
+		inputs: [
+			{ name: "_cryptoAmount", type: "uint256" },
+			{ name: "_hashedBankDetails", type: "bytes32" },
+		],
+		outputs: [{ name: "tradeId", type: "uint256" }],
+	},
+	{
+		name: "fundBuyerCollateral",
+		type: "function",
+		stateMutability: "nonpayable",
+		inputs: [
+			{ name: "_tradeId", type: "uint256" },
+			{ name: "_collateral", type: "uint256" },
+		],
+		outputs: [],
+	},
+	{
+		name: "markFiatSent",
+		type: "function",
+		stateMutability: "nonpayable",
+		inputs: [{ name: "_tradeId", type: "uint256" }],
+		outputs: [],
+	},
+	{
+		name: "releaseFunds",
+		type: "function",
+		stateMutability: "nonpayable",
+		inputs: [{ name: "_tradeId", type: "uint256" }],
+		outputs: [],
+	},
+	{
+		name: "raiseDispute",
+		type: "function",
+		stateMutability: "nonpayable",
+		inputs: [{ name: "_tradeId", type: "uint256" }],
+		outputs: [],
+	},
+	{
+		name: "reclaimExpiredTrade",
+		type: "function",
+		stateMutability: "nonpayable",
+		inputs: [{ name: "_tradeId", type: "uint256" }],
+		outputs: [],
+	},
+	// ── Read functions ──
+	{
+		name: "getTrade",
+		type: "function",
+		stateMutability: "view",
+		inputs: [{ name: "_tradeId", type: "uint256" }],
+		outputs: [
+			{
+				type: "tuple",
+				components: [
+					{ name: "seller", type: "address" },
+					{ name: "buyer", type: "address" },
+					{ name: "cryptoAmount", type: "uint256" },
+					{ name: "buyerCollateral", type: "uint256" },
+					{ name: "privacyHashedBankDetails", type: "bytes32" },
+					{ name: "status", type: "uint8" },
+					{ name: "createdAt", type: "uint64" },
+					{ name: "fundedAt", type: "uint64" },
+					{ name: "fiatSentAt", type: "uint64" },
+					{ name: "proofId", type: "bytes32" },
+				],
+			},
+		],
+	},
+	{
+		name: "calculateNetRelease",
+		type: "function",
+		stateMutability: "view",
+		inputs: [{ name: "_tradeId", type: "uint256" }],
+		outputs: [
+			{ name: "buyerReceives", type: "uint256" },
+			{ name: "platformFee", type: "uint256" },
+		],
+	},
+	{
+		name: "feeBps",
+		type: "function",
+		stateMutability: "view",
+		inputs: [],
+		outputs: [{ type: "uint16" }],
+	},
+	// ── Events ──
+	{
+		name: "TradeInitiated",
+		type: "event",
+		inputs: [
+			{ name: "tradeId", type: "uint256", indexed: true },
+			{ name: "seller", type: "address", indexed: true },
+			{ name: "cryptoAmount", type: "uint256", indexed: false },
+			{ name: "hashedBankDetails", type: "bytes32", indexed: false },
+		],
+	},
+	{
+		name: "TradeFunded",
+		type: "event",
+		inputs: [
+			{ name: "tradeId", type: "uint256", indexed: true },
+			{ name: "buyer", type: "address", indexed: true },
+			{ name: "buyerCollateral", type: "uint256", indexed: false },
+		],
+	},
+	{
+		name: "TradeCompleted",
+		type: "event",
+		inputs: [
+			{ name: "tradeId", type: "uint256", indexed: true },
+			{ name: "buyer", type: "address", indexed: true },
+			{ name: "amountAfterFee", type: "uint256", indexed: false },
+			{ name: "fee", type: "uint256", indexed: false },
+		],
+	},
+	{
+		name: "TradeDisputed",
+		type: "event",
+		inputs: [
+			{ name: "tradeId", type: "uint256", indexed: true },
+			{ name: "raisedBy", type: "address", indexed: true },
+		],
+	},
+	{
+		name: "TradeResolved",
+		type: "event",
+		inputs: [
+			{ name: "tradeId", type: "uint256", indexed: true },
+			{ name: "winner", type: "address", indexed: true },
+			{ name: "buyerSlashed", type: "bool", indexed: false },
+		],
+	},
 ] as const;
 
 // ─── ERC-20 MINIMAL ABI (approve + allowance) ────────────────────────────────
 export const USDC_ABI = [
-  {
-    name: "approve",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "spender", type: "address" },
-      { name: "amount",  type: "uint256" },
-    ],
-    outputs: [{ type: "bool" }],
-  },
-  {
-    name: "allowance",
-    type: "function",
-    stateMutability: "view",
-    inputs: [
-      { name: "owner",   type: "address" },
-      { name: "spender", type: "address" },
-    ],
-    outputs: [{ type: "uint256" }],
-  },
-  {
-    name: "balanceOf",
-    type: "function",
-    stateMutability: "view",
-    inputs: [{ name: "account", type: "address" }],
-    outputs: [{ type: "uint256" }],
-  },
+	{
+		name: "approve",
+		type: "function",
+		stateMutability: "nonpayable",
+		inputs: [
+			{ name: "spender", type: "address" },
+			{ name: "amount", type: "uint256" },
+		],
+		outputs: [{ type: "bool" }],
+	},
+	{
+		name: "allowance",
+		type: "function",
+		stateMutability: "view",
+		inputs: [
+			{ name: "owner", type: "address" },
+			{ name: "spender", type: "address" },
+		],
+		outputs: [{ type: "uint256" }],
+	},
+	{
+		name: "balanceOf",
+		type: "function",
+		stateMutability: "view",
+		inputs: [{ name: "account", type: "address" }],
+		outputs: [{ type: "uint256" }],
+	},
 ] as const;
 
 // ─── TRADE STATUS ENUM (mirrors Solidity) ────────────────────────────────────
 export const TradeStatusEnum = {
-  0: "Created",
-  1: "Funded",
-  2: "FiatSent",
-  3: "Completed",
-  4: "Disputed",
-  5: "Resolved",
+	0: "Created",
+	1: "Funded",
+	2: "FiatSent",
+	3: "Completed",
+	4: "Disputed",
+	5: "Resolved",
 } as const;
 
 export type OnChainTradeStatus = keyof typeof TradeStatusEnum;

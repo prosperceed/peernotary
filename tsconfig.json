@@ -1,5 +1,6 @@
 {
 	"compilerOptions": {
+		"target": "ES2020",
 		"lib": ["dom", "dom.iterable", "esnext"],
 		"allowJs": true,
 		"skipLibCheck": true,
@@ -10,7 +11,7 @@
 		"moduleResolution": "bundler",
 		"resolveJsonModule": true,
 		"isolatedModules": true,
-		"jsx": "preserve",
+		"jsx": "react-jsx",
 		"incremental": true,
 		"plugins": [
 			{
@@ -27,7 +28,13 @@
 		"**/*.tsx",
 		".next/types/**/*.ts",
 		"tailwind.config.mjs",
-		"tailwind.config.cjs"
+		"tailwind.config.cjs",
+		".next/dev/types/**/*.ts"
 	],
-	"exclude": ["node_modules"]
+	"exclude": [
+		"node_modules",
+		"scripts/**/*",
+		"hardhat.config.ts",
+		"typechain-types/**/*"
+	]
 }

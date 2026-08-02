@@ -77,7 +77,7 @@ function HeroAmbient() {
 				className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] rounded-full opacity-[0.18]"
 				style={{
 					background:
-						"radial-gradient(ellipse, #7C3AED 0%, #4338CA 30%, transparent 70%)",
+						"radial-gradient(ellipse, #b1552f 0%, #060809 30%, transparent 70%)",
 				}}
 			/>
 			{/* grid */}
@@ -91,11 +91,11 @@ function HeroAmbient() {
 			/>
 			{/* floating nodes */}
 			{[
-				{ top: "18%", left: "10%", delay: "0s", size: 3, color: "#7C3AED" },
+				{ top: "18%", left: "10%", delay: "0s", size: 3, color: "#b1552f" },
 				{ top: "68%", left: "7%", delay: "0.8s", size: 2, color: "#10B981" },
 				{ top: "30%", left: "88%", delay: "1.2s", size: 4, color: "#06B6D4" },
-				{ top: "78%", left: "82%", delay: "0.4s", size: 2, color: "#7C3AED" },
-				{ top: "12%", left: "72%", delay: "1.6s", size: 3, color: "#F59E0B" },
+				{ top: "78%", left: "82%", delay: "0.4s", size: 2, color: "#375975" },
+				{ top: "12%", left: "72%", delay: "1.6s", size: 3, color: "#df6035" },
 			].map((n, i) => (
 				<div
 					key={i}
@@ -139,7 +139,7 @@ function FeatureCard({
 	return (
 		<div
 			className={cn(
-				"relative group rounded-2xl border border-slate-700/50 bg-[#0D1322]/80 backdrop-blur-md p-6 overflow-hidden transition-all duration-300 hover:shadow-xl",
+				"relative group rounded-2xl border border-slate-700/50 bg-[var(--bgCard)] backdrop-blur-md p-6 overflow-hidden transition-all duration-300 hover:shadow-xl",
 				className,
 			)}
 		>
@@ -199,8 +199,8 @@ function MetricPill({
 	return (
 		<div className="flex flex-col sm:flex-row items-center sm:items-center gap-3 px-6 py-5 sm:py-5 border-b sm:border-b-0 sm:border-r border-slate-800/60 last:border-0">
 			<div
-				className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-				style={{ background: `${color}18` }}
+				className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-[var(--bgCard)]"
+				// style={{ background: `${color}18` }}
 			>
 				{icon}
 			</div>
@@ -228,8 +228,8 @@ export default function Homepage({
 	}, []);
 
 	return (
-		<div className="min-h-screen bg-[#080C14]">
-			{/* ── HERO ──────────────────────────────────────────────────────────── */}
+		<div className="min-h-screen bg-bg">
+			{/* ── HERO*/}
 			<section className="relative min-h-[90vh] flex flex-col items-center justify-center px-4 text-center overflow-hidden">
 				<HeroAmbient />
 
@@ -241,36 +241,26 @@ export default function Homepage({
 							: "opacity-0 translate-y-6",
 					)}
 				>
-					{/* Eyebrow badge */}
-					<div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-violet-500/30 bg-violet-500/8 mb-8">
+					{/* <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-violet-500/30 bg-violet-500/8 mb-8">
 						<span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />
 						<span className="text-xs text-violet-300 font-medium">
 							Now live on Arc Mainnet · Zero visual-receipt fraud
 						</span>
-					</div>
+					</div> */}
 
 					{/* Headline */}
 					<h1 className="text-4xl sm:text-5xl lg:text-[3.75rem] font-black text-white leading-[1.07] tracking-tight mb-6">
 						The Automated{" "}
-						<span
-							className="relative inline-block"
-							style={{
-								background:
-									"linear-gradient(135deg, #a78bfa 0%, #7C3AED 50%, #06B6D4 100%)",
-								WebkitBackgroundClip: "text",
-								WebkitTextFillColor: "transparent",
-								backgroundClip: "text",
-							}}
-						>
-							P2P Escrow Engine
+						<span className="relative inline-block text-secondary">
+							P2P Escrow System
 						</span>{" "}
 						<br className="hidden sm:block" />
 						for African Fintech.
 					</h1>
 
 					<p className="text-base sm:text-lg text-slate-400 leading-relaxed max-w-2xl mx-auto mb-10">
-						Eliminate fake-receipt fraud completely. Secure crypto-to-Naira fiat
-						flows using{" "}
+						Eliminate fake-receipt fraud completely. Secure crypto-to-fiat flows
+						using{" "}
 						<span className="text-slate-200 font-medium">
 							automated open banking oracles
 						</span>{" "}
@@ -284,12 +274,11 @@ export default function Homepage({
 					<div className="flex flex-col sm:flex-row items-center justify-center gap-3">
 						<button
 							onClick={() => setCurrentView("trade")}
-							className="group flex items-center gap-2.5 px-7 py-3.5 rounded-2xl text-white font-bold text-sm transition-all duration-200 hover:shadow-2xl hover:shadow-violet-500/30 active:scale-[0.97]"
-							style={{
-								background: "linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%)",
-							}}
+							className="group flex items-center gap-2.5 px-7 py-3.5 background-secondary/20 border border-secondary text-primary font-bold text-sm transition-all duration-200 hover:shadow-2xl  active:scale-[0.97]"
+							// style={{
+							// 	background: "linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%)",
+							// }}
 						>
-							<Zap size={16} />
 							Launch P2P App
 							<ArrowRight
 								size={15}
@@ -298,7 +287,7 @@ export default function Homepage({
 						</button>
 						<button
 							onClick={() => setCurrentView("dev")}
-							className="group flex items-center gap-2.5 px-7 py-3.5 rounded-2xl border border-slate-700 hover:border-slate-600 bg-slate-800/40 hover:bg-slate-800/60 text-slate-300 hover:text-white font-bold text-sm transition-all duration-200 active:scale-[0.97]"
+							className="group flex items-center gap-2.5 px-7 py-3.5 rounded-2xl border border-primary hover:border-primary/50 bg-primary/15 hover:bg-primary/40 text-slate-300 hover:text-white font-bold text-sm transition-all duration-200 active:scale-[0.97]"
 						>
 							Read Dev Docs
 							<ExternalLink
@@ -320,7 +309,7 @@ export default function Homepage({
 								key={item}
 								className="flex items-center gap-1.5 text-[11px] text-slate-500"
 							>
-								<svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+								{/* <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
 									<path
 										d="M2 5L4 7L8 3"
 										stroke="#10B981"
@@ -328,7 +317,7 @@ export default function Homepage({
 										strokeLinecap="round"
 										strokeLinejoin="round"
 									/>
-								</svg>
+								</svg> */}
 								{item}
 							</div>
 						))}
@@ -356,7 +345,7 @@ export default function Homepage({
 						Built on cryptographic truth.
 					</h2>
 					<p className="text-slate-500 max-w-xl mx-auto text-sm leading-relaxed">
-						Every fiat settlement is verified automatically — no screenshots, no
+						Every fiat settlement is verified automatically. no screenshots, no
 						manual review, no room for fake receipts.
 					</p>
 				</div>
@@ -364,10 +353,10 @@ export default function Homepage({
 				{/* Row 1: 3 equal cards */}
 				<div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 					<FeatureCard
-						icon={<Zap size={20} className="text-violet-400" />}
+						icon={<Zap size={20} className="text-secondary" />}
 						title="Native Arc USDC Gas"
 						description="No volatile utility tokens. Every transaction fee is settled in USDC at micro-cent scale — predictable costs for every order, regardless of network congestion."
-						accent="#7C3AED"
+						accent="#df6035"
 						tag="Gas Layer"
 					/>
 					<FeatureCard
@@ -403,7 +392,7 @@ export default function Homepage({
 						tag="SDK"
 						extra={
 							<div className="bg-[#080C14] rounded-xl p-3 font-mono text-[10px] text-slate-500 border border-slate-800/60">
-								<span className="text-emerald-400">npm install</span>{" "}
+								<span className="text-secondary">npm install</span>{" "}
 								<span className="text-slate-300">@arc-network/p2p-widget</span>
 							</div>
 						}
@@ -414,17 +403,17 @@ export default function Homepage({
 			{/* ── LIVE METRICS BANNER ───────────────────────────────────────────────── */}
 			<section className="px-4 pb-20 max-w-7xl mx-auto">
 				<div
-					className="rounded-2xl border border-violet-500/20 overflow-hidden"
+					className="rounded-2xl border border-white/15 overflow-hidden"
 					style={{
 						background:
-							"linear-gradient(135deg, rgba(124,58,237,0.05) 0%, #0D1322 50%, rgba(6,182,212,0.05) 100%)",
+							"linear-gradient(135deg, var(--bg) 0%, #0D1322 50%, rgba(6,182,212,0.05) 100%)",
 					}}
 				>
 					{/* Header row */}
 					<div className="flex items-center justify-between px-6 py-3 border-b border-slate-800/60">
 						<div className="flex items-center gap-2">
-							<span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-							<span className="text-[11px] font-mono text-emerald-400 tracking-widest">
+							<span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+							<span className="text-[11px] font-mono text-primary tracking-widest">
 								LIVE NETWORK METRICS
 							</span>
 						</div>
@@ -436,26 +425,26 @@ export default function Homepage({
 					{/* Metrics */}
 					<div className="grid grid-cols-1 sm:grid-cols-3">
 						<MetricPill
-							icon={<TrendingUp size={18} className="text-violet-400" />}
+							icon={<TrendingUp size={18} className="text-primary" />}
 							label="Total Value Locked"
 							value={
-								<span className="text-violet-300">
+								<span className="text-primaryText">
 									$<AnimatedCounter target={4200000} />
 								</span>
 							}
 							color="#7C3AED"
 						/>
 						<MetricPill
-							icon={<Clock size={18} className="text-emerald-400" />}
+							icon={<Clock size={18} className="text-primary" />}
 							label="Avg. Release Time"
-							value={<span className="text-emerald-300">4.8s</span>}
+							value={<span className="text-primaryText">4.8s</span>}
 							color="#10B981"
 						/>
 						<MetricPill
-							icon={<Users size={18} className="text-cyan-400" />}
+							icon={<Users size={18} className="text-primary" />}
 							label="Active Integration Partners"
 							value={
-								<span className="text-cyan-300">
+								<span className="text-primaryText">
 									<AnimatedCounter target={34} /> Fintechs
 								</span>
 							}
@@ -477,20 +466,13 @@ export default function Homepage({
 				<div className="flex flex-col sm:flex-row items-center justify-center gap-3">
 					<button
 						onClick={() => setCurrentView("trade")}
-						className="group flex items-center gap-2 px-8 py-3.5 rounded-2xl text-white font-bold text-sm transition-all duration-200 hover:shadow-xl hover:shadow-violet-500/25 active:scale-[0.97]"
-						style={{
-							background: "linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%)",
-						}}
+						className="group flex items-center gap-2 px-8 py-3.5 bg-secondary rounded-2xl text-primaryText font-bold text-sm"
 					>
 						Start Trading Now
-						<ChevronRight
-							size={16}
-							className="group-hover:translate-x-0.5 transition-transform duration-150"
-						/>
 					</button>
 					<button
 						onClick={() => setCurrentView("dev")}
-						className="flex items-center gap-2 px-8 py-3.5 rounded-2xl border border-slate-700 hover:border-slate-600 text-slate-400 hover:text-slate-200 font-bold text-sm transition-all duration-200 active:scale-[0.97]"
+						className="flex items-center gap-2 px-8 py-3.5 rounded-2xl border border-bg/20 hover:border-secondary text-slate-400 hover:text-slate-200 font-bold text-sm transition-all duration-200 active:scale-[0.97]"
 					>
 						Explore the SDK
 					</button>

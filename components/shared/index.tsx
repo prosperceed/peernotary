@@ -72,12 +72,12 @@ export function MetricCard({
 	value,
 	sub,
 	icon,
-	accent = "#7C3AED",
+	accent = "#060809",
 	trend,
 }: MetricCardProps) {
 	return (
 		<div
-			className="relative rounded-2xl border border-slate-700/50 bg-[#0D1322]/80 backdrop-blur-md p-5 overflow-hidden group transition-all duration-300 hover:border-violet-500/40 hover:shadow-lg"
+			className="relative rounded-2xl border border-slate-700/50 bg-[var(--bg)] backdrop-blur-md p-5 overflow-hidden group transition-all duration-300 hover:border-violet-500/40 hover:shadow-lg"
 			style={{ ["--accent" as string]: accent }}
 		>
 			<div

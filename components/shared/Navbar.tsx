@@ -31,7 +31,7 @@ export default function Navbar({ view, onViewChange }: NavbarProps) {
 						<Zap size={15} className="text-white" strokeWidth={2.5} />
 					</div>
 					<div className="flex items-center gap-1.5">
-						<span className="font-bold text-white text-sm">PeerSwap</span>
+						<span className="font-bold text-white text-sm">PeerNotary</span>
 						<span className="text-slate-500 text-sm hidden sm:inline">
 							· NGN/USDC
 						</span>
@@ -39,7 +39,7 @@ export default function Navbar({ view, onViewChange }: NavbarProps) {
 					{/* Network badge */}
 					<div className="hidden sm:flex items-center gap-1.5 ml-1 text-[11px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full">
 						<span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-						Arc Mainnet Online
+						Arc Testnet Online
 					</div>
 				</div>
 

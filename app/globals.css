@@ -4,7 +4,17 @@
 @tailwind utilities;
 
 :root {
-	--void: #080c14;
+	/* New Color update */
+	--bg: "#060809";
+	--primary: "#df6035";
+	--secondary: "#b1552f";
+	--primaryText: "#e9ebd9";
+	--secondaryText: "#375975";
+	--bgCard: "rgb(21, 23, 25)";
+
+	/* Old colors */
+
+	--void: #0f172a;
 	--card-bg: #0d1322;
 	--violet: #7c3aed;
 	--mint: #10b981;
@@ -20,8 +30,8 @@
 }
 
 body {
-	background: var(--void);
-	color: #f8fafc;
+	background: var(--bg);
+	color: var(--primaryText);
 	font-family: "Inter", system-ui, sans-serif;
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
@@ -45,10 +55,10 @@ body {
 
 /* Glassmorphic card base */
 .glass-card {
-	background: rgba(13, 19, 34, 0.7);
+	background: var(--bg);
 	backdrop-filter: blur(12px);
 	-webkit-backdrop-filter: blur(12px);
-	border: 1px solid rgba(30, 41, 59, 0.6);
+	border: 1px solid var(--bgCard);
 	border-radius: 1rem;
 }
 

@@ -8,18 +8,24 @@ const config = {
 	theme: {
 		extend: {
 			colors: {
-				void: "#080C14",
-				"card-bg": "#0D1322",
-				violet: {
-					DEFAULT: "#7C3AED",
-					400: "#A78BFA",
-					500: "#8B5CF6",
-					600: "#7C3AED",
-					700: "#6D28D9",
-				},
-				mint: "#10B981",
-				amber: "#F59E0B",
-				slash: "#EF4444",
+				bg: "#060809",
+				primary: "#df6035",
+				secondary: "#b1552f",
+				primaryText: "#e9ebd9",
+				secondaryText: "#375975",
+				bgCard: "rgb(21, 23, 25)",
+				// void: "#0F172A",
+				// "card-bg": "#0D1322",
+				// violet: {
+				// 	DEFAULT: "#7C3AED",
+				// 	400: "#A78BFA",
+				// 	500: "#8B5CF6",
+				// 	600: "#7C3AED",
+				// 	700: "#6D28D9",
+				// },
+				// mint: "#10B981",
+				// amber: "#F59E0B",
+				// slash: "#EF4444",
 			},
 			fontFamily: {
 				sans: ["Inter", "system-ui", "sans-serif"],

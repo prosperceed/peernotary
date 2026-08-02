@@ -13,7 +13,7 @@ export default function HomePage() {
 	const [currentView, setCurrentView] = useState<View>("home");
 
 	return (
-		<div className="min-h-screen flex flex-col bg-[#080C14]">
+		<div className="min-h-screen flex flex-col bg-[#060809]">
 			{/* ── Global sticky navbar ───────────────────────────────────────────── */}
 			<GlobalNav currentView={currentView} setCurrentView={setCurrentView} />
 
@@ -87,7 +87,7 @@ export default function HomePage() {
 					</div>
 				)}
 
-				{/* ── DEVELOPER PORTAL ────────────────────────────────────────────── */}
+				{/* DEVELOPER PORTAL */}
 				{currentView === "dev" && (
 					<div className="max-w-7xl w-full mx-auto px-4 sm:px-6 py-10">
 						<div className="mb-6">

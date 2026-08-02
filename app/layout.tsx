@@ -3,9 +3,9 @@ import "./globals.css";
 import Providers from "@/components/web3/Providers";
 
 export const metadata: Metadata = {
-	title: "PeerSwap · NGN/USDC Escrow As-a-Service",
+	title: "PeerNotary · P2P As-a-Service",
 	description:
-		"B2B2C P2P Crypto-to-Naira platform. Embed secure escrow widgets, manage API keys, and trade with ZK-proof verification on Arc Network.",
+		"P2P Crypto-to-Fiat platform. Embedded secure escrow, and trade with ZK-proof verification on Arc Network.",
 };
 
 export default function RootLayout({
@@ -16,7 +16,7 @@ export default function RootLayout({
 	return (
 		<html lang="en" className="dark">
 			<Providers>
-				<body className="bg-[#080C14] text-slate-50 antialiased">
+				<body className="bg-[#060809] text-slate-50 antialiased">
 					{children}
 				</body>
 			</Providers>

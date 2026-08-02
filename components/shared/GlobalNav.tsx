@@ -80,7 +80,7 @@ function WalletButton() {
 		return (
 			<button
 				onClick={() => setConnected(true)}
-				className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-violet-500 hover:from-violet-500 hover:to-violet-400 text-white text-sm font-semibold transition-all duration-200 hover:shadow-lg hover:shadow-violet-500/30 active:scale-[0.97]"
+				className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white border b hover:bg-secondary/5 hover:text-white text-secondary text-sm font-semibold transition-all duration-200  active:scale-[.97]"
 			>
 				<Wallet size={14} />
 				Connect Wallet
@@ -95,7 +95,7 @@ function WalletButton() {
 				className="flex items-center gap-2.5 px-3 py-2 rounded-xl border border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10 transition-all duration-200"
 			>
 				<span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-				<span className="text-sm font-mono text-emerald-300">
+				<span className="text-sm font-mono text-primaryText/80">
 					{MOCK_ADDRESS}
 				</span>
 				<ChevronDown
@@ -108,7 +108,7 @@ function WalletButton() {
 			</button>
 
 			{open && (
-				<div className="absolute right-0 top-full mt-2 w-56 rounded-2xl border border-slate-700/60 bg-[#0D1322]/95 backdrop-blur-xl shadow-2xl shadow-black/50 overflow-hidden z-50">
+				<div className="absolute right-0 top-full mt-2 w-56 rounded-2xl border border-slate-700/60 bg-[var(--bg) backdrop-blur-xl shadow-2xl shadow-black/70 overflow-hidden z-50">
 					<div className="p-3 border-b border-slate-800/60">
 						<div className="text-[10px] text-slate-500 mb-1">
 							Connected wallet
@@ -118,7 +118,7 @@ function WalletButton() {
 						</div>
 						<div className="flex items-center gap-1.5 mt-1">
 							<span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-							<span className="text-[10px] text-emerald-400">Arc Mainnet</span>
+							<span className="text-[10px] text-emerald-400">Arc Testnet</span>
 						</div>
 					</div>
 					<div className="p-2 space-y-0.5">
@@ -167,11 +167,11 @@ function NavLink({
 				"relative px-3.5 py-2 rounded-xl text-sm font-medium transition-all duration-200",
 				active
 					? "text-white"
-					: "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50",
+					: "text-slate-400 hover:text-slate-200 hover:bg-secondary/10",
 			)}
 		>
 			{active && (
-				<span className="absolute inset-0 rounded-xl bg-violet-500/15 border border-violet-500/25" />
+				<span className="absolute inset-0 rounded-xl bg-secondary/15 border border-secondary/50" />
 			)}
 			<span className="relative">{label}</span>
 		</button>
@@ -193,7 +193,7 @@ export default function GlobalNav({
 
 	const navLinks: { label: string; view: View }[] = [
 		{ label: "Home", view: "home" },
-		{ label: "P2P Trading Portal", view: "trade" },
+		{ label: "Trading Portal", view: "trade" },
 		{ label: "Developer Portal", view: "dev" },
 	];
 
@@ -202,13 +202,13 @@ export default function GlobalNav({
 			className={cn(
 				"sticky top-0 z-50 transition-all duration-300",
 				scrolled
-					? "border-b border-slate-800/70 shadow-lg shadow-black/20"
-					: "border-b border-slate-800/50",
+					? "border-b border-bg/70 shadow-lg shadow-black/20"
+					: "border-b border-secondary/30",
 			)}
 			style={{
-				background: "rgba(8, 12, 20, 0.88)",
-				backdropFilter: "blur(20px)",
-				WebkitBackdropFilter: "blur(20px)",
+				background: "#060809",
+				backdropFilter: "blur(30px)",
+				WebkitBackdropFilter: "blur(30px)",
 			}}
 		>
 			{/* Main row */}
@@ -220,16 +220,16 @@ export default function GlobalNav({
 						className="flex items-center gap-2 group"
 					>
 						<div
-							className="w-8 h-8 rounded-xl flex items-center justify-center transition-all group-hover:shadow-lg group-hover:shadow-violet-500/30"
-							style={{
-								background: "linear-gradient(135deg, #7C3AED 0%, #4F46E5 100%)",
-							}}
+							className="w-8 h-8 rounded-xl flex items-center justify-center transition-all"
+							style={
+								{
+									// background: "linear-gradient(135deg, #7C3AED 0%, #4F46E5 100%)",
+								}
+							}
 						>
 							<Zap size={15} className="text-white" strokeWidth={2.5} />
 						</div>
-						<span className="font-bold text-white text-sm">
-							Peer<span className="text-violet-400">Swap</span>
-						</span>
+						<span className="font-bold text-primary text-sm">PeerNotary</span>
 					</button>
 					<LiveTicker />
 				</div>

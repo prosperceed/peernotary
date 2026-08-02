@@ -288,16 +288,16 @@ export default function TradingWidget({
 	const handleZkComplete = useCallback(() => setZkDone(true), []);
 
 	return (
-		<div className={cn("flex flex-col", embedded ? "" : "")}>
+		<div className={cn("flex flex-col mx-auto ", embedded ? "" : "")}>
 			{/* Widget Header */}
-			<div className="flex items-center justify-between mb-5">
+			<div className="flex items-center justify-between mb-5 ">
 				<div>
-					<div className="flex items-center gap-2 mb-0.5">
+					<div className="flex items-center gap-2 mb-0.5 ">
 						<div className="w-6 h-6 rounded-lg bg-violet-500/20 flex items-center justify-center">
 							<Zap size={12} className="text-violet-400" />
 						</div>
 						<span className="text-sm font-semibold text-white">
-							Arc P2P Escrow
+							PeerNotary Escrow
 						</span>
 					</div>
 					<div className="text-[10px] text-slate-500 pl-8">

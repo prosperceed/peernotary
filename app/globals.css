@@ -122,9 +122,7 @@ body {
 
 /* Countdown ring transition */
 .ring-arc {
-	transition:
-		stroke-dashoffset 1s linear,
-		stroke 0.5s ease;
+	transition: stroke-dashoffset 1s linear, stroke 0.5s ease;
 }
 
 /* Chat scrollbar override */

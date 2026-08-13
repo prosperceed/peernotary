@@ -136,8 +136,8 @@ export function StepBar({ current, steps }: StepBarProps) {
 								done
 									? "border-emerald-500 bg-emerald-500 text-white"
 									: active
-										? "border-violet-500 bg-violet-500/20 text-violet-300"
-										: "border-slate-600 bg-slate-800 text-slate-500",
+									? "border-secondary bg-b-500/20 text-violet-300"
+									: "border-slate-600 bg-slate-800 text-slate-500",
 							)}
 						>
 							{done ? "✓" : i + 1}
@@ -148,8 +148,8 @@ export function StepBar({ current, steps }: StepBarProps) {
 								done
 									? "text-emerald-400"
 									: active
-										? "text-violet-300"
-										: "text-slate-500",
+									? "text-violet-300"
+									: "text-slate-500",
 							)}
 						>
 							{label}

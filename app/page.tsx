@@ -14,11 +14,9 @@ export default function HomePage() {
 
 	return (
 		<div className="min-h-screen flex flex-col bg-[#060809]">
-			{/* ── Global sticky navbar ───────────────────────────────────────────── */}
 			<GlobalNav currentView={currentView} setCurrentView={setCurrentView} />
 
 			<main className="flex-1">
-				{/* ── HOME ─────────────────────────────────────────────────────────── */}
 				{currentView === "home" && <Homepage setCurrentView={setCurrentView} />}
 
 				{/* ── P2P TRADING PORTAL ───────────────────────────────────────────── */}
@@ -34,9 +32,9 @@ export default function HomePage() {
 						</div>
 
 						<div className="flex flex-col items-center">
-							<div className="w-full max-w-md">
+							<div className="w-full max-w-md ">
 								{/* Widget card */}
-								<div className="rounded-2xl border border-slate-700/50 bg-[#0D1322]/80 backdrop-blur-md p-6 shadow-2xl shadow-violet-500/5">
+								<div className="rounded-2xl border border-slate-200/15 bg-[var(--bg)]/80 backdrop-blur-md p-6 shadow-2xl shadow-white-500/5 w-fit">
 									<TradingWidget />
 								</div>
 

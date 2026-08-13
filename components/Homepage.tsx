@@ -65,7 +65,7 @@ function AnimatedCounter({
 	);
 }
 
-// ─── HERO AMBIENT BACKGROUND ─────────────────────────────────────────────────
+
 function HeroAmbient() {
 	return (
 		<div

@@ -69,8 +69,8 @@ function ZKProofPanel({ onComplete }: { onComplete: () => void }) {
 								isActive
 									? "text-amber-300"
 									: isVerified
-										? "text-emerald-400"
-										: "text-slate-500",
+									? "text-emerald-400"
+									: "text-slate-500",
 							)}
 						>
 							<span>{i < stage ? "✓" : isActive ? "⟳" : "✓"}</span>
@@ -165,8 +165,8 @@ function ChatWindow({ onDispute }: { onDispute: () => void }) {
 							m.from === "buyer"
 								? "justify-end"
 								: m.from === "system"
-									? "justify-center"
-									: "justify-start",
+								? "justify-center"
+								: "justify-start",
 						)}
 					>
 						{m.from === "system" ? (
@@ -288,14 +288,14 @@ export default function TradingWidget({
 	const handleZkComplete = useCallback(() => setZkDone(true), []);
 
 	return (
-		<div className={cn("flex flex-col mx-auto ", embedded ? "" : "")}>
+		<div className={cn("flex flex-col mx-auto", embedded ? "" : "")}>
 			{/* Widget Header */}
 			<div className="flex items-center justify-between mb-5 ">
 				<div>
 					<div className="flex items-center gap-2 mb-0.5 ">
-						<div className="w-6 h-6 rounded-lg bg-violet-500/20 flex items-center justify-center">
+						{/* <div className="w-6 h-6 rounded-lg bg-violet-500/20 flex items-center justify-center">
 							<Zap size={12} className="text-violet-400" />
-						</div>
+						</div> */}
 						<span className="text-sm font-semibold text-white">
 							PeerNotary Escrow
 						</span>
@@ -323,7 +323,7 @@ export default function TradingWidget({
 							<input
 								value={ngnInput}
 								onChange={(e) => setNgnInput(e.target.value)}
-								className="w-full bg-slate-800/50 border border-slate-700/60 rounded-xl pl-7 pr-20 py-3 text-white font-mono text-xl focus:outline-none focus:border-violet-500/60 focus:ring-2 focus:ring-violet-500/10 transition-all"
+								className="w-full bg-bg/30 border border-slate-700/60 rounded-xl pl-7 pr-20 py-3 text-white font-mono text-xl focus:outline-none focus:border-secondary/50  transition-all"
 							/>
 							<span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs bg-slate-700/50 px-2 py-1 rounded-lg">
 								NGN
@@ -343,8 +343,8 @@ export default function TradingWidget({
 						<label className="block text-xs text-slate-400 mb-1.5">
 							You Receive (USDC)
 						</label>
-						<div className="w-full bg-slate-800/30 border border-violet-500/20 rounded-xl px-4 py-3 flex justify-between items-center">
-							<span className="text-violet-300 font-mono text-xl font-bold">
+						<div className="w-full bg-bg/30 border border-secondary/20 rounded-xl px-4 py-3 flex justify-between items-center">
+							<span className="text-secondaryText font-mono text-xl font-bold">
 								{parseFloat(usdcAmount).toLocaleString("en-US", {
 									minimumFractionDigits: 2,
 								})}
@@ -356,7 +356,7 @@ export default function TradingWidget({
 					<div className="p-3 rounded-xl bg-violet-500/8 border border-violet-500/20 flex items-start gap-2">
 						<Zap size={12} className="text-violet-400 mt-0.5 shrink-0" />
 						<div className="text-xs text-slate-400 leading-relaxed">
-							<span className="text-violet-300 font-medium">
+							<span className="text-primaryText font-medium">
 								Gas paid in USDC via Arc Network.
 							</span>{" "}
 							No ETH or native tokens needed. Platform fee:{" "}
@@ -381,7 +381,7 @@ export default function TradingWidget({
 
 					<button
 						onClick={() => setStep(1)}
-						className="w-full py-3 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-semibold text-sm transition-all hover:shadow-lg hover:shadow-violet-500/25 flex items-center justify-center gap-2 active:scale-[0.98]"
+						className="w-full py-3 rounded-xl bg-primary hover:bg-primary/50 text-white font-semibold text-sm transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
 					>
 						Create Escrow Order <ArrowRight size={15} />
 					</button>
@@ -579,8 +579,8 @@ export default function TradingWidget({
 									color === "green"
 										? "bg-emerald-500/6 border-emerald-500/22"
 										: color === "amber"
-											? "bg-amber-500/6 border-amber-500/22"
-											: "bg-violet-500/6 border-violet-500/22",
+										? "bg-amber-500/6 border-amber-500/22"
+										: "bg-violet-500/6 border-violet-500/22",
 								)}
 							>
 								<div className="flex items-center gap-1.5 text-slate-300">
@@ -592,8 +592,8 @@ export default function TradingWidget({
 										color === "green"
 											? "text-emerald-300"
 											: color === "amber"
-												? "text-amber-300"
-												: "text-violet-300",
+											? "text-amber-300"
+											: "text-violet-300",
 									)}
 								>
 									{value}

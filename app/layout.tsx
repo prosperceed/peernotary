@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Providers from "@/components/web3/Providers";
+import GlobalNav from "@/components/shared/GlobalNav";
 
 export const metadata: Metadata = {
 	title: "PeerNotary · P2P As-a-Service",
@@ -17,6 +18,7 @@ export default function RootLayout({
 		<html lang="en" className="dark">
 			<Providers>
 				<body className="bg-[#060809] text-slate-50 antialiased">
+					<GlobalNav />
 					{children}
 				</body>
 			</Providers>

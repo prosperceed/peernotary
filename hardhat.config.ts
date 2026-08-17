@@ -5,8 +5,8 @@ import * as dotenv from "dotenv";
 dotenv.config();
 
 const PRIVATE_KEY =
-	process.env.NEXT_PUBLIC_ARC_PRIVATE_KEY ||
-	"0x000000000000000000000000000000000000000000000000000000₀₀₀₀₀₀₀₀";
+	process.env.ARC_PRIVATE_KEY ||
+	"0x00000000000000000000000000000000000000000000000000000";
 
 const config: HardhatUserConfig = {
 	solidity: "0.8.20",

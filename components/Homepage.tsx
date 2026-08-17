@@ -65,7 +65,6 @@ function AnimatedCounter({
 	);
 }
 
-
 function HeroAmbient() {
 	return (
 		<div
@@ -215,11 +214,7 @@ function MetricPill({
 }
 
 // ─── HOMEPAGE ─────────────────────────────────────────────────────────────────
-export default function Homepage({
-	setCurrentView,
-}: {
-	setCurrentView: (v: View) => void;
-}) {
+export default function Homepage() {
 	const [heroVisible, setHeroVisible] = useState(false);
 
 	useEffect(() => {

@@ -1,17 +1,12 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { usePathname } from "next/navigation";
+import Link from "next/link";
 import { Zap, Wallet, ChevronDown, Copy, Check, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { View } from "@/types";
 
-// ─── PROPS ────────────────────────────────────────────────────────────────────
-interface GlobalNavProps {
-	currentView: View;
-	setCurrentView: (v: View) => void;
-}
-
-// ─── LIVE TICKER ─────────────────────────────────────────────────────────────
 const TICKER_ITEMS = [
 	"1 USDC = ₦1,630",
 	"ARC/USDC +2.4%",
@@ -51,7 +46,6 @@ function LiveTicker() {
 	);
 }
 
-// ─── WALLET BUTTON ────────────────────────────────────────────────────────────
 const MOCK_ADDRESS = "0x7a3f...4b92";
 const FULL_ADDRESS = "0x7a3f8d2c1e9b5f3a0d7c4e8b2a6f9c1e4b92";
 
@@ -150,19 +144,18 @@ function WalletButton() {
 	);
 }
 
-// ─── NAV LINK ────────────────────────────────────────────────────────────────
 function NavLink({
 	label,
 	active,
-	onClick,
+	source,
 }: {
 	label: string;
 	active: boolean;
-	onClick: () => void;
+	source: string;
 }) {
 	return (
-		<button
-			onClick={onClick}
+		<Link
+			href={source}
 			className={cn(
 				"relative px-3.5 py-2 rounded-xl text-sm font-medium transition-all duration-200",
 				active
@@ -174,16 +167,21 @@ function NavLink({
 				<span className="absolute inset-0 rounded-xl bg-secondary/15 border border-secondary/50" />
 			)}
 			<span className="relative">{label}</span>
-		</button>
+		</Link>
 	);
 }
 
-// ─── GLOBAL NAV ───────────────────────────────────────────────────────────────
-export default function GlobalNav({
-	currentView,
-	setCurrentView,
-}: GlobalNavProps) {
+export default function GlobalNav() {
+	const pathname = usePathname();
 	const [scrolled, setScrolled] = useState(false);
+
+	const getViewFromPathname = (path: string): View => {
+		if (path.includes("/trade")) return "trade";
+		if (path.includes("/dev")) return "dev";
+		return "home";
+	};
+
+	const currentView = getViewFromPathname(pathname);
 
 	useEffect(() => {
 		const handler = () => setScrolled(window.scrollY > 10);
@@ -191,10 +189,10 @@ export default function GlobalNav({
 		return () => window.removeEventListener("scroll", handler);
 	}, []);
 
-	const navLinks: { label: string; view: View }[] = [
-		{ label: "Home", view: "home" },
-		{ label: "Trading Portal", view: "trade" },
-		{ label: "Developer Portal", view: "dev" },
+	const navLinks: { label: string; view: View; source: string }[] = [
+		{ label: "Home", view: "home", source: "/" },
+		{ label: "Trading Portal", view: "trade", source: "/trade" },
+		{ label: "Developer Portal", view: "dev", source: "/dev" },
 	];
 
 	return (
@@ -215,33 +213,23 @@ export default function GlobalNav({
 			<div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
 				{/* Left: Brand + Ticker */}
 				<div className="flex items-center gap-3 shrink-0">
-					<button
-						onClick={() => setCurrentView("home")}
-						className="flex items-center gap-2 group"
-					>
-						<div
-							className="w-8 h-8 rounded-xl flex items-center justify-center transition-all"
-							style={
-								{
-									// background: "linear-gradient(135deg, #7C3AED 0%, #4F46E5 100%)",
-								}
-							}
-						>
+					<Link href="/" className="flex items-center gap-2 group">
+						<div className="w-8 h-8 rounded-xl flex items-center justify-center transition-all">
 							<Zap size={15} className="text-white" strokeWidth={2.5} />
 						</div>
 						<span className="font-bold text-primary text-sm">PeerNotary</span>
-					</button>
+					</Link>
 					<LiveTicker />
 				</div>
 
 				{/* Center: Nav links */}
 				<nav className="hidden md:flex items-center gap-1">
-					{navLinks.map(({ label, view }) => (
+					{navLinks.map(({ label, view, source }) => (
 						<NavLink
 							key={view}
+							source={source}
 							label={label}
 							active={currentView === view}
-							onClick={() => setCurrentView(view)}
 						/>
 					))}
 				</nav>
@@ -254,10 +242,10 @@ export default function GlobalNav({
 
 			{/* Mobile nav row */}
 			<div className="md:hidden flex items-center gap-1 px-4 pb-2.5 border-t border-slate-800/40 pt-2">
-				{navLinks.map(({ label, view }) => (
-					<button
+				{navLinks.map(({ label, view, source }) => (
+					<Link
 						key={view}
-						onClick={() => setCurrentView(view)}
+						href={source}
 						className={cn(
 							"flex-1 py-1.5 rounded-lg text-[11px] font-medium text-center transition-all",
 							currentView === view
@@ -268,9 +256,9 @@ export default function GlobalNav({
 						{view === "trade"
 							? "P2P Trade"
 							: view === "dev"
-								? "Dev Portal"
-								: label}
-					</button>
+							? "Dev Portal"
+							: label}
+					</Link>
 				))}
 			</div>
 		</header>

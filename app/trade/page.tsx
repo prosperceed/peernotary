@@ -1,5 +1,6 @@
 import TradingWidget from "@/components/trading/TradingWidget";
 import { Lock, Shield, Zap } from "lucide-react";
+import { Wallet } from "ethers";
 
 export default function TradePage() {
 	return (

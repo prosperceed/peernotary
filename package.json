@@ -6,13 +6,16 @@
 		"dev": "next dev",
 		"build": "next build",
 		"start": "next start",
-		"lint": "eslint ."
+		"lint": "eslint .",
+		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
 		"@tanstack/react-query": "^5.62.0",
 		"@wagmi/connectors": "^5.7.6",
 		"clsx": "^2.1.1",
+		"ethers": "^6.17.0",
 		"lucide-react": "^0.468.0",
+		"mongodb": "^7.6.0",
 		"next": "^16.0.0",
 		"react": "^19.0.0",
 		"react-dom": "^19.0.0",

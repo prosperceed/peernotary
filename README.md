@@ -145,6 +145,12 @@ Update `tailwind.config.ts` and the hardcoded hex values in `globals.css`.
 
 Create `.env.local` in the project root:
 
+Copy `.env.example` and set the server-only values. The MongoDB collections and
+indexes are created on first server access. The `trades` collection must be
+written by the trade-creation service with the on-chain trade ID, normalized
+wallet addresses, payment amount, and payment reference before verification can
+start.
+
 ```env
 ARC_RPC_URL=https://rpc.testnet.arc.network
 ESCROW_ADDRESS=0x_deployed_escrow_address
@@ -157,9 +163,9 @@ USDC_ADDRESS=0x_usdc_address
 TREASURY_WALLET=0x_treasury_address
 ORACLE_ADDRESS=0x_oracle_address
 
-# Required before enabling the verification API
-AUTHENTICATION_PROVIDER=your_auth_provider
-DATABASE_URL=your_database_url
+# MongoDB persistence
+MONGODB_URI=mongodb+srv://user:password@cluster.example.mongodb.net/?retryWrites=true&w=majority
+MONGODB_DB=peernotary
 ```
 
 Oracle keys, webhook secrets, RPC credentials, and database credentials must

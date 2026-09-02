@@ -29,6 +29,11 @@ export interface OracleReleaseResult {
   proofId: string;
 }
 
+export async function readEscrowTrade(tradeId: bigint) {
+  if (tradeId <= 0n) throw new Error("Invalid trade identifier");
+  return escrow.getTrade(tradeId);
+}
+
 export async function oracleRelease(
   tradeId: bigint,
   proofId: string,

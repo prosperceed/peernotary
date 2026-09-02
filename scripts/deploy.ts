@@ -1,9 +1,13 @@
 import { ethers } from "hardhat";
 
 async function main() {
-	const USDC_TESTNET_ADDRESS = process.env.NEXT_PUBLIC_ARC_ESCROW_WALLET;
-	const TREASURY_WALLET = process.env.NEXT_PUBLIC_ARC_TREASURY_WALLET;
-	const ORACLE_ADDRESS = process.env.NEXT_PUBLIC_ARC_ESCROW_ORACLE_ADDRESS;
+	const USDC_TESTNET_ADDRESS = process.env.USDC_ADDRESS;
+	const TREASURY_WALLET = process.env.TREASURY_WALLET;
+	const ORACLE_ADDRESS = process.env.ORACLE_ADDRESS;
+
+	if (!USDC_TESTNET_ADDRESS || !TREASURY_WALLET || !ORACLE_ADDRESS) {
+		throw new Error("USDC_ADDRESS, TREASURY_WALLET, and ORACLE_ADDRESS are required");
+	}
 
 	console.log("Deploying ArcP2PEscrowService...");
 

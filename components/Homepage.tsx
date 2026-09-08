@@ -15,7 +15,7 @@ import {
 	Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { View } from "@/types";
+import { useRouter } from "next/navigation";
 
 // ─── ANIMATED COUNTER ────────────────────────────────────────────────────────
 function AnimatedCounter({
@@ -216,6 +216,7 @@ function MetricPill({
 // ─── HOMEPAGE ─────────────────────────────────────────────────────────────────
 export default function Homepage() {
 	const [heroVisible, setHeroVisible] = useState(false);
+	const router = useRouter();
 
 	useEffect(() => {
 		const t = setTimeout(() => setHeroVisible(true), 80);
@@ -268,7 +269,7 @@ export default function Homepage() {
 
 					<div className="flex flex-col sm:flex-row items-center justify-center gap-3">
 						<button
-							onClick={() => setCurrentView("trade")}
+							onClick={() => router.push("/trade")}
 							className="group flex items-center gap-2.5 px-7 py-3.5 background-secondary/20 border border-secondary text-primary font-bold text-sm transition-all duration-200 hover:shadow-2xl  active:scale-[0.97]"
 							// style={{
 							// 	background: "linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%)",
@@ -281,7 +282,7 @@ export default function Homepage() {
 							/>
 						</button>
 						<button
-							onClick={() => setCurrentView("dev")}
+							onClick={() => router.push("/dev")}
 							className="group flex items-center gap-2.5 px-7 py-3.5 rounded-2xl border border-primary hover:border-primary/50 bg-primary/15 hover:bg-primary/40 text-slate-300 hover:text-white font-bold text-sm transition-all duration-200 active:scale-[0.97]"
 						>
 							Read Dev Docs
@@ -460,13 +461,13 @@ export default function Homepage() {
 				</p>
 				<div className="flex flex-col sm:flex-row items-center justify-center gap-3">
 					<button
-						onClick={() => setCurrentView("trade")}
+						onClick={() => router.push("/trade")}
 						className="group flex items-center gap-2 px-8 py-3.5 bg-secondary rounded-2xl text-primaryText font-bold text-sm"
 					>
 						Start Trading Now
 					</button>
 					<button
-						onClick={() => setCurrentView("dev")}
+						onClick={() => router.push("/dev")}
 						className="flex items-center gap-2 px-8 py-3.5 rounded-2xl border border-bg/20 hover:border-secondary text-slate-400 hover:text-slate-200 font-bold text-sm transition-all duration-200 active:scale-[0.97]"
 					>
 						Explore the SDK

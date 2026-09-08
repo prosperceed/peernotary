@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { signInWallet } from "@/lib/auth/wallet";
+import { recordAuthenticationFailure, signInWallet } from "@/lib/auth/wallet";
 
 export async function POST(request: NextRequest) {
 	try {
@@ -7,17 +7,18 @@ export async function POST(request: NextRequest) {
 		if (!body || typeof body !== "object" || Array.isArray(body)) {
 			return NextResponse.json({ error: "MALFORMED_REQUEST" }, { status: 400 });
 		}
-		const { address, message, signature } = body as Record<string, unknown>;
+		const { address, nonce, signature } = body as Record<string, unknown>;
 		if (
 			typeof address !== "string" ||
-			typeof message !== "string" ||
+			typeof nonce !== "string" ||
 			typeof signature !== "string"
 		) {
 			return NextResponse.json({ error: "MALFORMED_REQUEST" }, { status: 400 });
 		}
-		await signInWallet(address, message, signature);
-		return NextResponse.json({ authenticated: true, address });
+		const session = await signInWallet(address, nonce, signature);
+		return NextResponse.json({ authenticated: true, user: { walletAddress: session.address } });
 	} catch {
+		await recordAuthenticationFailure();
 		return NextResponse.json({ error: "AUTHENTICATION_FAILED" }, { status: 401 });
 	}
 }

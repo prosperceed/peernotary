@@ -13,17 +13,20 @@ const globalForMongo = globalThis as typeof globalThis & {
 	_mongoClientPromise?: Promise<MongoClient>;
 };
 
-const clientPromise =
-	globalForMongo._mongoClientPromise ??
-	new MongoClient(uri, {
-		serverSelectionTimeoutMS: 5_000,
-		maxPoolSize: 10,
-	}).connect();
-
-if (process.env.NODE_ENV !== "production") {
-	globalForMongo._mongoClientPromise = clientPromise;
+async function getClient(): Promise<MongoClient> {
+	if (!globalForMongo._mongoClientPromise) {
+		const client = new MongoClient(uri as string, {
+			serverSelectionTimeoutMS: 5_000,
+			maxPoolSize: 10,
+		});
+		globalForMongo._mongoClientPromise = client.connect().catch((error) => {
+			globalForMongo._mongoClientPromise = undefined;
+			throw error;
+		});
+	}
+	return globalForMongo._mongoClientPromise;
 }
 
 export async function getDatabase(): Promise<Db> {
-	return (await clientPromise).db(databaseName);
+	return (await getClient()).db(databaseName);
 }

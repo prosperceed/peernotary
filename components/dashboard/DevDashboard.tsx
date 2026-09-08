@@ -3,12 +3,12 @@
 import { useState } from "react";
 import {
   Activity, Lock, Zap, Shield, Copy, Check, Code,
-  TrendingUp, Eye, EyeOff,
+  Eye, EyeOff,
 } from "lucide-react";
 import { Badge, MetricCard, SparkLine } from "@/components/shared";
 import TradingWidget from "@/components/trading/TradingWidget";
 import { cn } from "@/lib/utils";
-import type { Transaction, TxStatus } from "@/types";
+import type { BadgeColor, Transaction, TxStatus } from "@/types";
 
 // ─── DATA ─────────────────────────────────────────────────────────────────────
 const volumeData = [28, 45, 32, 67, 54, 78, 91, 65, 88, 102, 95, 119, 134, 108, 145];
@@ -182,7 +182,7 @@ export default function DevDashboard() {
             ].map(([label, value, color]) => (
               <div key={label} className="flex items-center justify-between py-2 border-b border-slate-800/80 last:border-0">
                 <span className="text-[11px] text-slate-500">{label}</span>
-                <Badge label={value} color={color as any} />
+                <Badge label={value} color={color as BadgeColor} />
               </div>
             ))}
           </div>
@@ -301,7 +301,7 @@ export default function DevDashboard() {
 
         {/* Embed code snippet */}
         <div className="mt-4 bg-slate-950 rounded-xl p-3.5 font-mono text-[11px] text-slate-400 border border-slate-800/60">
-          <span className="text-slate-600 select-none">// Install: </span>
+          <span className="text-slate-600 select-none">{"// Install: "}</span>
           <span className="text-emerald-400">npm install @arc-network/p2p-widget</span>
           <br />
           <span className="text-violet-400">{"<ArcP2PWidget"}</span>

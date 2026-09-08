@@ -17,16 +17,42 @@ export interface AuthNonce {
 	address: string;
 	nonce: string;
 	message: string;
+	domain: string;
+	chainId: number;
 	expiresAt: Date;
 	usedAt?: Date;
 	createdAt: Date;
 }
 
+export interface UserRecord {
+	_id?: ObjectId;
+	walletAddress: string;
+	createdAt: Date;
+	updatedAt: Date;
+	lastAuthenticatedAt: Date;
+}
+
 export interface AuthSession {
 	_id?: ObjectId;
+	userId?: ObjectId;
 	address: string;
 	tokenHash: string;
 	expiresAt: Date;
+	createdAt: Date;
+}
+
+export type AuthEventType =
+	| "challenge_issued"
+	| "authentication_succeeded"
+	| "authentication_failed"
+	| "logout"
+	| "wallet_changed";
+
+export interface AuthEvent {
+	_id?: ObjectId;
+	type: AuthEventType;
+	address?: string;
+	userId?: ObjectId;
 	createdAt: Date;
 }
 
@@ -65,18 +91,22 @@ export interface TradeRecord {
 
 export async function getCollections(): Promise<{
 	nonces: Collection<AuthNonce>;
+	users: Collection<UserRecord>;
 	sessions: Collection<AuthSession>;
+	authEvents: Collection<AuthEvent>;
 	verifications: Collection<VerificationRecord>;
 	trades: Collection<TradeRecord>;
 }> {
 	const db = await getDatabase();
 	const nonces = db.collection<AuthNonce>("auth_nonces");
+	const users = db.collection<UserRecord>("users");
 	const sessions = db.collection<AuthSession>("auth_sessions");
+	const authEvents = db.collection<AuthEvent>("auth_events");
 	const verifications = db.collection<VerificationRecord>("verifications");
 	const trades = db.collection<TradeRecord>("trades");
 
 	await ensureIndexes(db);
-	return { nonces, sessions, verifications, trades };
+	return { nonces, users, sessions, authEvents, verifications, trades };
 }
 
 let indexesReady: Promise<void> | undefined;
@@ -88,9 +118,16 @@ async function ensureIndexes(db: Db): Promise<void> {
 				{ key: { nonce: 1 }, unique: true },
 				{ key: { expiresAt: 1 }, expireAfterSeconds: 0 },
 			]),
+			createIndexes(db.collection<UserRecord>("users"), [
+				{ key: { walletAddress: 1 }, unique: true },
+			]),
 			createIndexes(db.collection<AuthSession>("auth_sessions"), [
+				{ key: { userId: 1 } },
 				{ key: { tokenHash: 1 }, unique: true },
 				{ key: { expiresAt: 1 }, expireAfterSeconds: 0 },
+			]),
+			createIndexes(db.collection<AuthEvent>("auth_events"), [
+				{ key: { createdAt: 1 } },
 			]),
 			createIndexes(db.collection<VerificationRecord>("verifications"), [
 				{ key: { verificationId: 1 }, unique: true },
@@ -102,7 +139,10 @@ async function ensureIndexes(db: Db): Promise<void> {
 			createIndexes(db.collection<TradeRecord>("trades"), [
 				{ key: { onChainTradeId: 1 }, unique: true },
 			]),
-		]).then(() => undefined);
+		]).then(() => undefined).catch((error) => {
+			indexesReady = undefined;
+			throw error;
+		});
 	}
 	await indexesReady;
 }

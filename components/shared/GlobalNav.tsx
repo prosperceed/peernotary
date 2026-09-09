@@ -129,7 +129,7 @@ function WalletButton() {
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ address: walletAddress }),
 			});
-			if (!challengeResponse.ok) throw new Error("Could not create an authentication challenge.");
+			if (!challengeResponse.ok) throw new Error("Could notauthenticate wallet.");
 			const challenge: { nonce: string; message: string } = await challengeResponse.json();
 			const signature = await signMessageAsync({ message: challenge.message });
 			const verifyResponse = await fetch("/api/auth/verify", {
@@ -216,10 +216,10 @@ function WalletButton() {
 		<div className="relative" ref={ref}>
 			<button
 				onClick={() => setOpen((v) => !v)}
-				className="flex items-center gap-2.5 px-3 py-2 rounded-xl border border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10 transition-all duration-200"
+				className="flex items-center gap-2.5 px-3 py-2 rounded-xl border border-white/30 bg-black hover:bg-slate/10 transition-all duration-200"
 			>
 				<span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-				<span className="text-sm font-mono text-primaryText/80">
+				<span className="text-sm font-mono text-primaryText/95  hover:text-white">
 					{address.slice(0, 8)}…{address.slice(-6)}
 				</span>
 				<ChevronDown

@@ -3,8 +3,8 @@
 import { useState, useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Zap, Wallet, ChevronDown, Copy, Check, LogOut } from "lucide-react";
-import { useAccount, useConnect, useDisconnect, useSignMessage } from "wagmi";
+import { Zap, Wallet, ChevronDown, Copy, Check, LogOut, AlertTriangle } from "lucide-react";
+import { useAccount, useConnect, useDisconnect, useSignMessage, useSwitchChain } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { cn } from "@/lib/utils";
 import { arcTestnet } from "@/lib/web3/arcConfig";
@@ -54,6 +54,7 @@ function WalletButton() {
 	const { connectAsync } = useConnect();
 	const { disconnect } = useDisconnect();
 	const { signMessageAsync } = useSignMessage();
+	const { switchChainAsync } = useSwitchChain();
 	const [authenticated, setAuthenticated] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | undefined>();
@@ -99,6 +100,21 @@ function WalletButton() {
 			})
 			.catch(() => setAuthenticated(false));
 	}, [address, isConnected]);
+
+	const handleWrongChainSwitch = async () => {
+		setBusy(true);
+		setError(undefined);
+		try {
+			await switchChainAsync({ chainId: arcTestnet.id });
+			void invalidateSession();
+			disconnect();
+			setAuthenticated(false);
+		} catch (caught) {
+			setError(caught instanceof Error ? caught.message : "Could not switch to Arc Testnet.");
+		} finally {
+			setBusy(false);
+		}
+	};
 
 	const authenticate = async (walletAddress: `0x${string}`) => {
 		if (chainId !== arcTestnet.id) {
@@ -163,17 +179,35 @@ function WalletButton() {
 	}
 
 	if (!authenticated) {
+		const isWrongChain = chainId !== arcTestnet.id;
 		return (
-			<div className="flex items-center gap-2">
-				{error && <span className="hidden lg:inline text-[10px] text-amber-300 max-w-48 text-right">{error}</span>}
-				<button
-					onClick={() => void authenticate(address)}
-					disabled={busy || chainId !== arcTestnet.id}
-					className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white text-secondary text-sm font-semibold transition-all duration-200 disabled:opacity-50"
-				>
-					<Wallet size={14} />
-					{busy ? "Verifying…" : chainId !== arcTestnet.id ? "Wrong Network" : "Sign In"}
-				</button>
+			<div className="flex flex-col items-center gap-2">
+				<div className="flex items-center gap-2 rounded-xl border border-slate-700/50 bg-slate-950/60 px-3 py-2">
+					<span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+					<span className="font-mono text-[11px] text-slate-300">{address}</span>
+				</div>
+				<div className="flex items-center gap-2">
+					{error && <span className="hidden lg:inline text-[10px] text-amber-300 max-w-48 text-right">{error}</span>}
+					{isWrongChain ? (
+						<button
+							onClick={() => void handleWrongChainSwitch()}
+							disabled={busy}
+							className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-sm font-semibold transition-all duration-200 hover:bg-amber-500/20 active:scale-[.97]"
+						>
+							<AlertTriangle size={14} />
+							{busy ? "Switching…" : "Switch to Arc Testnet"}
+						</button>
+					) : (
+						<button
+							onClick={() => void authenticate(address)}
+							disabled={busy}
+							className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white text-secondary text-sm font-semibold transition-all duration-200 disabled:opacity-50"
+						>
+							<Wallet size={14} />
+							{busy ? "Verifying…" : "Sign In"}
+						</button>
+					)}
+				</div>
 			</div>
 		);
 	}

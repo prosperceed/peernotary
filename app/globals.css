@@ -4,25 +4,31 @@
 @tailwind utilities;
 
 :root {
-	/* New Color update */
-	--bg: "#060809";
-	--primary: "#df6035";
-	--secondary: "#b1552f";
-	--primaryText: "#e9ebd9";
-	--secondaryText: "#375975";
-	--bgCard: "rgb(21, 23, 25)";
+	/* Light/Green color system — from reference image */
+	--bg: #f5f9f7;
+	--bg-secondary: #edf5f1;
+	--surface: #ffffff;
+	--surface-alt: #f0f7f3;
+	--border: #d1e8dc;
+	--border-subtle: rgba(34, 139, 87, 0.12);
 
-	/* Old colors */
+	/* Green accent palette */
+	--green-primary: #1a9e5c;
+	--green-mid: #22c972;
+	--green-light: #4dd68c;
+	--green-pale: #d4f0e3;
+	--green-glow: rgba(34, 201, 114, 0.18);
 
-	--void: #0f172a;
-	--card-bg: #0d1322;
-	--violet: #7c3aed;
-	--mint: #10b981;
-	--amber: #f59e0b;
-	--slash: #ef4444;
-	--cyan: #06b6d4;
-	--border: #1e293b;
-	--border-subtle: rgba(30, 41, 59, 0.6);
+	/* Text */
+	--text-primary: #0d2b1e;
+	--text-secondary: #3d6b55;
+	--text-muted: #7aaa92;
+
+	/* Ring / orbital */
+	--ring-1: rgba(34, 201, 114, 0.13);
+	--ring-2: rgba(34, 201, 114, 0.09);
+	--ring-3: rgba(34, 201, 114, 0.06);
+	--ring-4: rgba(34, 201, 114, 0.04);
 }
 
 * {
@@ -31,7 +37,7 @@
 
 body {
 	background: var(--bg);
-	color: var(--primaryText);
+	color: var(--text-primary);
 	font-family: "Inter", system-ui, sans-serif;
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
@@ -46,38 +52,36 @@ body {
 	background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-	background: #334155;
+	background: var(--green-pale);
 	border-radius: 99px;
 }
 ::-webkit-scrollbar-thumb:hover {
-	background: #475569;
+	background: var(--green-light);
 }
 
-/* Glassmorphic card base */
-.glass-card {
-	background: var(--bg);
-	backdrop-filter: blur(12px);
-	-webkit-backdrop-filter: blur(12px);
-	border: 1px solid var(--bgCard);
+/* Surface card base */
+.surface-card {
+	background: var(--surface);
+	border: 1px solid var(--border);
 	border-radius: 1rem;
 }
 
-/* Violet glow border on hover */
+/* Green glow border on hover */
 .hover-glow:hover {
-	border-color: rgba(124, 58, 237, 0.4);
-	box-shadow: 0 0 20px rgba(124, 58, 237, 0.05);
+	border-color: rgba(34, 201, 114, 0.4);
+	box-shadow: 0 0 24px rgba(34, 201, 114, 0.08);
 }
 
-/* Arc network badge pulse */
+/* Network pulse */
 @keyframes net-pulse {
 	0%,
 	100% {
 		opacity: 1;
-		box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+		box-shadow: 0 0 0 0 rgba(26, 158, 92, 0.4);
 	}
 	50% {
 		opacity: 0.7;
-		box-shadow: 0 0 0 4px rgba(16, 185, 129, 0);
+		box-shadow: 0 0 0 4px rgba(26, 158, 92, 0);
 	}
 }
 
@@ -101,7 +105,40 @@ body {
 	}
 }
 
-/* ZK terminal scanline effect */
+/* Orbital ring spin */
+@keyframes orbit-slow {
+	from { transform: translate(-50%, -50%) rotate(0deg); }
+	to   { transform: translate(-50%, -50%) rotate(360deg); }
+}
+@keyframes orbit-slower {
+	from { transform: translate(-50%, -50%) rotate(0deg); }
+	to   { transform: translate(-50%, -50%) rotate(-360deg); }
+}
+
+.orbit-cw  { animation: orbit-slow   28s linear infinite; }
+.orbit-ccw { animation: orbit-slower 36s linear infinite; }
+
+/* Float icon gentle bob */
+@keyframes float-bob {
+	0%, 100% { transform: translateY(0px); }
+	50%       { transform: translateY(-8px); }
+}
+.float-icon { animation: float-bob 4s ease-in-out infinite; }
+
+/* Countdown ring */
+.ring-arc {
+	transition: stroke-dashoffset 1s linear, stroke 0.5s ease;
+}
+
+/* Chat scrollbar override */
+.chat-scroll::-webkit-scrollbar {
+	width: 3px;
+}
+.chat-scroll::-webkit-scrollbar-thumb {
+	background: var(--green-pale);
+}
+
+/* ZK terminal scanline */
 .zk-terminal::before {
 	content: "";
 	position: absolute;
@@ -113,22 +150,16 @@ body {
 		0deg,
 		transparent,
 		transparent 2px,
-		rgba(124, 58, 237, 0.015) 2px,
-		rgba(124, 58, 237, 0.015) 4px
+		rgba(26, 158, 92, 0.015) 2px,
+		rgba(26, 158, 92, 0.015) 4px
 	);
 	pointer-events: none;
 	border-radius: inherit;
 }
 
-/* Countdown ring transition */
-.ring-arc {
-	transition: stroke-dashoffset 1s linear, stroke 0.5s ease;
-}
-
-/* Chat scrollbar override */
-.chat-scroll::-webkit-scrollbar {
-	width: 3px;
-}
-.chat-scroll::-webkit-scrollbar-thumb {
-	background: #1e293b;
+/* Workflow connector line */
+.workflow-line {
+	background: linear-gradient(90deg, transparent, var(--green-primary), transparent);
+	height: 1px;
+	opacity: 0.3;
 }

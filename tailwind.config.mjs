@@ -8,37 +8,57 @@ const config = {
 	theme: {
 		extend: {
 			colors: {
-				bg: "#060809",
-				primary: "#df6035",
-				secondary: "#b1552f",
-				primaryText: "#e9ebd9",
-				secondaryText: "#375975",
-				bgCard: "rgb(21, 23, 25)",
-				// void: "#0F172A",
-				// "card-bg": "#0D1322",
-				// violet: {
-				// 	DEFAULT: "#7C3AED",
-				// 	400: "#A78BFA",
-				// 	500: "#8B5CF6",
-				// 	600: "#7C3AED",
-				// 	700: "#6D28D9",
-				// },
-				// mint: "#10B981",
-				// amber: "#F59E0B",
-				// slash: "#EF4444",
+				/* Light background system */
+				bg: "#f5f9f7",
+				"bg-secondary": "#edf5f1",
+				surface: "#ffffff",
+				"surface-alt": "#f0f7f3",
+
+				/* Green accent palette */
+				"green-primary": "#1a9e5c",
+				"green-mid": "#22c972",
+				"green-light": "#4dd68c",
+				"green-pale": "#d4f0e3",
+
+				/* Text */
+				"text-primary": "#0d2b1e",
+				"text-secondary": "#3d6b55",
+				"text-muted": "#7aaa92",
+
+				/* Borders */
+				border: "#d1e8dc",
 			},
 			fontFamily: {
 				sans: ["Inter", "system-ui", "sans-serif"],
 				mono: ["SF Mono", "Fira Code", "ui-monospace", "monospace"],
 			},
 			backgroundImage: {
-				"glow-violet":
-					"radial-gradient(ellipse at 0% 0%, #7C3AED15 0%, transparent 60%)",
-				"glow-mint":
-					"radial-gradient(ellipse at 100% 100%, #10B98110 0%, transparent 60%)",
+				"glow-green":
+					"radial-gradient(ellipse at 50% 0%, rgba(34,201,114,0.18) 0%, transparent 65%)",
+				"glow-green-bottom":
+					"radial-gradient(ellipse at 50% 100%, rgba(34,201,114,0.12) 0%, transparent 60%)",
+				"ring-gradient":
+					"radial-gradient(ellipse at center, rgba(34,201,114,0.15) 0%, rgba(245,249,247,0) 70%)",
 			},
 			animation: {
 				"pulse-slow": "pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+				"float-bob": "float-bob 4s ease-in-out infinite",
+				"orbit-cw": "orbit-slow 28s linear infinite",
+				"orbit-ccw": "orbit-slower 36s linear infinite",
+			},
+			keyframes: {
+				"float-bob": {
+					"0%, 100%": { transform: "translateY(0px)" },
+					"50%": { transform: "translateY(-8px)" },
+				},
+				"orbit-slow": {
+					from: { transform: "translate(-50%, -50%) rotate(0deg)" },
+					to:   { transform: "translate(-50%, -50%) rotate(360deg)" },
+				},
+				"orbit-slower": {
+					from: { transform: "translate(-50%, -50%) rotate(0deg)" },
+					to:   { transform: "translate(-50%, -50%) rotate(-360deg)" },
+				},
 			},
 		},
 	},

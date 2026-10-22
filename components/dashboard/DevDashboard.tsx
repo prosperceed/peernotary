@@ -44,8 +44,8 @@ function TimeRangeTabs({ active, onChange }: { active: string; onChange: (t: str
           className={cn(
             "text-[11px] px-2.5 py-1 rounded-lg transition-all",
             active === t
-              ? "bg-violet-500/20 text-violet-300"
-              : "text-slate-500 hover:text-slate-300"
+              ? "bg-[#1a9e5c]/15 text-[#1a9e5c] border border-[#d1e8dc]"
+              : "text-[#7aaa92] hover:text-[#3d6b55] hover:bg-[#f0f7f3]"
           )}
         >
           {t}
@@ -76,23 +76,23 @@ export default function DevDashboard() {
       {/* ── Metrics Row ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
-          icon={<Activity size={16} className="text-violet-400" />}
+          icon={<Activity size={16} className="text-[#1a9e5c]" />}
           label="24h Volume"
           value="₦47.2M"
           sub="28,953 USDC equiv."
           trend={12}
-          accent="#7C3AED"
+          accent="#1a9e5c"
         />
         <MetricCard
-          icon={<Lock size={16} className="text-emerald-400" />}
+          icon={<Lock size={16} className="text-[#22c972]" />}
           label="Active Escrows"
           value="143"
           sub="₦8.4M locked"
           trend={8}
-          accent="#10B981"
+          accent="#22c972"
         />
         <MetricCard
-          icon={<Zap size={16} className="text-amber-400" />}
+          icon={<Zap size={16} className="text-amber-500" />}
           label="Avg. Settlement"
           value="1m 48s"
           sub="vs 2m 12s last week"
@@ -100,12 +100,12 @@ export default function DevDashboard() {
           accent="#F59E0B"
         />
         <MetricCard
-          icon={<Shield size={16} className="text-cyan-400" />}
+          icon={<Shield size={16} className="text-[#3d6b55]" />}
           label="Dispute Rate"
           value="0.23%"
           sub="Industry avg: 1.4%"
           trend={-31}
-          accent="#06B6D4"
+          accent="#3d6b55"
         />
       </div>
 
@@ -113,16 +113,16 @@ export default function DevDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
         {/* Volume Chart */}
-        <div className="lg:col-span-2 rounded-2xl border border-slate-700/50 bg-[#0D1322]/80 backdrop-blur-md p-5">
+        <div className="lg:col-span-2 rounded-2xl border border-[#d1e8dc] bg-white p-5">
           <div className="flex items-start justify-between mb-4">
             <div>
-              <div className="text-sm font-semibold text-white">Transaction Volume</div>
-              <div className="text-xs text-slate-500 mt-0.5">Last 15 days · NGN</div>
+              <div className="text-sm font-semibold text-[#0d2b1e]">Transaction Volume</div>
+              <div className="text-xs text-[#7aaa92] mt-0.5">Last 15 days · NGN</div>
             </div>
             <TimeRangeTabs active={timeRange} onChange={setTimeRange} />
           </div>
 
-          <SparkLine data={volumeData} color="#7C3AED" height={84} />
+          <SparkLine data={volumeData} color="#1a9e5c" height={84} />
 
           <div className="mt-4 grid grid-cols-3 gap-3">
             {[
@@ -130,41 +130,41 @@ export default function DevDashboard() {
               ["₦312.8M", "This Week"],
               ["₦1.24B",  "This Month"],
             ].map(([val, label]) => (
-              <div key={label} className="bg-slate-800/40 rounded-xl p-3 text-center">
-                <div className="text-white font-mono font-bold text-sm">{val}</div>
-                <div className="text-slate-500 text-[11px] mt-0.5">{label}</div>
+              <div key={label} className="bg-[#f0f7f3] rounded-xl p-3 text-center border border-[#d1e8dc]">
+                <div className="text-[#0d2b1e] font-mono font-bold text-sm">{val}</div>
+                <div className="text-[#7aaa92] text-[11px] mt-0.5">{label}</div>
               </div>
             ))}
           </div>
         </div>
 
         {/* API Key Card */}
-        <div className="rounded-2xl border border-slate-700/50 bg-[#0D1322]/80 backdrop-blur-md p-5 flex flex-col gap-4">
+        <div className="rounded-2xl border border-[#d1e8dc] bg-white p-5 flex flex-col gap-4">
           <div className="flex items-center justify-between">
-            <div className="text-sm font-semibold text-white">SDK & API</div>
+            <div className="text-sm font-semibold text-[#0d2b1e]">SDK & API</div>
             <Badge label="v2.4.1" color="violet" />
           </div>
 
           <div>
-            <div className="text-xs text-slate-500 mb-2">Live API Key</div>
+            <div className="text-xs text-[#7aaa92] mb-2">Live API Key</div>
             <div className="flex items-center gap-2">
-              <div className="flex-1 min-w-0 bg-slate-800/80 rounded-xl px-3 py-2 font-mono text-[11px] text-slate-400 truncate">
+              <div className="flex-1 min-w-0 bg-[#f0f7f3] rounded-xl px-3 py-2 font-mono text-[11px] text-[#3d6b55] truncate border border-[#d1e8dc]">
                 {showKey ? API_KEY : maskedKey}
               </div>
               <button
                 onClick={() => setShowKey((v) => !v)}
-                className="w-8 h-8 rounded-lg bg-slate-700/60 hover:bg-slate-600 flex items-center justify-center transition-all shrink-0"
+                className="w-8 h-8 rounded-lg bg-[#f0f7f3] border border-[#d1e8dc] hover:bg-[#e6f5ee] flex items-center justify-center transition-all shrink-0"
                 title={showKey ? "Hide key" : "Show key"}
               >
-                {showKey ? <EyeOff size={13} className="text-slate-400" /> : <Eye size={13} className="text-slate-400" />}
+                {showKey ? <EyeOff size={13} className="text-[#3d6b55]" /> : <Eye size={13} className="text-[#3d6b55]" />}
               </button>
               <button
                 onClick={copyKey}
                 className={cn(
-                  "w-8 h-8 rounded-lg flex items-center justify-center transition-all shrink-0",
+                  "w-8 h-8 rounded-lg flex items-center justify-center transition-all shrink-0 border",
                   copied
-                    ? "bg-emerald-500/20 text-emerald-400"
-                    : "bg-slate-700/60 hover:bg-slate-600 text-slate-400"
+                    ? "bg-[#d4f0e3] border-[#22c972] text-[#1a9e5c]"
+                    : "bg-[#f0f7f3] border-[#d1e8dc] hover:bg-[#e6f5ee] text-[#3d6b55]"
                 )}
               >
                 {copied ? <Check size={13} /> : <Copy size={13} />}
@@ -174,20 +174,20 @@ export default function DevDashboard() {
 
           <div className="flex flex-col gap-0.5">
             {[
-              ["Webhook Endpoint", "Configured",  "green"],
+              ["Webhook Endpoint", "Configured",   "green"],
               ["Rate Limit",       "10,000 req/hr", "blue"],
-              ["SDK Environment",  "Production",  "green"],
-              ["Arc Network RPC",  "Connected",   "green"],
+              ["SDK Environment",  "Production",   "green"],
+              ["Arc Network RPC",  "Connected",    "green"],
               ["ZK Oracle",        "TLSNotary v2", "cyan"],
             ].map(([label, value, color]) => (
-              <div key={label} className="flex items-center justify-between py-2 border-b border-slate-800/80 last:border-0">
-                <span className="text-[11px] text-slate-500">{label}</span>
+              <div key={label} className="flex items-center justify-between py-2 border-b border-[#d1e8dc] last:border-0">
+                <span className="text-[11px] text-[#7aaa92]">{label}</span>
                 <Badge label={value} color={color as any} />
               </div>
             ))}
           </div>
 
-          <button className="w-full py-2 rounded-xl border border-slate-700 text-slate-400 text-xs hover:bg-slate-800 transition-all flex items-center justify-center gap-1.5">
+          <button className="w-full py-2 rounded-xl border border-[#d1e8dc] text-[#3d6b55] text-xs hover:bg-[#f0f7f3] transition-all flex items-center justify-center gap-1.5">
             <Code size={12} /> View SDK Docs
           </button>
         </div>
@@ -197,20 +197,19 @@ export default function DevDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
         {/* Escrow Pool */}
-        <div className="rounded-2xl border border-slate-700/50 bg-[#0D1322]/80 backdrop-blur-md p-5">
-          <div className="text-sm font-semibold text-white mb-0.5">Active Escrow Pools</div>
-          <div className="text-xs text-slate-500 mb-4">Concurrent locked orders</div>
+        <div className="rounded-2xl border border-[#d1e8dc] bg-white p-5">
+          <div className="text-sm font-semibold text-[#0d2b1e] mb-0.5">Active Escrow Pools</div>
+          <div className="text-xs text-[#7aaa92] mb-4">Concurrent locked orders</div>
 
-          <SparkLine data={escrowData} color="#10B981" height={72} />
+          <SparkLine data={escrowData} color="#22c972" height={72} />
 
-          <div className="mt-4 p-3.5 rounded-xl bg-emerald-500/8 border border-emerald-500/20">
-            <div className="text-emerald-300 font-mono font-bold text-xl">₦8,412,500</div>
-            <div className="text-[11px] text-emerald-500/70 mt-1 leading-relaxed">
+          <div className="mt-4 p-3.5 rounded-xl bg-[#f0f7f3] border border-[#d1e8dc]">
+            <div className="text-[#1a9e5c] font-mono font-bold text-xl">₦8,412,500</div>
+            <div className="text-[11px] text-[#7aaa92] mt-1 leading-relaxed">
               Total currently in escrow across 143 open orders
             </div>
           </div>
 
-          {/* Mini breakdown */}
           <div className="mt-3 space-y-1.5">
             {[
               ["NGN/USDC Pairs", "138"],
@@ -218,19 +217,19 @@ export default function DevDashboard() {
               ["Avg. Order Size", "₦58,826"],
             ].map(([k, v]) => (
               <div key={k} className="flex justify-between text-[11px]">
-                <span className="text-slate-500">{k}</span>
-                <span className="text-slate-300 font-mono">{v}</span>
+                <span className="text-[#7aaa92]">{k}</span>
+                <span className="text-[#3d6b55] font-mono">{v}</span>
               </div>
             ))}
           </div>
         </div>
 
         {/* Live Tx Feed */}
-        <div className="lg:col-span-2 rounded-2xl border border-slate-700/50 bg-[#0D1322]/80 backdrop-blur-md p-5">
+        <div className="lg:col-span-2 rounded-2xl border border-[#d1e8dc] bg-white p-5">
           <div className="flex items-center justify-between mb-4">
-            <div className="text-sm font-semibold text-white">Live Transaction Feed</div>
-            <div className="flex items-center gap-1.5 text-xs text-emerald-400">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <div className="text-sm font-semibold text-[#0d2b1e]">Live Transaction Feed</div>
+            <div className="flex items-center gap-1.5 text-xs text-[#1a9e5c]">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#22c972] animate-pulse" />
               Real-time
             </div>
           </div>
@@ -238,9 +237,9 @@ export default function DevDashboard() {
           <div className="overflow-x-auto -mx-1 px-1">
             <table className="w-full text-xs min-w-[520px]">
               <thead>
-                <tr className="border-b border-slate-800">
+                <tr className="border-b border-[#d1e8dc]">
                   {["Order ID", "Buyer", "NGN Amount", "USDC", "Status", "Time"].map((h) => (
-                    <th key={h} className="text-left pb-2.5 font-medium text-slate-500 pr-4 whitespace-nowrap">
+                    <th key={h} className="text-left pb-2.5 font-medium text-[#7aaa92] pr-4 whitespace-nowrap">
                       {h}
                     </th>
                   ))}
@@ -252,16 +251,16 @@ export default function DevDashboard() {
                   return (
                     <tr
                       key={tx.id}
-                      className="border-b border-slate-800/40 hover:bg-slate-800/20 transition-colors"
+                      className="border-b border-[#d1e8dc]/60 hover:bg-[#f5f9f7] transition-colors"
                     >
-                      <td className="py-2.5 pr-4 font-mono text-violet-400">{tx.id}</td>
-                      <td className="pr-4 text-slate-300">{tx.buyer}</td>
-                      <td className="pr-4 font-mono text-white">{tx.ngnAmount}</td>
-                      <td className="pr-4 font-mono text-slate-400">{tx.usdc}</td>
+                      <td className="py-2.5 pr-4 font-mono text-[#1a9e5c]">{tx.id}</td>
+                      <td className="pr-4 text-[#3d6b55]">{tx.buyer}</td>
+                      <td className="pr-4 font-mono text-[#0d2b1e]">{tx.ngnAmount}</td>
+                      <td className="pr-4 font-mono text-[#3d6b55]">{tx.usdc}</td>
                       <td className="pr-4">
                         <Badge label={label} color={color} pulse={tx.status === "escrow" || tx.status === "disputed"} />
                       </td>
-                      <td className="text-slate-500 whitespace-nowrap">{tx.time}</td>
+                      <td className="text-[#7aaa92] whitespace-nowrap">{tx.time}</td>
                     </tr>
                   );
                 })}
@@ -269,19 +268,19 @@ export default function DevDashboard() {
             </table>
           </div>
 
-          <div className="mt-3 pt-3 border-t border-slate-800/60 flex items-center justify-between text-[11px] text-slate-500">
+          <div className="mt-3 pt-3 border-t border-[#d1e8dc] flex items-center justify-between text-[11px] text-[#7aaa92]">
             <span>Showing 7 of 1,829 orders</span>
-            <button className="text-violet-400 hover:text-violet-300 transition-colors">View all →</button>
+            <button className="text-[#1a9e5c] hover:text-[#22c972] transition-colors">View all →</button>
           </div>
         </div>
       </div>
 
       {/* ── Widget Preview Toggle ── */}
-      <div className="rounded-2xl border border-violet-500/25 bg-[#0D1322]/80 backdrop-blur-md p-5">
+      <div className="rounded-2xl border border-[#d1e8dc] bg-white p-5">
         <div className="flex items-start sm:items-center justify-between flex-col sm:flex-row gap-3">
           <div>
-            <div className="text-sm font-semibold text-white">P2P Widget Preview</div>
-            <div className="text-xs text-slate-500 mt-0.5">
+            <div className="text-sm font-semibold text-[#0d2b1e]">P2P Widget Preview</div>
+            <div className="text-xs text-[#7aaa92] mt-0.5">
               Live preview of the widget your users will see when you embed the Arc SDK
             </div>
           </div>
@@ -290,8 +289,8 @@ export default function DevDashboard() {
             className={cn(
               "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all whitespace-nowrap shrink-0",
               showWidget
-                ? "bg-violet-600 hover:bg-violet-500 text-white"
-                : "border border-violet-500/40 text-violet-300 hover:bg-violet-500/10"
+                ? "bg-[#1a9e5c] hover:bg-[#22c972] text-white"
+                : "border border-[#d1e8dc] text-[#3d6b55] hover:bg-[#f0f7f3]"
             )}
           >
             {showWidget ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -300,31 +299,31 @@ export default function DevDashboard() {
         </div>
 
         {/* Embed code snippet */}
-        <div className="mt-4 bg-slate-950 rounded-xl p-3.5 font-mono text-[11px] text-slate-400 border border-slate-800/60">
-          <span className="text-slate-600 select-none">// Install: </span>
-          <span className="text-emerald-400">npm install @arc-network/p2p-widget</span>
+        <div className="mt-4 bg-[#f5f9f7] rounded-xl p-3.5 font-mono text-[11px] text-[#3d6b55] border border-[#d1e8dc]">
+          <span className="text-[#7aaa92] select-none">// Install: </span>
+          <span className="text-[#1a9e5c]">npm install @arc-network/p2p-widget</span>
           <br />
-          <span className="text-violet-400">{"<ArcP2PWidget"}</span>
+          <span className="text-[#3d6b55]">{"<ArcP2PWidget"}</span>
           <br />
-          <span className="text-slate-500 pl-4">{"apiKey="}</span>
-          <span className="text-amber-300">{'"arc_live_sk_7f8a2c…"'}</span>
+          <span className="text-[#7aaa92] pl-4">{"apiKey="}</span>
+          <span className="text-amber-600">{'"arc_live_sk_7f8a2c…"'}</span>
           <br />
-          <span className="text-slate-500 pl-4">{"currency="}</span>
-          <span className="text-amber-300">{'"NGN"'}</span>
+          <span className="text-[#7aaa92] pl-4">{"currency="}</span>
+          <span className="text-amber-600">{'"NGN"'}</span>
           <br />
-          <span className="text-slate-500 pl-4">{"network="}</span>
-          <span className="text-amber-300">{'"arc-mainnet"'}</span>
+          <span className="text-[#7aaa92] pl-4">{"network="}</span>
+          <span className="text-amber-600">{'"arc-mainnet"'}</span>
           <br />
-          <span className="text-violet-400">{"/>"}</span>
+          <span className="text-[#3d6b55]">{"/>"}</span>
         </div>
 
-        {/* Widget Iframe Preview */}
+        {/* Widget Inline Preview */}
         {showWidget && (
           <div className="mt-5 max-w-md mx-auto">
-            <div className="text-[11px] text-slate-500 mb-2 text-center">
+            <div className="text-[11px] text-[#7aaa92] mb-2 text-center">
               ↓ Rendered Widget — as your end-users see it
             </div>
-            <div className="rounded-2xl border border-violet-500/30 bg-[#050810] p-5 shadow-2xl shadow-violet-500/5">
+            <div className="rounded-2xl border border-[#d1e8dc] bg-white p-5 shadow-lg shadow-green-primary/5">
               <TradingWidget embedded />
             </div>
           </div>
@@ -334,14 +333,14 @@ export default function DevDashboard() {
       {/* ── Network Health Row ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
-          { label: "Arc RPC Latency",    value: "12ms",    good: true  },
-          { label: "Oracle Uptime",      value: "99.98%",  good: true  },
-          { label: "Pending Arbitrations", value: "3",     good: false },
-          { label: "Gas (USDC/tx)",      value: "0.0031",  good: true  },
+          { label: "Arc RPC Latency",      value: "12ms",   good: true  },
+          { label: "Oracle Uptime",         value: "99.98%", good: true  },
+          { label: "Pending Arbitrations",  value: "3",      good: false },
+          { label: "Gas (USDC/tx)",         value: "0.0031", good: true  },
         ].map(({ label, value, good }) => (
-          <div key={label} className="rounded-xl border border-slate-800/60 bg-slate-900/50 p-3.5">
-            <div className="text-[11px] text-slate-500 mb-1">{label}</div>
-            <div className={cn("font-mono font-bold text-base", good ? "text-emerald-300" : "text-amber-300")}>
+          <div key={label} className="rounded-xl border border-[#d1e8dc] bg-white p-3.5">
+            <div className="text-[11px] text-[#7aaa92] mb-1">{label}</div>
+            <div className={cn("font-mono font-bold text-base", good ? "text-[#1a9e5c]" : "text-amber-500")}>
               {value}
             </div>
           </div>

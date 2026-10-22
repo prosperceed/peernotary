@@ -6,22 +6,22 @@ import type { BadgeColor, TradeStep } from "@/types";
 
 // ─── BADGE ────────────────────────────────────────────────────────────────────
 const badgeStyles: Record<BadgeColor, string> = {
-	violet: "bg-violet-500/15 text-violet-300 border-violet-500/30",
-	green: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
-	amber: "bg-amber-500/15 text-amber-300 border-amber-500/30",
-	red: "bg-red-500/15 text-red-300 border-red-500/30",
-	blue: "bg-blue-500/15 text-blue-300 border-blue-500/30",
-	cyan: "bg-cyan-500/15 text-cyan-300 border-cyan-500/30",
-	slate: "bg-slate-700/50 text-slate-400 border-slate-600/50",
+	violet: "bg-purple-50 text-purple-600 border-purple-200",
+	green:  "bg-[#f0f7f3] text-[#1a9e5c] border-[#d1e8dc]",
+	amber:  "bg-amber-50 text-amber-600 border-amber-200",
+	red:    "bg-red-50 text-red-500 border-red-200",
+	blue:   "bg-blue-50 text-blue-600 border-blue-200",
+	cyan:   "bg-cyan-50 text-cyan-600 border-cyan-200",
+	slate:  "bg-[#f5f9f7] text-[#7aaa92] border-[#d1e8dc]",
 };
 const dotStyles: Record<BadgeColor, string> = {
-	violet: "bg-violet-400",
-	green: "bg-emerald-400",
-	amber: "bg-amber-400",
-	red: "bg-red-400",
-	blue: "bg-blue-400",
-	cyan: "bg-cyan-400",
-	slate: "bg-slate-400",
+	violet: "bg-purple-500",
+	green:  "bg-[#22c972]",
+	amber:  "bg-amber-400",
+	red:    "bg-red-400",
+	blue:   "bg-blue-400",
+	cyan:   "bg-cyan-400",
+	slate:  "bg-[#7aaa92]",
 };
 
 interface BadgeProps {
@@ -33,7 +33,7 @@ interface BadgeProps {
 
 export function Badge({
 	label,
-	color = "violet",
+	color = "green",
 	pulse = false,
 	className,
 }: BadgeProps) {
@@ -72,24 +72,24 @@ export function MetricCard({
 	value,
 	sub,
 	icon,
-	accent = "#060809",
+	accent = "#1a9e5c",
 	trend,
 }: MetricCardProps) {
 	return (
 		<div
-			className="relative rounded-2xl border border-slate-700/50 bg-[var(--bg)] backdrop-blur-md p-5 overflow-hidden group transition-all duration-300 hover:border-violet-500/40 hover:shadow-lg"
+			className="relative rounded-2xl border border-[#d1e8dc] bg-white p-5 overflow-hidden group transition-all duration-300 hover:shadow-md"
 			style={{ ["--accent" as string]: accent }}
 		>
 			<div
 				className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none rounded-2xl"
 				style={{
-					background: `radial-gradient(ellipse at 0% 0%, ${accent}12 0%, transparent 60%)`,
+					background: `radial-gradient(ellipse at 0% 0%, ${accent}10 0%, transparent 60%)`,
 				}}
 			/>
 			<div className="flex items-start justify-between mb-3">
 				<div
 					className="w-9 h-9 rounded-xl flex items-center justify-center"
-					style={{ background: `${accent}20` }}
+					style={{ background: `${accent}15` }}
 				>
 					{icon}
 				</div>
@@ -98,8 +98,8 @@ export function MetricCard({
 						className={cn(
 							"text-xs font-mono px-2 py-0.5 rounded-full",
 							trend > 0
-								? "bg-emerald-500/15 text-emerald-400"
-								: "bg-red-500/15 text-red-400",
+								? "bg-[#f0f7f3] text-[#1a9e5c] border border-[#d1e8dc]"
+								: "bg-red-50 text-red-500 border border-red-200",
 						)}
 					>
 						{trend > 0 ? "+" : ""}
@@ -107,11 +107,11 @@ export function MetricCard({
 					</span>
 				)}
 			</div>
-			<div className="text-2xl font-bold text-white font-mono tracking-tight">
+			<div className="text-2xl font-bold text-[#0d2b1e] font-mono tracking-tight">
 				{value}
 			</div>
-			<div className="text-xs text-slate-400 mt-1">{label}</div>
-			{sub && <div className="text-xs text-slate-500 mt-0.5">{sub}</div>}
+			<div className="text-xs text-[#3d6b55] mt-1">{label}</div>
+			{sub && <div className="text-xs text-[#7aaa92] mt-0.5">{sub}</div>}
 		</div>
 	);
 }
@@ -134,10 +134,10 @@ export function StepBar({ current, steps }: StepBarProps) {
 							className={cn(
 								"flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold border-2 transition-all duration-300 flex-shrink-0",
 								done
-									? "border-emerald-500 bg-emerald-500 text-white"
+									? "border-[#22c972] bg-[#22c972] text-white"
 									: active
-									? "border-secondary bg-b-500/20 text-violet-300"
-									: "border-slate-600 bg-slate-800 text-slate-500",
+									? "border-[#1a9e5c] bg-[#f0f7f3] text-[#1a9e5c]"
+									: "border-[#d1e8dc] bg-white text-[#7aaa92]",
 							)}
 						>
 							{done ? "✓" : i + 1}
@@ -146,10 +146,10 @@ export function StepBar({ current, steps }: StepBarProps) {
 							className={cn(
 								"text-[10px] whitespace-nowrap hidden sm:inline",
 								done
-									? "text-emerald-400"
+									? "text-[#22c972]"
 									: active
-									? "text-violet-300"
-									: "text-slate-500",
+									? "text-[#1a9e5c]"
+									: "text-[#7aaa92]",
 							)}
 						>
 							{label}
@@ -158,7 +158,7 @@ export function StepBar({ current, steps }: StepBarProps) {
 							<div
 								className={cn(
 									"h-px flex-1 min-w-[8px] transition-all duration-500",
-									done ? "bg-emerald-500/50" : "bg-slate-700",
+									done ? "bg-[#22c972]/50" : "bg-[#d1e8dc]",
 								)}
 							/>
 						)}
@@ -178,7 +178,7 @@ interface SparkLineProps {
 
 export function SparkLine({
 	data,
-	color = "#7C3AED",
+	color = "#1a9e5c",
 	height = 60,
 }: SparkLineProps) {
 	const max = Math.max(...data);
@@ -205,7 +205,7 @@ export function SparkLine({
 		>
 			<defs>
 				<linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-					<stop offset="0%" stopColor={color} stopOpacity="0.35" />
+					<stop offset="0%" stopColor={color} stopOpacity="0.25" />
 					<stop offset="100%" stopColor={color} stopOpacity="0" />
 				</linearGradient>
 			</defs>
@@ -236,7 +236,7 @@ export function CountdownRing({ seconds, total = 300 }: CountdownRingProps) {
 	const progress = seconds / total;
 	const offset = circ * (1 - progress);
 	const color =
-		progress > 0.5 ? "#7C3AED" : progress > 0.25 ? "#F59E0B" : "#EF4444";
+		progress > 0.5 ? "#1a9e5c" : progress > 0.25 ? "#F59E0B" : "#EF4444";
 	const mins = Math.floor(seconds / 60);
 	const secs = String(seconds % 60).padStart(2, "0");
 
@@ -248,7 +248,7 @@ export function CountdownRing({ seconds, total = 300 }: CountdownRingProps) {
 					cy={cy}
 					r={r}
 					fill="none"
-					stroke="#1E293B"
+					stroke="#d1e8dc"
 					strokeWidth="8"
 				/>
 				<circle
@@ -270,7 +270,7 @@ export function CountdownRing({ seconds, total = 300 }: CountdownRingProps) {
 					x={cx}
 					y={cy - 5}
 					textAnchor="middle"
-					fill="white"
+					fill="#0d2b1e"
 					fontSize="17"
 					fontWeight="700"
 					fontFamily="monospace"
@@ -281,7 +281,7 @@ export function CountdownRing({ seconds, total = 300 }: CountdownRingProps) {
 					x={cx}
 					y={cy + 13}
 					textAnchor="middle"
-					fill="#64748B"
+					fill="#7aaa92"
 					fontSize="9"
 				>
 					remaining

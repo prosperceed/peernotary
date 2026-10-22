@@ -64,12 +64,14 @@ export const wagmiConfig = createConfig({
 
 // ─── CONTRACT ADDRESSES ───────────────────────────────────────────────────────
 /** ArcP2PEscrowService — update after deployment */
-export const ESCROW_ADDRESS =
-	"0x0000000000000000000000000000000000000000" as `0x${string}`;
+export const ESCROW_ADDRESS = (process.env.NEXT_PUBLIC_ESCROW_ADDRESS ||
+	process.env.ORACLE_ADDRESS ||
+	"0x0000000000000000000000000000000000000000") as `0x${string}`;
 
 /** Circle USDC on Arc Testnet — update to actual deployment address */
-export const USDC_ADDRESS =
-	"0x0000000000000000000000000000000000000001" as `0x${string}`;
+export const USDC_ADDRESS = (process.env.NEXT_PUBLIC_USDC_ADDRESS ||
+	process.env.NEXT_PUBLIC_ARC_TREASURY_ADDRESS ||
+	"0x0000000000000000000000000000000000000001") as `0x${string}`;
 
 // ─── ARCSCAN LINK BUILDERS ────────────────────────────────────────────────────
 export const ARCSCAN_TX = (hash: string) =>

@@ -16,12 +16,12 @@ export default function RootLayout({
 }>) {
 	return (
 		<html lang="en">
-			<Providers>
-				<body className="bg-[#f5f9f7] text-[#0d2b1e] antialiased">
+			<body className="bg-[#f5f9f7] text-[#0d2b1e] antialiased">
+				<Providers>
 					<GlobalNav />
 					{children}
-				</body>
-			</Providers>
+				</Providers>
+			</body>
 		</html>
 	);
 }

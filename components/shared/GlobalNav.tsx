@@ -77,6 +77,7 @@ function WalletButton() {
 	const ref = useRef<HTMLDivElement>(null);
 	const previousAddress = useRef<string | undefined>(undefined);
 
+	// ── Close dropdown on outside click ──────────────────────────────────────
 	useEffect(() => {
 		const handler = (e: MouseEvent) => {
 			if (ref.current && !ref.current.contains(e.target as Node))
@@ -92,6 +93,7 @@ function WalletButton() {
 		await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
 	};
 
+	// ── Sync auth state with wallet connection ────────────────────────────────
 	useEffect(() => {
 		if (!isConnected || !address) {
 			if (previousAddress.current) void invalidateSession();
@@ -160,7 +162,7 @@ function WalletButton() {
 				body: JSON.stringify({ address: walletAddress }),
 			});
 			if (!challengeResponse.ok)
-				throw new Error("Could notauthenticate wallet.");
+				throw new Error("Could not authenticate wallet.");
 			const challenge: { nonce: string; message: string } =
 				await challengeResponse.json();
 			const signature = await signMessageAsync({ message: challenge.message });
@@ -213,70 +215,179 @@ function WalletButton() {
 		setTimeout(() => setCopied(false), 1500);
 	};
 
+	// ── Truncate helper ───────────────────────────────────────────────────────
+	const truncate = (addr: string) =>
+		`${addr.slice(0, 6)}…${addr.slice(-4)}`;
+
+	// ── STATE 1: Not connected ────────────────────────────────────────────────
 	if (!isConnected || !address) {
 		return (
-			<button
-				onClick={() => handleConnect()}
-				className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white border b hover:bg-secondary/5 hover:text-white text-secondary text-sm font-semibold transition-all duration-200  active:scale-[.97]"
-			>
-				<Wallet size={14} />
-				{busy ? "Connecting…" : "Connect Wallet"}
-			</button>
+			<div className="flex flex-col items-end gap-1">
+				<button
+					onClick={() => void handleConnect()}
+					disabled={busy}
+					className={cn(
+						"group relative flex items-center gap-2 px-4 py-2 rounded-xl",
+						"bg-white border border-[#d1e8dc] text-[#1a9e5c] text-sm font-semibold",
+						"shadow-sm shadow-[#22c972]/5",
+						"transition-all duration-200",
+						"hover:bg-[#f0f7f3] hover:border-[#1a9e5c]/50 hover:shadow-md hover:shadow-[#22c972]/15 hover:-translate-y-px",
+						"active:scale-[0.97] active:translate-y-0",
+						"disabled:opacity-60 disabled:pointer-events-none",
+						"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#22c972]/40",
+					)}
+				>
+					{/* Left icon with subtle bg ring on hover */}
+					<span
+						className={cn(
+							"flex items-center justify-center w-5 h-5 rounded-lg shrink-0",
+							"bg-[#f0f7f3] border border-[#d1e8dc]",
+							"group-hover:bg-[#e6f5ee] group-hover:border-[#1a9e5c]/30",
+							"transition-all duration-200",
+						)}
+					>
+						{busy ? (
+							<span className="w-3 h-3 rounded-full border-2 border-[#22c972] border-t-transparent animate-spin" />
+						) : (
+							<Wallet size={11} className="text-[#1a9e5c]" />
+						)}
+					</span>
+
+					<span className="leading-none">
+						{busy ? "Connecting…" : "Connect Wallet"}
+					</span>
+
+					{/* Subtle right arrow that appears on hover */}
+					<ChevronDown
+						size={13}
+						className="text-[#7aaa92] -rotate-90 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-200"
+					/>
+				</button>
+
+				{/* Inline error message */}
+				{error && (
+					<p className="flex items-center gap-1 text-[10px] text-amber-600 max-w-[180px] text-right leading-tight">
+						<AlertTriangle size={9} className="shrink-0" />
+						{error}
+					</p>
+				)}
+			</div>
 		);
 	}
 
+	// ── STATE 2: Connected but not authenticated (includes wrong-chain) ───────
 	if (!authenticated) {
 		const isWrongChain = chainId !== arcTestnet.id;
 		return (
-			<div className="flex flex-col items-center gap-2">
-				<div className="flex items-center gap-2 rounded-xl border border-slate-700/50 bg-slate-950/60 px-3 py-2">
-					<span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-					<span className="font-mono text-[11px] text-slate-300">
-						{address}
-					</span>
-				</div>
-				<div className="flex items-center gap-2">
-					{error && (
-						<span className="hidden lg:inline text-[10px] text-amber-300 max-w-48 text-right">
-							{error}
-						</span>
+			<div className="flex items-center gap-2">
+				{/* Address pill */}
+				<div
+					className={cn(
+						"hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl",
+						"border bg-white text-[11px] font-mono",
+						isWrongChain
+							? "border-amber-200 text-amber-700 bg-amber-50"
+							: "border-[#d1e8dc] text-[#3d6b55]",
 					)}
+				>
+					<span
+						className={cn(
+							"w-1.5 h-1.5 rounded-full shrink-0 animate-pulse",
+							isWrongChain ? "bg-amber-400" : "bg-[#22c972]",
+						)}
+					/>
+					{truncate(address)}
+				</div>
+
+				{/* Action button */}
+				<div className="flex flex-col items-end gap-1">
 					{isWrongChain ? (
 						<button
 							onClick={() => void handleWrongChainSwitch()}
 							disabled={busy}
-							className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-sm font-semibold transition-all duration-200 hover:bg-amber-500/20 active:scale-[.97]"
+							className={cn(
+								"flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold",
+								"border border-amber-300 bg-amber-50 text-amber-700",
+								"transition-all duration-200",
+								"hover:bg-amber-100 hover:border-amber-400 hover:shadow-sm hover:shadow-amber-200/50 hover:-translate-y-px",
+								"active:scale-[0.97] active:translate-y-0",
+								"disabled:opacity-60 disabled:pointer-events-none",
+								"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/50",
+							)}
 						>
-							<AlertTriangle size={14} />
-							{busy ? "Switching…" : "Switch to Arc Testnet"}
+							<AlertTriangle size={12} className="shrink-0" />
+							{busy ? "Switching…" : "Wrong Network"}
 						</button>
 					) : (
 						<button
 							onClick={() => void authenticate(address)}
 							disabled={busy}
-							className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white text-secondary text-sm font-semibold transition-all duration-200 disabled:opacity-50"
+							className={cn(
+								"group flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold",
+								"border border-[#d1e8dc] bg-white text-[#1a9e5c]",
+								"transition-all duration-200",
+								"hover:bg-[#f0f7f3] hover:border-[#1a9e5c]/40 hover:shadow-sm hover:shadow-[#22c972]/10 hover:-translate-y-px",
+								"active:scale-[0.97] active:translate-y-0",
+								"disabled:opacity-60 disabled:pointer-events-none",
+								"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#22c972]/40",
+							)}
 						>
-							<Wallet size={14} />
+							{busy ? (
+								<span className="w-3 h-3 rounded-full border-2 border-[#22c972] border-t-transparent animate-spin" />
+							) : (
+								<Wallet size={12} className="shrink-0" />
+							)}
 							{busy ? "Verifying…" : "Sign In"}
 						</button>
+					)}
+
+					{error && (
+						<p className="flex items-center gap-1 text-[10px] text-amber-600 max-w-[180px] text-right leading-tight">
+							<AlertTriangle size={9} className="shrink-0" />
+							{error}
+						</p>
 					)}
 				</div>
 			</div>
 		);
 	}
 
+	// ── STATE 3: Fully connected & authenticated ──────────────────────────────
 	return (
 		<div className="relative" ref={ref}>
+			{/* Trigger button */}
 			<button
 				onClick={() => setOpen((v) => !v)}
-				className="flex items-center gap-2.5 px-3 py-2 rounded-xl border border-[#d1e8dc] bg-[#f0f7f3] hover:bg-[#e6f5ee] transition-all duration-200"
+				className={cn(
+					"group flex items-center gap-2 px-3 py-2 rounded-xl",
+					"border border-[#d1e8dc] bg-white",
+					"shadow-sm shadow-[#22c972]/5",
+					"transition-all duration-200",
+					"hover:bg-[#f0f7f3] hover:border-[#1a9e5c]/40 hover:shadow-md hover:shadow-[#22c972]/15 hover:-translate-y-px",
+					"active:scale-[0.97] active:translate-y-0",
+					open && "bg-[#f0f7f3] border-[#1a9e5c]/40 shadow-md shadow-[#22c972]/10",
+					"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#22c972]/40",
+				)}
+				aria-haspopup="true"
+				aria-expanded={open}
 			>
-				<span className="w-2 h-2 rounded-full bg-[#22c972] animate-pulse" />
-				<span className="text-sm font-mono text-[#3d6b55]">
-					{address.slice(0, 8)}…{address.slice(-6)}
+				{/* Avatar dot */}
+				<span className="relative flex items-center justify-center w-6 h-6 rounded-lg bg-[#f0f7f3] border border-[#d1e8dc] group-hover:border-[#1a9e5c]/30 transition-all duration-200 shrink-0">
+					<span className="text-[10px] font-bold text-[#1a9e5c]">
+						{address.slice(2, 4).toUpperCase()}
+					</span>
+					{/* Online dot */}
+					<span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#22c972] border border-white" />
 				</span>
+
+				{/* Address */}
+				<span className="hidden sm:inline text-xs font-mono text-[#3d6b55] leading-none">
+					{truncate(address)}
+				</span>
+
+				{/* Chevron */}
 				<ChevronDown
-					size={13}
+					size={12}
 					className={cn(
 						"text-[#7aaa92] transition-transform duration-200",
 						open && "rotate-180",
@@ -284,41 +395,86 @@ function WalletButton() {
 				/>
 			</button>
 
+			{/* Dropdown panel */}
 			{open && (
-				<div className="absolute right-0 top-full mt-2 w-56 rounded-2xl border border-[#d1e8dc] bg-white shadow-xl shadow-green-primary/10 overflow-hidden z-50">
-					<div className="p-3 border-b border-[#d1e8dc]">
-						<div className="text-[10px] text-[#7aaa92] mb-1">
-							Connected wallet
+				<div
+					className={cn(
+						"absolute right-0 top-full mt-2 z-50",
+						"w-60 rounded-2xl overflow-hidden",
+						"bg-white border border-[#d1e8dc]",
+						"shadow-xl shadow-[#22c972]/8",
+						"dropdown-enter",
+					)}
+				>
+					{/* Header */}
+					<div className="px-4 py-3 border-b border-[#d1e8dc] bg-[#f8fcfa]">
+						<div className="flex items-center gap-2.5 mb-2">
+							{/* Avatar */}
+							<div className="relative w-8 h-8 rounded-xl bg-gradient-to-br from-[#1a9e5c] to-[#22c972] flex items-center justify-center shrink-0">
+								<span className="text-[11px] font-bold text-white">
+									{address.slice(2, 4).toUpperCase()}
+								</span>
+								<span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[#22c972] border-2 border-white" />
+							</div>
+							<div className="min-w-0">
+								<div className="text-[11px] font-semibold text-[#0d2b1e] leading-none mb-0.5">
+									Connected
+								</div>
+								<div className="font-mono text-[10px] text-[#7aaa92] truncate">
+									{address}
+								</div>
+							</div>
 						</div>
-						<div className="font-mono text-xs text-[#3d6b55] truncate">
-							{address}
-						</div>
-						<div className="flex items-center gap-1.5 mt-1">
-							<span className="w-1.5 h-1.5 rounded-full bg-[#22c972]" />
-							<span className="text-[10px] text-[#1a9e5c]">Arc Testnet</span>
+
+						{/* Network badge */}
+						<div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#f0f7f3] border border-[#d1e8dc]">
+							<span className="w-1.5 h-1.5 rounded-full bg-[#22c972] animate-pulse shrink-0" />
+							<span className="text-[10px] text-[#1a9e5c] font-medium">
+								Arc Testnet
+							</span>
+							<span className="ml-auto text-[9px] font-mono text-[#7aaa92]">
+								#{arcTestnet.id}
+							</span>
 						</div>
 					</div>
+
+					{/* Actions */}
 					<div className="p-2 space-y-0.5">
 						<button
 							onClick={handleCopy}
-							className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs text-[#3d6b55] hover:bg-[#f0f7f3] transition-all"
+							className={cn(
+								"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl",
+								"text-xs text-[#3d6b55] font-medium",
+								"transition-all duration-150",
+								"hover:bg-[#f0f7f3] hover:text-[#1a9e5c]",
+								"active:scale-[0.98]",
+							)}
 						>
 							{copied ? (
-								<Check size={13} className="text-[#22c972]" />
+								<Check size={13} className="text-[#22c972] shrink-0" />
 							) : (
-								<Copy size={13} className="text-[#7aaa92]" />
+								<Copy size={13} className="text-[#7aaa92] shrink-0" />
 							)}
-							{copied ? "Copied!" : "Copy address"}
+							<span>{copied ? "Address copied!" : "Copy address"}</span>
 						</button>
+
+						<div className="h-px bg-[#d1e8dc] mx-2 my-0.5" />
+
 						<button
 							onClick={() => {
 								void invalidateSession();
 								disconnect();
 							}}
-							className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs text-red-500 hover:bg-red-50 transition-all"
+							className={cn(
+								"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl",
+								"text-xs text-red-500 font-medium",
+								"transition-all duration-150",
+								"hover:bg-red-50 hover:text-red-600",
+								"active:scale-[0.98]",
+							)}
 						>
-							<LogOut size={13} />
-							Disconnect
+							<LogOut size={13} className="shrink-0" />
+							<span>Disconnect wallet</span>
 						</button>
 					</div>
 				</div>

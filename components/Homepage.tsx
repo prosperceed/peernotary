@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 // ─── ANIMATED COUNTER ────────────────────────────────────────────────────────
 function AnimatedCounter({
@@ -75,7 +76,14 @@ function USDCIcon({ size = 28 }: { size?: number }) {
 			fill="none"
 			xmlns="http://www.w3.org/2000/svg"
 		>
-			<circle cx="16" cy="16" r="14" stroke="#1a9e5c" strokeWidth="2" fill="none" />
+			<circle
+				cx="16"
+				cy="16"
+				r="14"
+				stroke="#1a9e5c"
+				strokeWidth="2"
+				fill="none"
+			/>
 			<path
 				d="M16 6v2M16 24v2"
 				stroke="#1a9e5c"
@@ -164,7 +172,11 @@ function FloatChip({ children, style, delay = "0s" }: FloatChipProps) {
 	return (
 		<div
 			className="absolute flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white border border-[#d1e8dc] shadow-lg shadow-green-primary/10"
-			style={{ animationDelay: delay, animation: `float-bob 4s ease-in-out ${delay} infinite`, ...style }}
+			style={{
+				animationDelay: delay,
+				animation: `float-bob 4s ease-in-out ${delay} infinite`,
+				...style,
+			}}
 		>
 			{children}
 		</div>
@@ -254,6 +266,7 @@ function MetricPill({
 // ─── HOMEPAGE ─────────────────────────────────────────────────────────────────
 export default function Homepage() {
 	const [heroVisible, setHeroVisible] = useState(false);
+	const router = useRouter();
 
 	useEffect(() => {
 		const t = setTimeout(() => setHeroVisible(true), 80);
@@ -268,14 +281,22 @@ export default function Homepage() {
 
 				{/* Floating icon chips — shield left, USDC right */}
 				<FloatChip
-					style={{ left: "calc(50% - min(260px, 36vw))", top: "50%", marginTop: "min(-28px, -4vw)" }}
+					style={{
+						left: "calc(50% - min(260px, 36vw))",
+						top: "50%",
+						marginTop: "min(-28px, -4vw)",
+					}}
 					delay="0s"
 				>
 					<Shield size={26} className="text-[#1a9e5c]" strokeWidth={1.8} />
 				</FloatChip>
 
 				<FloatChip
-					style={{ right: "calc(50% - min(280px, 38vw))", top: "50%", marginTop: "min(-28px, -4vw)" }}
+					style={{
+						right: "calc(50% - min(280px, 38vw))",
+						top: "50%",
+						marginTop: "min(-28px, -4vw)",
+					}}
 					delay="1.6s"
 				>
 					<USDCIcon size={28} />
@@ -322,8 +343,7 @@ export default function Homepage() {
 							href="/trade"
 							className="inline-flex items-center gap-3 px-8 py-4 rounded-full font-bold text-sm text-white transition-all duration-200 hover:shadow-xl hover:shadow-green-primary/20 active:scale-[0.97]"
 							style={{
-								background:
-									"linear-gradient(135deg, #1a9e5c 0%, #22c972 100%)",
+								background: "linear-gradient(135deg, #1a9e5c 0%, #22c972 100%)",
 							}}
 						>
 							Launch App
@@ -343,9 +363,7 @@ export default function Homepage() {
 								key={item}
 								className="flex items-center gap-1.5 text-[11px] text-[#7aaa92]"
 							>
-								<span
-									className="inline-block w-1.5 h-1.5 rounded-full bg-[#22c972]"
-								/>
+								<span className="inline-block w-1.5 h-1.5 rounded-full bg-[#22c972]" />
 								{item}
 							</div>
 						))}
@@ -481,8 +499,7 @@ export default function Homepage() {
 							href="/trade"
 							className="inline-flex items-center gap-2 px-7 py-3.5 rounded-full text-sm font-bold text-white transition-all duration-200 hover:shadow-lg hover:shadow-green-primary/20 active:scale-[0.97]"
 							style={{
-								background:
-									"linear-gradient(135deg, #1a9e5c 0%, #22c972 100%)",
+								background: "linear-gradient(135deg, #1a9e5c 0%, #22c972 100%)",
 							}}
 						>
 							Launch App
@@ -498,9 +515,7 @@ export default function Homepage() {
 					{/* Header */}
 					<div className="flex items-center justify-between px-6 py-3 border-b border-[#d1e8dc]">
 						<div className="flex items-center gap-2">
-							<span
-								className="w-2 h-2 rounded-full bg-[#22c972] net-dot"
-							/>
+							<span className="w-2 h-2 rounded-full bg-[#22c972] net-dot" />
 							<span className="text-[11px] font-mono text-[#1a9e5c] tracking-widest">
 								LIVE NETWORK METRICS
 							</span>

@@ -141,18 +141,38 @@ Update `tailwind.config.ts` and the hardcoded hex values in `globals.css`.
 
 ---
 
-## Environment Variables (for real API integration)
+## Environment Variables
 
 Create `.env.local` in the project root:
 
+Copy `.env.example` and set the server-only values. The MongoDB collections and
+indexes are created on first server access. The `trades` collection must be
+written by the trade-creation service with the on-chain trade ID, normalized
+wallet addresses, payment amount, and payment reference before verification can
+start.
+
 ```env
-NEXT_PUBLIC_ARC_RPC_URL=https://rpc.arc-network.io
-NEXT_PUBLIC_FINCRA_KEY=your_fincra_key
-NEXT_PUBLIC_MONO_KEY=your_mono_key
-NEXT_PUBLIC_RECLAIM_APP_ID=your_reclaim_id
+ARC_RPC_URL=https://rpc.testnet.arc.network
+ESCROW_ADDRESS=0x_deployed_escrow_address
+ORACLE_PRIVATE_KEY=0x_oracle_private_key
+TLSN_VERIFIER_URL=http://127.0.0.1:7047
+TLSN_WEBHOOK_SECRET=replace_with_random_secret
+
+# Deployment-only values
+USDC_ADDRESS=0x_usdc_address
+TREASURY_WALLET=0x_treasury_address
+ORACLE_ADDRESS=0x_oracle_address
+
+# MongoDB persistence
+MONGODB_URI=mongodb+srv://user:password@cluster.example.mongodb.net/?retryWrites=true&w=majority
+MONGODB_DB=peernotary
 ```
 
-These are not wired up in this demo — all data is mocked for UI presentation.
+Oracle keys, webhook secrets, RPC credentials, and database credentials must
+never use a `NEXT_PUBLIC_` prefix or be imported by client components. The
+current UI remains a presentation demo; verification routes fail closed until
+authentication, durable verification records, and the installed TLSN client
+integration are connected.
 
 ---
 

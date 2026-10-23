@@ -1,5 +1,5 @@
 {
-  "_format": "hh-sol-artifact-1",
+  "_format": "hh3-artifact-1",
   "contractName": "IERC20",
   "sourceName": "contracts/ArcP2PEscrowService.sol",
   "abi": [
@@ -79,5 +79,8 @@
   "bytecode": "0x",
   "deployedBytecode": "0x",
   "linkReferences": {},
-  "deployedLinkReferences": {}
+  "deployedLinkReferences": {},
+  "immutableReferences": {},
+  "inputSourceName": "project/contracts/ArcP2PEscrowService.sol",
+  "buildInfoId": "solc-0_8_20-6ce8c759ccbcb18e171e8291eadc15dbbb80d673"
 }

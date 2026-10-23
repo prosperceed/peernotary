@@ -9,6 +9,8 @@ interface WalletGateProps {
   isWrongChain: boolean;
   address?:     `0x${string}`;
   onConnect:    () => Promise<void>;
+  onSwitchNetwork?: () => Promise<void> | void;
+  onDisconnectAndSignAgain?: () => Promise<void> | void;
   children:     React.ReactNode;
   className?:   string;
 }
@@ -22,6 +24,8 @@ export default function WalletGate({
   isWrongChain,
   address,
   onConnect,
+  onSwitchNetwork,
+  onDisconnectAndSignAgain,
   children,
   className,
 }: WalletGateProps) {
@@ -59,6 +63,22 @@ export default function WalletGate({
             <span className="text-slate-600">Gas token:</span>{" "}
             <span className="text-emerald-300">USDC (6 dec)</span>
           </div>
+        </div>
+
+        <div className="flex w-full items-center gap-2">
+          <button
+            onClick={() => void onSwitchNetwork?.()}
+            className="flex-1 py-2.5 rounded-xl font-semibold text-xs text-white transition-all duration-200 hover:shadow-lg hover:shadow-amber-500/20 active:scale-[0.98]"
+            style={{ background: "linear-gradient(135deg, #F59E0B 0%, #B45309 100%)" }}
+          >
+            Switch to Arc Testnet
+          </button>
+          <button
+            onClick={() => void onDisconnectAndSignAgain?.()}
+            className="flex-1 py-2.5 rounded-xl font-semibold text-xs text-slate-200 border border-slate-700 transition-all duration-200 hover:bg-slate-800 active:scale-[0.98]"
+          >
+            Disconnect & Sign Again
+          </button>
         </div>
       </div>
     );

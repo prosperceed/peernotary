@@ -3,8 +3,25 @@
 import { useState, useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Wallet, ChevronDown, Copy, Check, LogOut } from "lucide-react";
+import {
+	Zap,
+	Wallet,
+	ChevronDown,
+	Copy,
+	Check,
+	LogOut,
+	AlertTriangle,
+} from "lucide-react";
+import {
+	useAccount,
+	useConnect,
+	useDisconnect,
+	useSignMessage,
+	useSwitchChain,
+} from "wagmi";
+import { injected } from "wagmi/connectors";
 import { cn } from "@/lib/utils";
+import { arcTestnet } from "@/lib/web3/arcConfig";
 import type { View } from "@/types";
 
 const TICKER_ITEMS = [
@@ -46,14 +63,19 @@ function LiveTicker() {
 	);
 }
 
-const MOCK_ADDRESS = "0x7a3f...4b92";
-const FULL_ADDRESS = "0x7a3f8d2c1e9b5f3a0d7c4e8b2a6f9c1e4b92";
-
 function WalletButton() {
-	const [connected, setConnected] = useState(false);
+	const { address, chainId, isConnected } = useAccount();
+	const { connectAsync } = useConnect();
+	const { disconnect } = useDisconnect();
+	const { signMessageAsync } = useSignMessage();
+	const { switchChainAsync } = useSwitchChain();
+	const [authenticated, setAuthenticated] = useState(false);
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string | undefined>();
 	const [copied, setCopied] = useState(false);
 	const [open, setOpen] = useState(false);
 	const ref = useRef<HTMLDivElement>(null);
+	const previousAddress = useRef<string | undefined>(undefined);
 
 	useEffect(() => {
 		const handler = (e: MouseEvent) => {
@@ -64,21 +86,182 @@ function WalletButton() {
 		return () => document.removeEventListener("mousedown", handler);
 	}, []);
 
+	const invalidateSession = async () => {
+		setAuthenticated(false);
+		setOpen(false);
+		await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+	};
+
+	useEffect(() => {
+		if (!isConnected || !address) {
+			if (previousAddress.current) void invalidateSession();
+			previousAddress.current = address?.toLowerCase();
+			return;
+		}
+
+		const normalizedAddress = address.toLowerCase();
+		const changed =
+			previousAddress.current && previousAddress.current !== normalizedAddress;
+		previousAddress.current = normalizedAddress;
+		if (changed) {
+			void invalidateSession();
+			return;
+		}
+
+		void fetch("/api/auth/session")
+			.then((response) => response.json())
+			.then(
+				(session: {
+					authenticated?: boolean;
+					user?: { walletAddress?: string };
+				}) => {
+					setAuthenticated(
+						Boolean(
+							session.authenticated &&
+								session.user?.walletAddress?.toLowerCase() ===
+									normalizedAddress,
+						),
+					);
+				},
+			)
+			.catch(() => setAuthenticated(false));
+	}, [address, isConnected]);
+
+	const handleWrongChainSwitch = async () => {
+		setBusy(true);
+		setError(undefined);
+		try {
+			await switchChainAsync({ chainId: arcTestnet.id });
+			void invalidateSession();
+			disconnect();
+			setAuthenticated(false);
+		} catch (caught) {
+			setError(
+				caught instanceof Error
+					? caught.message
+					: "Could not switch to Arc Testnet.",
+			);
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const authenticate = async (walletAddress: `0x${string}`) => {
+		if (chainId !== arcTestnet.id) {
+			setError(`Switch to ${arcTestnet.name} before signing in.`);
+			return;
+		}
+		setBusy(true);
+		setError(undefined);
+		try {
+			const challengeResponse = await fetch("/api/auth/nonce", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ address: walletAddress }),
+			});
+			if (!challengeResponse.ok)
+				throw new Error("Could notauthenticate wallet.");
+			const challenge: { nonce: string; message: string } =
+				await challengeResponse.json();
+			const signature = await signMessageAsync({ message: challenge.message });
+			const verifyResponse = await fetch("/api/auth/verify", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					address: walletAddress,
+					nonce: challenge.nonce,
+					signature,
+				}),
+			});
+			if (!verifyResponse.ok)
+				throw new Error("Authentication was rejected by the server.");
+			setAuthenticated(true);
+		} catch (caught) {
+			setAuthenticated(false);
+			setError(
+				caught instanceof Error && caught.message.includes("rejected")
+					? "Signature request cancelled."
+					: caught instanceof Error
+					? caught.message
+					: "Authentication failed.",
+			);
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const handleConnect = async () => {
+		setError(undefined);
+		try {
+			const result = await connectAsync({ connector: injected() });
+			const connectedAddress = result.accounts[0];
+			if (connectedAddress) await authenticate(connectedAddress);
+		} catch (caught) {
+			setError(
+				caught instanceof Error &&
+					caught.message.toLowerCase().includes("reject")
+					? "Wallet connection cancelled."
+					: "Could not connect wallet.",
+			);
+		}
+	};
+
 	const handleCopy = () => {
-		navigator.clipboard.writeText(FULL_ADDRESS).catch(() => {});
+		if (!address) return;
+		navigator.clipboard.writeText(address).catch(() => {});
 		setCopied(true);
 		setTimeout(() => setCopied(false), 1500);
 	};
 
-	if (!connected) {
+	if (!isConnected || !address) {
 		return (
 			<button
-				onClick={() => setConnected(true)}
-				className="flex items-center gap-2 px-4 py-2 rounded-xl border border-[#d1e8dc] bg-white hover:bg-[#f0f7f3] text-[#1a9e5c] text-sm font-semibold transition-all duration-200 active:scale-[.97]"
+				onClick={() => handleConnect()}
+				className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white border b hover:bg-secondary/5 hover:text-white text-secondary text-sm font-semibold transition-all duration-200  active:scale-[.97]"
 			>
 				<Wallet size={14} />
-				Connect Wallet
+				{busy ? "Connecting…" : "Connect Wallet"}
 			</button>
+		);
+	}
+
+	if (!authenticated) {
+		const isWrongChain = chainId !== arcTestnet.id;
+		return (
+			<div className="flex flex-col items-center gap-2">
+				<div className="flex items-center gap-2 rounded-xl border border-slate-700/50 bg-slate-950/60 px-3 py-2">
+					<span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+					<span className="font-mono text-[11px] text-slate-300">
+						{address}
+					</span>
+				</div>
+				<div className="flex items-center gap-2">
+					{error && (
+						<span className="hidden lg:inline text-[10px] text-amber-300 max-w-48 text-right">
+							{error}
+						</span>
+					)}
+					{isWrongChain ? (
+						<button
+							onClick={() => void handleWrongChainSwitch()}
+							disabled={busy}
+							className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-sm font-semibold transition-all duration-200 hover:bg-amber-500/20 active:scale-[.97]"
+						>
+							<AlertTriangle size={14} />
+							{busy ? "Switching…" : "Switch to Arc Testnet"}
+						</button>
+					) : (
+						<button
+							onClick={() => void authenticate(address)}
+							disabled={busy}
+							className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white text-secondary text-sm font-semibold transition-all duration-200 disabled:opacity-50"
+						>
+							<Wallet size={14} />
+							{busy ? "Verifying…" : "Sign In"}
+						</button>
+					)}
+				</div>
+			</div>
 		);
 	}
 
@@ -90,7 +273,7 @@ function WalletButton() {
 			>
 				<span className="w-2 h-2 rounded-full bg-[#22c972] animate-pulse" />
 				<span className="text-sm font-mono text-[#3d6b55]">
-					{MOCK_ADDRESS}
+					{address.slice(0, 8)}…{address.slice(-6)}
 				</span>
 				<ChevronDown
 					size={13}
@@ -108,7 +291,7 @@ function WalletButton() {
 							Connected wallet
 						</div>
 						<div className="font-mono text-xs text-[#3d6b55] truncate">
-							{MOCK_ADDRESS}
+							{address}
 						</div>
 						<div className="flex items-center gap-1.5 mt-1">
 							<span className="w-1.5 h-1.5 rounded-full bg-[#22c972]" />
@@ -129,8 +312,8 @@ function WalletButton() {
 						</button>
 						<button
 							onClick={() => {
-								setConnected(false);
-								setOpen(false);
+								void invalidateSession();
+								disconnect();
 							}}
 							className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs text-red-500 hover:bg-red-50 transition-all"
 						>

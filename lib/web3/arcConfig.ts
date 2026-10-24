@@ -36,8 +36,8 @@ export const arcTestnet = defineChain({
 		decimals: 6, // ← 6, not 18 — critical for gas display
 	},
 	rpcUrls: {
-		default: { http: ["https://rpc.testnet.arc.network"] },
-		public: { http: ["https://rpc.testnet.arc.network"] },
+		default: { http: ["https://rpc.testnet.arc.io"] },
+		public: { http: ["https://rpc.testnet.arc.io"] },
 	},
 	blockExplorers: {
 		default: {
@@ -58,7 +58,9 @@ export const wagmiConfig = createConfig({
 	chains: [arcTestnet],
 	connectors: [injected()], // MetaMask, Rabby, Frame, etc.
 	transports: {
-		[arcTestnet.id]: http("https://rpc.testnet.arc.network"),
+		[arcTestnet.id]: http(
+			process.env.NEXT_PUBLIC_ARC_RPC_URL || "https://rpc.testnet.arc.io",
+		),
 	},
 });
 

@@ -1,8 +1,12 @@
-import { ethers } from "hardhat";
+import { network } from "hardhat";
 
 async function main() {
-	const USDC_TESTNET_ADDRESS = process.env.USDC_ADDRESS;
-	const TREASURY_WALLET = process.env.TREASURY_WALLET;
+	const { ethers } = await network.create();
+
+	const USDC_TESTNET_ADDRESS =
+		process.env.NEXT_PUBLIC_USDC_ADDRESS || process.env.USDC_ADDRESS;
+	const TREASURY_WALLET =
+		process.env.NEXT_PUBLIC_ARC_TREASURY_WALLET || process.env.TREASURY_WALLET;
 	const ORACLE_ADDRESS = process.env.ORACLE_ADDRESS;
 
 	if (!USDC_TESTNET_ADDRESS || !TREASURY_WALLET || !ORACLE_ADDRESS) {

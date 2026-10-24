@@ -7,14 +7,14 @@ Features a full **Developer Dashboard** (API keys, live charts, widget preview) 
 
 ## Tech Stack
 
-| Layer        | Choice                                      |
-|-------------|---------------------------------------------|
-| Framework    | Next.js 14 (App Router)                     |
-| Language     | TypeScript (strict)                         |
-| Styling      | Tailwind CSS v3                             |
-| Icons        | Lucide React                                |
-| Fonts        | Inter (Google Fonts) + system mono          |
-| State        | React `useState` / `useEffect` (no Redux)   |
+| Layer     | Choice                                    |
+| --------- | ----------------------------------------- |
+| Framework | Next.js 14 (App Router)                   |
+| Language  | TypeScript (strict)                       |
+| Styling   | Tailwind CSS v3                           |
+| Icons     | Lucide React                              |
+| Fonts     | Inter (Google Fonts) + system mono        |
+| State     | React `useState` / `useEffect` (no Redux) |
 
 ---
 
@@ -29,7 +29,7 @@ Features a full **Developer Dashboard** (API keys, live charts, widget preview) 
 
 ```bash
 # If you downloaded the zip, just cd into the folder:
-cd arc-p2p
+cd peernotary
 
 # Install dependencies
 npm install
@@ -96,26 +96,26 @@ arc-p2p/
 
 Switch using the **Developer View** button in the navbar.
 
-| Widget | Description |
-|--------|-------------|
-| Metrics Row | 24h volume, active escrows, avg settlement time, dispute rate — all with trend indicators |
-| Volume Chart | SVG sparkline with 1D/7D/30D toggle |
-| API Key Panel | Show/hide key, copy-to-clipboard, live SDK status badges |
-| Escrow Pool Chart | Live pool size with mini breakdown |
-| Transaction Feed | Real-time table with status badges (Completed / In Escrow / Disputed) |
-| Widget Preview | Toggle to embed the live P2P widget inline with a code snippet |
-| Network Health | RPC latency, oracle uptime, pending arbitrations, gas cost |
+| Widget            | Description                                                                               |
+| ----------------- | ----------------------------------------------------------------------------------------- |
+| Metrics Row       | 24h volume, active escrows, avg settlement time, dispute rate — all with trend indicators |
+| Volume Chart      | SVG sparkline with 1D/7D/30D toggle                                                       |
+| API Key Panel     | Show/hide key, copy-to-clipboard, live SDK status badges                                  |
+| Escrow Pool Chart | Live pool size with mini breakdown                                                        |
+| Transaction Feed  | Real-time table with status badges (Completed / In Escrow / Disputed)                     |
+| Widget Preview    | Toggle to embed the live P2P widget inline with a code snippet                            |
+| Network Health    | RPC latency, oracle uptime, pending arbitrations, gas cost                                |
 
 ### Trader View (B2C)
 
 Switch using the **Trader View** button.
 
-| Step | Feature |
-|------|---------|
-| Step 1 — Order Creation | NGN/USDC input with live rate calc, platform fee, order metadata |
-| Step 2 — Verification | Deprecation notice for visual receipts; choose Open Banking (OPay/GTBank/Access/Kuda) or ZK Web-Proof (animated TLSNotary terminal) |
-| Step 3 — Escrow Lock | Animated countdown ring, locked funds tracker, Arc escrow status |
-| Step 4 — Chat & Dispute | Real-time P2P chat, send messages, trigger arbitration with slashing penalty disclosure |
+| Step                    | Feature                                                                                                                             |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Step 1 — Order Creation | NGN/USDC input with live rate calc, platform fee, order metadata                                                                    |
+| Step 2 — Verification   | Deprecation notice for visual receipts; choose Open Banking (OPay/GTBank/Access/Kuda) or ZK Web-Proof (animated TLSNotary terminal) |
+| Step 3 — Escrow Lock    | Animated countdown ring, locked funds tracker, Arc escrow status                                                                    |
+| Step 4 — Chat & Dispute | Real-time P2P chat, send messages, trigger arbitration with slashing penalty disclosure                                             |
 
 ---
 
@@ -178,13 +178,13 @@ integration are connected.
 
 ## Smart Contract: Hardhat & Deployment
 
-The escrow contract lives in `contracts/ArcP2PEscrowService.sol`. Hardhat 2 (with `hardhat-toolbox`) compiles it and `scripts/deploy.ts` pushes it to Arc Testnet. The Next.js app never deploys anything — it only talks to a contract that already exists, so deploy first, then wire the address into the frontend.
+The escrow contract lives in `contracts/ArcP2PEscrowService.sol`. Hardhat 3 (with `@nomicfoundation/hardhat-ethers`) compiles it and `scripts/deploy.ts` pushes it to Arc Testnet. The Next.js app never deploys anything — it only talks to a contract that already exists, so deploy first, then wire the address into the frontend.
 
 ### What you need before starting
 
 - Node ≥ 18 and `npm install` already run
 - A throwaway wallet (never your main one) whose private key you can paste into `.env`
-- Testnet USDC in that wallet. On Arc, USDC *is* the gas token, so there is no separate ETH-style faucet step: no USDC, no deployment. Use Circle's faucet at <https://faucet.circle.com> and pick Arc Testnet.
+- Testnet USDC in that wallet. On Arc, USDC _is_ the gas token, so there is no separate ETH-style faucet step: no USDC, no deployment. Use Circle's faucet at <https://faucet.circle.com> and pick Arc Testnet.
 - Three addresses the constructor wants (`constructor(address _usdc, address _treasury, address _oracle)`):
   1. the USDC token contract on Arc Testnet
   2. a treasury address that collects platform fees
@@ -192,13 +192,13 @@ The escrow contract lives in `contracts/ArcP2PEscrowService.sol`. Hardhat 2 (wit
 
 ### Network facts
 
-| Item     | Value                                  |
-|----------|----------------------------------------|
-| Chain ID | `5042002`                              |
-| RPC      | `https://rpc.testnet.arc.network`      |
-| Explorer | `https://testnet.arcscan.app`          |
-| Gas token| USDC (6 decimals, not 18)              |
-| Solidity | `0.8.20` (set in `hardhat.config.ts`)  |
+| Item      | Value                                 |
+| --------- | ------------------------------------- |
+| Chain ID  | `5042002`                             |
+| RPC       | `https://rpc.testnet.arc.io`          |
+| Explorer  | `https://testnet.arcscan.app`         |
+| Gas token | USDC (6 decimals, not 18)             |
+| Solidity  | `0.8.20` (set in `hardhat.config.ts`) |
 
 ### Step 1 — Fill in `.env`
 
@@ -278,16 +278,17 @@ Copy that address now; the script does not save it anywhere. Check it at `https:
 
 ```ts
 export const ESCROW_ADDRESS = process.env.ORACLE_ADDRESS || "0x000…000";
-export const USDC_ADDRESS   = process.env.NEXT_PUBLIC_ARC_TREASURY_ADDRESS || "0x000…001";
+export const USDC_ADDRESS =
+	process.env.NEXT_PUBLIC_ARC_TREASURY_ADDRESS || "0x000…001";
 ```
 
 Those variables look swapped: the escrow address is read from `ORACLE_ADDRESS`, and USDC from a treasury variable (with a slightly different name than the one in `.env`, `..._TREASURY_WALLET`). Also, `ORACLE_ADDRESS` has no `NEXT_PUBLIC_` prefix, so it is `undefined` in browser code and the fallback zero address wins silently. Clean it up like this:
 
 ```ts
 export const ESCROW_ADDRESS = (process.env.NEXT_PUBLIC_ESCROW_ADDRESS ||
-  "0x0000000000000000000000000000000000000000") as `0x${string}`;
+	"0x0000000000000000000000000000000000000000") as `0x${string}`;
 export const USDC_ADDRESS = (process.env.NEXT_PUBLIC_USDC_ADDRESS ||
-  "0x0000000000000000000000000000000000000001") as `0x${string}`;
+	"0x0000000000000000000000000000000000000001") as `0x${string}`;
 ```
 
 and in `.env`:
@@ -309,14 +310,14 @@ If the wallet is asked to interact with `0x000…000`, the frontend is still on 
 
 ### Troubleshooting
 
-| Symptom | Likely cause |
-|---------|--------------|
-| `HH108` / connection errors on `--network arcTestnet` | Wrong RPC `url` in `hardhat.config.ts` |
-| `insufficient funds` or `invalid private key` | `ARC_PRIVATE_KEY` unset (dummy fallback in use) or wallet has no testnet USDC |
-| Deploy succeeds, but every trade reverts | USDC constructor arg was a wallet, not the token |
-| UI shows the zero address | `NEXT_PUBLIC_` prefix missing, or dev server not restarted |
-| `Cannot find module '../typechain-types'` | Run `npx hardhat compile` first |
-| Gas looks wrong in the UI/script | Arc gas is USDC with 6 decimals, so don't assume 18 |
+| Symptom                                               | Likely cause                                                                  |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `HH108` / connection errors on `--network arcTestnet` | Wrong RPC `url` in `hardhat.config.ts`                                        |
+| `insufficient funds` or `invalid private key`         | `ARC_PRIVATE_KEY` unset (dummy fallback in use) or wallet has no testnet USDC |
+| Deploy succeeds, but every trade reverts              | USDC constructor arg was a wallet, not the token                              |
+| UI shows the zero address                             | `NEXT_PUBLIC_` prefix missing, or dev server not restarted                    |
+| `Cannot find module '../typechain-types'`             | Run `npx hardhat compile` first                                               |
+| Gas looks wrong in the UI/script                      | Arc gas is USDC with 6 decimals, so don't assume 18                           |
 
 ### Redeploying
 
@@ -348,15 +349,15 @@ CMD ["npm", "start"]
 
 ## Design System
 
-| Token | Value | Usage |
-|-------|-------|-------|
-| Void Black | `#080C14` | Page background |
-| Card BG | `#0D1322` | Card surfaces |
+| Token           | Value     | Usage                      |
+| --------------- | --------- | -------------------------- |
+| Void Black      | `#080C14` | Page background            |
+| Card BG         | `#0D1322` | Card surfaces              |
 | Electric Violet | `#7C3AED` | Primary CTA, active states |
-| Mint Green | `#10B981` | Confirmed / success states |
-| Amber | `#F59E0B` | In-escrow / warning |
-| Slash Red | `#EF4444` | Disputed / danger |
-| Cyan | `#06B6D4` | Network / info |
+| Mint Green      | `#10B981` | Confirmed / success states |
+| Amber           | `#F59E0B` | In-escrow / warning        |
+| Slash Red       | `#EF4444` | Disputed / danger          |
+| Cyan            | `#06B6D4` | Network / info             |
 
 All components use `backdrop-blur`, `border-slate-700/50` glass borders, and `hover:border-violet-500/40` glow effects.
 

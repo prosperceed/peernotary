@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
 import { requireWalletAddress } from "@/lib/auth/wallet";
 import { readEscrowTrade } from "@/lib/oracle/escrow";
+import { createRustVerificationSession } from "@/lib/tlsn/client";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 
@@ -97,8 +98,30 @@ export async function POST(
 		}
 
 		// ── Create new verification session ───────────────────────────────────
-		const verificationId = createOpaqueId();
-		const sessionId      = createOpaqueId();
+		let verificationId = createOpaqueId();
+		let sessionId      = createOpaqueId();
+
+		if (
+			process.env.TLSN_VERIFIER_URL &&
+			(process.env.TLSN_SERVICE_API_KEY || process.env.TLSN_WEBHOOK_SECRET)
+		) {
+			try {
+				const rustSession = await createRustVerificationSession({
+					tradeId:                  rawTradeId,
+					buyerAddress:             address,
+					sellerAddress:            onChainTrade.seller,
+					expectedAmountUnits:      onChainTrade.cryptoAmount.toString(),
+					expectedCurrency:         "NGN",
+					expectedPaymentReference: "",
+					targetDomain:             allowedHostnames[0],
+					idempotencyKey:           activeKey,
+				});
+				verificationId = rustSession.verificationId;
+				sessionId      = rustSession.sessionId;
+			} catch {
+				// Fall back to local opaque session IDs when Rust service is unreachable
+			}
+		}
 
 		const record: VerificationRecord = {
 			tradeId:          rawTradeId,

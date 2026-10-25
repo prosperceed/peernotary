@@ -1,8 +1,14 @@
 export type ViewMode = "dev" | "trader";
-export type View = "home" | "trade" | "dev";
+export type View = "home" | "trade" | "dev" | "dashboard";
 export type TradeStep = 0 | 1 | 2 | 3;
 export type VerifyMode = "bank" | "zk" | null;
 export type TxStatus = "completed" | "escrow" | "disputed" | "pending";
+export type TxCategory =
+	| "buy"
+	| "sell"
+	| "collateral"
+	| "release"
+	| "dispute";
 export type BadgeColor =
 	| "violet"
 	| "green"
@@ -19,6 +25,41 @@ export interface Transaction {
 	usdc: string;
 	status: TxStatus;
 	time: string;
+}
+
+export interface UserTransaction {
+	id: string;
+	tradeId: string;
+	type: TxCategory;
+	role: "buyer" | "seller";
+	counterparty: string;
+	counterpartyAddress: string;
+	usdcAmount: string;
+	ngnAmount: string;
+	bankName: string;
+	verificationMethod: "TLSNotary ZK" | "Open Banking" | "On-Chain Escrow";
+	status: TxStatus;
+	txHash: string;
+	proofId?: string;
+	timestamp: string;
+}
+
+export interface PeerTradeOffer {
+	tradeId: string;
+	peerHandle: string;
+	peerAddress: string;
+	side: "buy" | "sell";
+	availableUsdc: string;
+	ngnAmount: string;
+	rateNgn: number;
+	minLimitUsdc: string;
+	maxLimitUsdc: string;
+	requiredCollateralUsdc: string;
+	bankName: string;
+	completionRate: string;
+	completedTrades: number;
+	avgReleaseTime: string;
+	createdAt: string;
 }
 
 export interface ChatMessage {

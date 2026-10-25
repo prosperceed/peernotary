@@ -11,6 +11,7 @@ import {
 	Check,
 	LogOut,
 	AlertTriangle,
+	LayoutDashboard,
 } from "lucide-react";
 import {
 	useAccount,
@@ -63,13 +64,29 @@ function LiveTicker() {
 	);
 }
 
-function WalletButton() {
+function WalletButton({
+	onAuthChange,
+}: {
+	onAuthChange?: (authenticated: boolean) => void;
+}) {
 	const { address, chainId, isConnected } = useAccount();
 	const { connectAsync } = useConnect();
 	const { disconnect } = useDisconnect();
 	const { signMessageAsync } = useSignMessage();
 	const { switchChainAsync } = useSwitchChain();
 	const [authenticated, setAuthenticated] = useState(false);
+
+	const updateAuthState = (next: boolean) => {
+		setAuthenticated(next);
+		onAuthChange?.(next);
+		if (typeof window !== "undefined") {
+			window.dispatchEvent(
+				new CustomEvent("peernotary-auth-change", {
+					detail: { authenticated: next },
+				}),
+			);
+		}
+	};
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | undefined>();
 	const [copied, setCopied] = useState(false);
@@ -88,46 +105,68 @@ function WalletButton() {
 	}, []);
 
 	const invalidateSession = async () => {
-		setAuthenticated(false);
+		updateAuthState(false);
 		setOpen(false);
 		await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
 	};
 
 	// ── Sync auth state with wallet connection ────────────────────────────────
 	useEffect(() => {
-		if (!isConnected || !address) {
-			if (previousAddress.current) void invalidateSession();
-			previousAddress.current = address?.toLowerCase();
-			return;
-		}
+		const checkSession = () => {
+			if (!isConnected || !address) {
+				if (previousAddress.current) void invalidateSession();
+				previousAddress.current = address?.toLowerCase();
+				return;
+			}
 
-		const normalizedAddress = address.toLowerCase();
-		const changed =
-			previousAddress.current && previousAddress.current !== normalizedAddress;
-		previousAddress.current = normalizedAddress;
-		if (changed) {
-			void invalidateSession();
-			return;
-		}
+			const normalizedAddress = address.toLowerCase();
+			const changed =
+				previousAddress.current &&
+				previousAddress.current !== normalizedAddress;
+			previousAddress.current = normalizedAddress;
+			if (changed) {
+				void invalidateSession();
+				return;
+			}
 
-		void fetch("/api/auth/session")
-			.then((response) => response.json())
-			.then(
-				(session: {
-					authenticated?: boolean;
-					user?: { walletAddress?: string };
-				}) => {
-					setAuthenticated(
-						Boolean(
+			void fetch("/api/auth/session")
+				.then((response) => response.json())
+				.then(
+					(session: {
+						authenticated?: boolean;
+						user?: { walletAddress?: string };
+					}) => {
+						const isAuth = Boolean(
 							session.authenticated &&
 								session.user?.walletAddress?.toLowerCase() ===
 									normalizedAddress,
-						),
-					);
-				},
-			)
-			.catch(() => setAuthenticated(false));
-	}, [address, isConnected]);
+						);
+						setAuthenticated(isAuth);
+						onAuthChange?.(isAuth);
+					},
+				)
+				.catch(() => {
+					setAuthenticated(false);
+					onAuthChange?.(false);
+				});
+		};
+
+		checkSession();
+
+		const onExternalAuth = (e: Event) => {
+			const custom = e as CustomEvent<{ authenticated?: boolean }>;
+			if (typeof custom.detail?.authenticated === "boolean") {
+				setAuthenticated(custom.detail.authenticated);
+				onAuthChange?.(custom.detail.authenticated);
+			} else {
+				checkSession();
+			}
+		};
+
+		window.addEventListener("peernotary-auth-change", onExternalAuth);
+		return () =>
+			window.removeEventListener("peernotary-auth-change", onExternalAuth);
+	}, [address, isConnected, onAuthChange]);
 
 	const handleWrongChainSwitch = async () => {
 		setBusy(true);
@@ -177,9 +216,9 @@ function WalletButton() {
 			});
 			if (!verifyResponse.ok)
 				throw new Error("Authentication was rejected by the server.");
-			setAuthenticated(true);
+			updateAuthState(true);
 		} catch (caught) {
-			setAuthenticated(false);
+			updateAuthState(false);
 			setError(
 				caught instanceof Error && caught.message.includes("rejected")
 					? "Signature request cancelled."
@@ -440,6 +479,21 @@ function WalletButton() {
 
 					{/* Actions */}
 					<div className="p-2 space-y-0.5">
+						<Link
+							href="/dashboard"
+							onClick={() => setOpen(false)}
+							className={cn(
+								"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl",
+								"text-xs text-[#0d2b1e] font-semibold",
+								"transition-all duration-150",
+								"hover:bg-[#f0f7f3] hover:text-[#1a9e5c]",
+								"active:scale-[0.98]",
+							)}
+						>
+							<LayoutDashboard size={13} className="text-[#1a9e5c] shrink-0" />
+							<span>User Dashboard</span>
+						</Link>
+
 						<button
 							onClick={handleCopy}
 							className={cn(
@@ -510,8 +564,10 @@ function NavLink({
 export default function GlobalNav() {
 	const pathname = usePathname();
 	const [scrolled, setScrolled] = useState(false);
+	const [isAuthed, setIsAuthed] = useState(false);
 
 	const getViewFromPathname = (path: string): View => {
+		if (path.includes("/dashboard")) return "dashboard";
 		if (path.includes("/trade")) return "trade";
 		if (path.includes("/dev")) return "dev";
 		return "home";
@@ -528,6 +584,9 @@ export default function GlobalNav() {
 	const navLinks: { label: string; view: View; source: string }[] = [
 		{ label: "Home", view: "home", source: "/" },
 		{ label: "Trading Portal", view: "trade", source: "/trade" },
+		...(isAuthed
+			? [{ label: "Dashboard", view: "dashboard" as const, source: "/dashboard" }]
+			: []),
 		{ label: "Developer Portal", view: "dev", source: "/dev" },
 	];
 
@@ -570,7 +629,7 @@ export default function GlobalNav() {
 
 				{/* Right: Wallet */}
 				<div className="shrink-0">
-					<WalletButton />
+					<WalletButton onAuthChange={setIsAuthed} />
 				</div>
 			</div>
 

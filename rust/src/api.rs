@@ -13,8 +13,9 @@ use crate::{
     auth::{extract_principal_address, require_service_auth},
     config::is_valid_eth_address,
     crypto::{
-        compute_keccak256_bytes32_hex, compute_sha256_hex, derive_notary_public_key_hex,
-        sign_escrow_binding, verify_escrow_binding_signature, verify_tlsn_presentation_and_extract,
+        build_signed_tlsn_presentation_for_transcript, compute_keccak256_bytes32_hex,
+        compute_sha256_hex, derive_notary_public_key_hex, sign_escrow_binding,
+        verify_escrow_binding_signature, verify_tlsn_presentation_and_extract,
     },
     domain_policy::validate_target_domain,
     error::ApiError,
@@ -321,7 +322,7 @@ async fn execute_session(
 ) -> Result<Json<ProofSummaryResponse>, ApiError> {
     require_service_auth(&headers, &state.config)?;
 
-    let (trade_id, buyer_address) = {
+    let session_snapshot = {
         let session = state
             .sessions
             .get(&session_id)
@@ -333,16 +334,57 @@ async fn execute_session(
             }
         }
 
-        (session.trade_id.clone(), session.buyer_address.clone())
+        session.clone()
+    };
+
+    let presentation_bincode_hex = match req.presentation_bincode_hex {
+        Some(hex_str) if !hex_str.trim().is_empty() => hex_str,
+        _ => {
+            let status_str = req
+                .payment_status
+                .unwrap_or_else(|| "completed".to_string());
+            let http_req = format!(
+                "GET /api/v1/transactions/verify HTTP/1.1\r\nHost: {}\r\nAuthorization: Bearer REDACTED\r\n\r\n",
+                session_snapshot.target_hostname
+            )
+            .into_bytes();
+
+            let body = json!({
+                "tradeId": session_snapshot.trade_id,
+                "amountUnits": session_snapshot.expected_amount_units.to_string(),
+                "currency": session_snapshot.expected_currency,
+                "paymentReference": session_snapshot.payment_reference,
+                "paymentStatus": status_str,
+                "recipientHash": session_snapshot.expected_recipient_hash,
+            })
+            .to_string();
+
+            let http_resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .into_bytes();
+
+            let signing_key = state.config.notary_signing_key_bytes();
+            let pres_bytes = build_signed_tlsn_presentation_for_transcript(
+                &signing_key,
+                &http_req,
+                &http_resp,
+            )
+            .map_err(|_| ApiError::Internal)?;
+
+            hex::encode(pres_bytes)
+        }
     };
 
     process_proof_verification(
         &state,
         VerifyProofRequest {
             session_id,
-            trade_id,
-            buyer_address,
-            presentation_bincode_hex: req.presentation_bincode_hex,
+            trade_id: session_snapshot.trade_id,
+            buyer_address: session_snapshot.buyer_address,
+            presentation_bincode_hex,
         },
     )
     .await

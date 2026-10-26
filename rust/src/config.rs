@@ -35,6 +35,8 @@ pub enum ConfigError {
 
 impl AppConfig {
     pub fn from_env() -> Result<Self, ConfigError> {
+        load_dotenv();
+
         let port: u16 = env::var("PORT")
             .unwrap_or_else(|_| "7047".to_string())
             .parse()
@@ -68,7 +70,8 @@ impl AppConfig {
 
         let webhook_url = env::var("TLSN_WEBHOOK_URL")
             .ok()
-            .filter(|s| !s.trim().is_empty());
+            .and_then(|s| s.split("||").next().map(|part| part.trim().to_string()))
+            .filter(|s| !s.is_empty());
 
         let notary_signing_key_hex = env::var("NOTARY_SIGNING_KEY_HEX").unwrap_or_else(|_| {
             // Deterministic development default only when NOT in production
@@ -89,11 +92,15 @@ impl AppConfig {
         let raw_hosts = env::var("TLSN_ALLOWED_HOSTNAMES")
             .unwrap_or_else(|_| "tlsnotary.org,example.com,api.opayweb.com,api.gtbank.com,api.monnify.com,api.fincra.com,api.withmono.com".to_string());
 
-        let allowed_hostnames: Vec<String> = raw_hosts
+        let mut allowed_hostnames: Vec<String> = raw_hosts
             .split(',')
             .map(|h| h.trim().to_ascii_lowercase())
             .filter(|h| !h.is_empty())
             .collect();
+
+        if !allowed_hostnames.iter().any(|h| h == "tlsnotary.org") {
+            allowed_hostnames.push("tlsnotary.org".to_string());
+        }
 
         if allowed_hostnames.is_empty() {
             return Err(ConfigError::InvalidValue(
@@ -206,4 +213,30 @@ pub fn is_safe_allowed_hostname(host: &str) -> bool {
                 && !label.ends_with('-')
                 && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
         })
+}
+
+fn load_dotenv() {
+    let candidate_paths = [
+        std::path::PathBuf::from(".env"),
+        std::path::PathBuf::from("../.env"),
+        std::path::PathBuf::from("../frontend/.env"),
+    ];
+
+    for path in &candidate_paths {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if trimmed.is_empty() || trimmed.starts_with('#') {
+                    continue;
+                }
+                if let Some((key, val)) = trimmed.split_once('=') {
+                    let k = key.trim();
+                    let v = val.trim().trim_matches('"').trim_matches('\'');
+                    if !k.is_empty() && env::var_os(k).is_none() {
+                        env::set_var(k, v);
+                    }
+                }
+            }
+        }
+    }
 }

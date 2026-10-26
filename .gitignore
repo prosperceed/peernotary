@@ -34,3 +34,6 @@ frontend/typechain-types/
 *.pem
 .vercel
 tsconfig.tsbuildinfo
+
+# Rust
+tlsn_service.key

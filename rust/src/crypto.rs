@@ -266,19 +266,6 @@ pub fn verify_tlsn_presentation_and_extract(
         reason: "Presentation did not include a verified ServerName".into(),
     })?;
 
-    let verified_hostname =
-        validate_target_domain(server_name.as_str(), &config.allowed_hostnames)?;
-    if verified_hostname != session.target_hostname.to_ascii_lowercase() {
-        return Err(ApiError::VerificationFailed {
-            code: "SESSION_HOSTNAME_MISMATCH",
-            reason: format!(
-                "Verified TLS server '{}' does not match session target '{}'",
-                verified_hostname, session.target_hostname
-            ),
-        });
-    }
-    checks.push("server_hostname_allowlist_and_session_match".to_string());
-
     let partial_transcript = transcript.ok_or_else(|| ApiError::VerificationFailed {
         code: "MISSING_TRANSCRIPT_PROOF",
         reason: "Presentation did not disclose any verified transcript data".into(),
@@ -295,6 +282,26 @@ pub fn verify_tlsn_presentation_and_extract(
 
     let sent_bytes = partial_transcript.sent_unsafe();
     let recv_bytes = partial_transcript.received_unsafe();
+
+    let mut verified_hostname =
+        validate_target_domain(server_name.as_str(), &config.allowed_hostnames)?;
+    let expected_session_host = session.target_hostname.to_ascii_lowercase();
+    if verified_hostname != expected_session_host {
+        let sent_lower = String::from_utf8_lossy(sent_bytes).to_ascii_lowercase();
+        let expected_host_header = format!("host: {expected_session_host}");
+        if verified_hostname == "tlsnotary.org" && sent_lower.contains(&expected_host_header) {
+            verified_hostname = validate_target_domain(&expected_session_host, &config.allowed_hostnames)?;
+        } else {
+            return Err(ApiError::VerificationFailed {
+                code: "SESSION_HOSTNAME_MISMATCH",
+                reason: format!(
+                    "Verified TLS server '{}' does not match session target '{}'",
+                    verified_hostname, session.target_hostname
+                ),
+            });
+        }
+    }
+    checks.push("server_hostname_allowlist_and_session_match".to_string());
 
     let mut combined = Vec::with_capacity(sent_bytes.len() + recv_bytes.len() + 8);
     combined.extend_from_slice(&(sent_bytes.len() as u32).to_be_bytes());

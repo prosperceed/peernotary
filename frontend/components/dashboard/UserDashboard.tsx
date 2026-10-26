@@ -142,7 +142,7 @@ export default function UserDashboard() {
 					abi: USDC_ABI,
 					functionName: "balanceOf",
 					args: [address],
-			  }
+				}
 			: undefined,
 	);
 
@@ -242,8 +242,8 @@ export default function UserDashboard() {
 				err instanceof Error && err.message.toLowerCase().includes("reject")
 					? "Signature request was cancelled."
 					: err instanceof Error
-					? err.message
-					: "Authentication failed.",
+						? err.message
+						: "Authentication failed.",
 			);
 		} finally {
 			setAuthBusy(false);
@@ -277,9 +277,7 @@ export default function UserDashboard() {
 			await switchChainAsync({ chainId: arcTestnet.id });
 		} catch (err) {
 			setAuthError(
-				err instanceof Error
-					? err.message
-					: "Could not switch to Arc Testnet.",
+				err instanceof Error ? err.message : "Could not switch to Arc Testnet.",
 			);
 		} finally {
 			setAuthBusy(false);
@@ -317,7 +315,10 @@ export default function UserDashboard() {
 			if (tx.status === "disputed") {
 				disputedCount += 1;
 			}
-			if (tx.verificationMethod === "TLSNotary ZK" && tx.status === "completed") {
+			if (
+				tx.verificationMethod === "TLSNotary ZK" &&
+				tx.status === "completed"
+			) {
 				zkProofCount += 1;
 			}
 		}
@@ -358,7 +359,8 @@ export default function UserDashboard() {
 	const filteredTransactions = useMemo(() => {
 		return transactions.filter((tx) => {
 			if (txTypeFilter !== "all" && tx.type !== txTypeFilter) return false;
-			if (txStatusFilter !== "all" && tx.status !== txStatusFilter) return false;
+			if (txStatusFilter !== "all" && tx.status !== txStatusFilter)
+				return false;
 			if (txSearch.trim()) {
 				const q = txSearch.toLowerCase();
 				return (
@@ -434,24 +436,78 @@ export default function UserDashboard() {
 		} catch (err) {
 			setActionFeedback({
 				type: "error",
-				text:
-					err instanceof Error
-						? err.message
-						: "Could not join peer trade.",
+				text: err instanceof Error ? err.message : "Could not join peer trade.",
 			});
 		} finally {
 			setJoiningTradeId(null);
 		}
 	};
 
-	const handleVerifyAndRelease = async (tradeId: string) => {
+	const handleVerifyAndRelease = async (trade: UserTransaction) => {
+		const { tradeId } = trade;
 		setVerifyingTradeId(tradeId);
 		setActionFeedback(null);
 		try {
-			// Call Next.js + Rust TLSNotary session endpoint when available
-			await fetch(`/api/tlsn/trades/${tradeId}/verify`, {
+			const cleanNgn =
+				Number(trade.ngnAmount.replace(/[^0-9]/g, "")) ||
+				Math.round(parseNumericUsdc(trade.usdcAmount) * RATE);
+
+			const sessionRes = await fetch(`/api/tlsn/trades/${tradeId}/verify`, {
 				method: "POST",
-			}).catch(() => {});
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					action: "create_session",
+					bankName: trade.bankName,
+					expectedAmountNgn: cleanNgn,
+					expectedCurrency: "NGN",
+					expectedAccountNo: "0123456789",
+					cryptoAmountUsdc: trade.usdcAmount,
+				}),
+			});
+
+			const sessionData = (await sessionRes.json()) as {
+				error?: string;
+				session?: { session_id: string };
+			};
+			if (!sessionRes.ok || !sessionData.session?.session_id) {
+				throw new Error(
+					sessionData.error ||
+						"Failed to initialize TLSNotary session on Rust server",
+				);
+			}
+
+			const execRes = await fetch(`/api/tlsn/trades/${tradeId}/verify`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					action: "execute_proof",
+					sessionId: sessionData.session.session_id,
+					bankName: trade.bankName,
+					amountNgn: cleanNgn,
+					recipientAccount: "0123456789",
+					paymentReference: `NIP-${trade.bankName.replace(/\s+/g, "").toUpperCase()}-${tradeId}`,
+					paymentStatus: "SUCCESS",
+					cryptoAmountUsdc: trade.usdcAmount,
+				}),
+			});
+
+			const execData = (await execRes.json()) as {
+				error?: string;
+				verification?: {
+					verified: boolean;
+					on_chain_proof_id_bytes32: string;
+					failure_reasons: string[];
+				};
+			};
+			if (!execRes.ok || !execData.verification?.verified) {
+				throw new Error(
+					execData.verification?.failure_reasons?.join(", ") ||
+						execData.error ||
+						"TLSNotary verification failed",
+				);
+			}
+
+			const proofId = execData.verification.on_chain_proof_id_bytes32;
 
 			if (
 				ESCROW_ADDRESS !== "0x0000000000000000000000000000000000000000" &&
@@ -467,8 +523,7 @@ export default function UserDashboard() {
 					action: "update_status",
 					tradeId,
 					status: "completed",
-					proofId:
-						"0x9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e",
+					proofId,
 				}),
 			});
 			if (res.ok) {
@@ -480,12 +535,15 @@ export default function UserDashboard() {
 
 			setActionFeedback({
 				type: "success",
-				text: `TLSNotary payment proof verified for Trade #${tradeId}. Escrow released.`,
+				text: `TLSNotary ZK proof verified for Trade #${tradeId} (${proofId.slice(0, 14)}...). Escrow released.`,
 			});
-		} catch {
+		} catch (err) {
 			setActionFeedback({
 				type: "error",
-				text: `Verification failed for Trade #${tradeId}.`,
+				text:
+					err instanceof Error
+						? err.message
+						: `Verification failed for Trade #${tradeId}.`,
 			});
 		} finally {
 			setVerifyingTradeId(null);
@@ -591,16 +649,16 @@ export default function UserDashboard() {
 						{!isConnected
 							? "Connect Wallet to Access Dashboard"
 							: isWrongChain
-							? "Switch to Arc Testnet"
-							: "Sign In to Verify Ownership"}
+								? "Switch to Arc Testnet"
+								: "Sign In to Verify Ownership"}
 					</h2>
 
 					<p className="text-xs text-[#7aaa92] mt-1.5 leading-relaxed">
 						{!isConnected
 							? "Your personal dashboard is protected. Connect your Web3 wallet and complete a signature check to view your balances, escrow trades, and peer offers."
 							: isWrongChain
-							? `Switch your wallet network to ${arcTestnet.name} (Chain ID ${arcTestnet.id}) to continue.`
-							: "Sign a one-time authentication message with your connected wallet to unlock your dashboard session."}
+								? `Switch your wallet network to ${arcTestnet.name} (Chain ID ${arcTestnet.id}) to continue.`
+								: "Sign a one-time authentication message with your connected wallet to unlock your dashboard session."}
 					</p>
 
 					{address && (
@@ -757,8 +815,7 @@ export default function UserDashboard() {
 							onClick={() => setActiveTab("create")}
 							className="px-4 py-2.5 rounded-xl text-xs font-semibold text-white transition-all hover:opacity-95 flex items-center gap-1.5"
 							style={{
-								background:
-									"linear-gradient(135deg, #1a9e5c 0%, #22c972 100%)",
+								background: "linear-gradient(135deg, #1a9e5c 0%, #22c972 100%)",
 							}}
 						>
 							<PlusCircle size={14} />
@@ -937,7 +994,9 @@ export default function UserDashboard() {
 													</span>
 													<Badge
 														label={
-															trade.role === "buyer" ? "Buying USDC" : "Selling USDC"
+															trade.role === "buyer"
+																? "Buying USDC"
+																: "Selling USDC"
 														}
 														color={trade.role === "buyer" ? "green" : "blue"}
 													/>
@@ -948,7 +1007,8 @@ export default function UserDashboard() {
 													<span className="font-semibold text-[#0d2b1e]">
 														{trade.counterparty}
 													</span>{" "}
-													· Rail: <span className="font-medium">{trade.bankName}</span>
+													· Rail:{" "}
+													<span className="font-medium">{trade.bankName}</span>
 												</div>
 												<div className="text-xs font-mono text-[#7aaa92]">
 													Amount:{" "}
@@ -960,8 +1020,23 @@ export default function UserDashboard() {
 											</div>
 
 											<div className="flex flex-wrap items-center gap-2">
+												<Link
+													href={`/bank-checkout?tradeId=${encodeURIComponent(
+														trade.tradeId,
+													)}&bank=${encodeURIComponent(
+														trade.bankName,
+													)}&amountNgn=${encodeURIComponent(
+														trade.ngnAmount.replace(/[^0-9]/g, ""),
+													)}&amountUsdc=${encodeURIComponent(
+														trade.usdcAmount,
+													)}&accountNo=0123456789&returnTo=/dashboard`}
+													className="px-3 py-2 rounded-xl text-xs font-semibold border border-[#1a9e5c]/40 bg-[#f0f7f3] text-[#1a9e5c] hover:bg-[#e3f2ea] transition-all flex items-center gap-1"
+												>
+													<span>Pay at {trade.bankName}</span>
+													<ExternalLink size={12} />
+												</Link>
 												<button
-													onClick={() => void handleVerifyAndRelease(trade.tradeId)}
+													onClick={() => void handleVerifyAndRelease(trade)}
 													disabled={verifyingTradeId === trade.tradeId}
 													className="px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-[#1a9e5c] hover:bg-[#15854c] transition-all disabled:opacity-60 flex items-center gap-1.5"
 												>
@@ -972,12 +1047,6 @@ export default function UserDashboard() {
 															: "Verify & Release (TLSN)"}
 													</span>
 												</button>
-												<Link
-													href="/trade"
-													className="px-3 py-2 rounded-xl text-xs font-semibold border border-[#d1e8dc] bg-white text-[#3d6b55] hover:text-[#1a9e5c] hover:bg-[#f0f7f3] transition-all"
-												>
-													Open Portal
-												</Link>
 											</div>
 										</div>
 									))}
@@ -1006,7 +1075,11 @@ export default function UserDashboard() {
 									})}{" "}
 									USDC
 								</div>
-								<SparkLine data={userVolumeSeries} color="#1a9e5c" height={72} />
+								<SparkLine
+									data={userVolumeSeries}
+									color="#1a9e5c"
+									height={72}
+								/>
 							</div>
 
 							<div className="mt-4 pt-3 border-t border-[#d1e8dc] space-y-1.5 text-xs">
@@ -1064,7 +1137,10 @@ export default function UserDashboard() {
 															className="text-[#1a9e5c]"
 														/>
 													) : (
-														<ArrowUpRight size={14} className="text-[#3d6b55]" />
+														<ArrowUpRight
+															size={14}
+															className="text-[#3d6b55]"
+														/>
 													)}
 												</div>
 												<div className="min-w-0">
@@ -1148,8 +1224,8 @@ export default function UserDashboard() {
 												{joiningTradeId === offer.tradeId
 													? "Locking..."
 													: offer.side === "sell"
-													? "Buy"
-													: "Sell"}
+														? "Buy"
+														: "Sell"}
 											</button>
 										</div>
 									</div>
@@ -1271,10 +1347,7 @@ export default function UserDashboard() {
 							<tbody className="divide-y divide-[#d1e8dc]/60">
 								{filteredTransactions.length === 0 ? (
 									<tr>
-										<td
-											colSpan={8}
-											className="py-8 text-center text-[#7aaa92]"
-										>
+										<td colSpan={8} className="py-8 text-center text-[#7aaa92]">
 											No transactions match the selected filters.
 										</td>
 									</tr>
@@ -1501,8 +1574,8 @@ export default function UserDashboard() {
 											{joiningTradeId === offer.tradeId
 												? "Locking Collateral..."
 												: offer.side === "sell"
-												? "Lock 50 USDC & Buy"
-												: "Take Peer Offer"}
+													? "Lock 50 USDC & Buy"
+													: "Take Peer Offer"}
 										</button>
 									</div>
 								</div>
@@ -1526,7 +1599,10 @@ export default function UserDashboard() {
 						</p>
 					</div>
 
-					<form onSubmit={(e) => void handleCreateOffer(e)} className="space-y-4">
+					<form
+						onSubmit={(e) => void handleCreateOffer(e)}
+						className="space-y-4"
+					>
 						<div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-[#f0f7f3] border border-[#d1e8dc]">
 							{(["sell", "buy"] as const).map((side) => (
 								<button
@@ -1540,9 +1616,7 @@ export default function UserDashboard() {
 											: "text-[#3d6b55] hover:text-[#0d2b1e]",
 									)}
 								>
-									{side === "sell"
-										? "Sell USDC for NGN"
-										: "Buy USDC with NGN"}
+									{side === "sell" ? "Sell USDC for NGN" : "Buy USDC with NGN"}
 								</button>
 							))}
 						</div>
@@ -1618,7 +1692,9 @@ export default function UserDashboard() {
 							</div>
 							<div className="flex justify-between text-[#3d6b55]">
 								<span>Protocol Fee</span>
-								<span className="font-mono text-[#0d2b1e]">1.0% on release</span>
+								<span className="font-mono text-[#0d2b1e]">
+									1.0% on release
+								</span>
 							</div>
 						</div>
 

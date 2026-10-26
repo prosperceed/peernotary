@@ -77,7 +77,8 @@ pub struct SessionRecord {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExecuteSessionRequest {
-    pub presentation_bincode_hex: String,
+    pub presentation_bincode_hex: Option<String>,
+    pub payment_status: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

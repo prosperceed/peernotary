@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
 import { requireWalletAddress } from "@/lib/auth/wallet";
 import { readEscrowTrade } from "@/lib/oracle/escrow";
+import { completePeerTrade } from "@/lib/trades/tradeStore";
 import {
 	createRustVerificationSession,
 	evaluateRustEscrowRelease,
@@ -161,6 +162,13 @@ export async function POST(
 			record.rustEvidence = evidenceRes.evidence;
 			record.rustEscrowEvaluation = evalRes;
 			record.updatedAt = new Date();
+
+			if (evalRes.authorized || proofSummary.verified) {
+				completePeerTrade(record.tradeId, {
+					proofId: proofSummary.on_chain_proof_id_bytes32,
+					txHash: record.oracleTransactionHash ?? undefined,
+				});
+			}
 
 			return NextResponse.json({
 				verified: proofSummary.verified,

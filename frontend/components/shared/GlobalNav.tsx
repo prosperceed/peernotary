@@ -129,7 +129,9 @@ function WalletButton({
 				return;
 			}
 
-			void fetch("/api/auth/session")
+			void fetch("/api/auth/session", {
+				headers: { "x-wallet-address": normalizedAddress },
+			})
 				.then((response) => response.json())
 				.then(
 					(session: {

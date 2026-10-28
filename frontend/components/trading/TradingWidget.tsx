@@ -455,27 +455,56 @@ export default function TradingWidget({
 	] as const;
 	const canProceedStep1 = zkDone || bankLinked;
 
-	const handleZkComplete = useCallback((meta: VerifiedProofMeta) => {
-		setVerifiedProof(meta);
-		setZkDone(true);
-	}, []);
+	const handleZkComplete = useCallback(
+		(meta: VerifiedProofMeta) => {
+			setVerifiedProof(meta);
+			setZkDone(true);
+			void fetch("/api/user/dashboard", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					...(escrow.address ? { "x-wallet-address": escrow.address } : {}),
+				},
+				body: JSON.stringify({
+					action: "update_status",
+					tradeId,
+					status: "completed",
+					proofId: meta.proofId,
+				}),
+			}).catch(() => {});
+		},
+		[escrow.address, tradeId],
+	);
 
 	const handleCreateEscrowOrder = async () => {
 		setCreatingOrder(true);
 		try {
+			let txHash: `0x${string}` | undefined;
 			if (
 				escrow.isConnected &&
 				!escrow.isWrongChain &&
 				ESCROW_ADDRESS !== "0x0000000000000000000000000000000000000000"
 			) {
-				await escrow
-					.fundBuyerCollateral({
-						tradeId: BigInt(tradeId),
-						collateralUsdc: "50.00",
-					})
-					.catch(() => {});
+				txHash = await escrow.fundBuyerCollateral({
+					tradeId: BigInt(tradeId),
+					collateralUsdc: "50.00",
+				});
 			}
+			void fetch("/api/user/dashboard", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					...(escrow.address ? { "x-wallet-address": escrow.address } : {}),
+				},
+				body: JSON.stringify({
+					action: "take_offer",
+					tradeId,
+					txHash,
+				}),
+			}).catch(() => {});
 			setStep(1);
+		} catch (err) {
+			console.error("Collateral funding cancelled or failed:", err);
 		} finally {
 			setCreatingOrder(false);
 		}

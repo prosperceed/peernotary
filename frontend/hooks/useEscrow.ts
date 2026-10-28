@@ -21,6 +21,7 @@ import {
 	useReadContract,
 	useConnect,
 	useDisconnect,
+	usePublicClient,
 } from "wagmi";
 import { injected } from "wagmi/connectors";
 import {
@@ -62,11 +63,11 @@ export interface EscrowHookReturn {
 	isLoading: boolean;
 
 	// Actions
-	initiateTrade: (params: InitiateTradeParams) => Promise<bigint | null>;
-	fundBuyerCollateral: (params: FundCollateralParams) => Promise<void>;
-	markFiatSent: (tradeId: bigint) => Promise<void>;
-	releaseFunds: (tradeId: bigint) => Promise<void>;
-	raiseDispute: (tradeId: bigint) => Promise<void>;
+	initiateTrade: (params: InitiateTradeParams) => Promise<`0x${string}`>;
+	fundBuyerCollateral: (params: FundCollateralParams) => Promise<`0x${string}`>;
+	markFiatSent: (tradeId: bigint) => Promise<`0x${string}`>;
+	releaseFunds: (tradeId: bigint) => Promise<`0x${string}`>;
+	raiseDispute: (tradeId: bigint) => Promise<`0x${string}`>;
 	reset: () => void;
 }
 
@@ -87,6 +88,7 @@ export function useEscrow(): EscrowHookReturn {
 	const { address, isConnected, chainId } = useAccount();
 	const { connectAsync } = useConnect();
 	const { disconnect } = useDisconnect();
+	const publicClient = usePublicClient();
 
 	const [txState, setTxState] = useState<EscrowTxState>("idle");
 	const [txHash, setTxHash] = useState<`0x${string}` | undefined>(undefined);
@@ -117,9 +119,9 @@ export function useEscrow(): EscrowHookReturn {
 	const setError = (e: unknown) => {
 		const msg =
 			e instanceof Error
-				? e.message.includes("User rejected")
-					? "Transaction cancelled by user."
-					: e.message.slice(0, 120)
+				? e.message.includes("User rejected") || e.message.includes("rejected")
+					? "Transaction cancelled by user in wallet."
+					: e.message.slice(0, 160)
 				: "An unexpected error occurred.";
 		setErrorMsg(msg);
 		setTxState("error");
@@ -159,11 +161,16 @@ export function useEscrow(): EscrowHookReturn {
 			});
 
 			setTxState("waiting-approval");
-			// Approval mined (wagmi handles receipt internally via the config)
 			setTxHash(approveTx);
 
-			// Small deterministic wait — in production swap for waitForTransactionReceipt
-			await new Promise((r) => setTimeout(r, 2500));
+			if (publicClient) {
+				const receipt = await publicClient.waitForTransactionReceipt({
+					hash: approveTx,
+				});
+				if (receipt.status === "reverted") {
+					throw new Error("Token approval reverted on-chain.");
+				}
+			}
 
 			// Step 2: write
 			setTxState("writing");
@@ -172,9 +179,19 @@ export function useEscrow(): EscrowHookReturn {
 			setTxState("waiting-confirmation");
 			setTxHash(writeTx);
 
+			if (publicClient) {
+				const writeReceipt = await publicClient.waitForTransactionReceipt({
+					hash: writeTx,
+				});
+				if (writeReceipt.status === "reverted") {
+					throw new Error("Escrow transaction reverted on-chain.");
+				}
+			}
+
+			setTxState("confirmed");
 			return writeTx;
 		},
-		[writeUsdc],
+		[publicClient, writeUsdc],
 	);
 
 	// ── initiateTrade ─────────────────────────────────────────────────────────
@@ -184,7 +201,7 @@ export function useEscrow(): EscrowHookReturn {
 			bankName,
 			accountNo,
 			sortCode = "",
-		}: InitiateTradeParams): Promise<bigint | null> => {
+		}: InitiateTradeParams): Promise<`0x${string}`> => {
 			reset();
 			try {
 				const amount = parseUsdc(cryptoAmountUsdc);
@@ -201,15 +218,10 @@ export function useEscrow(): EscrowHookReturn {
 
 				setTxHash(hash);
 				setTxState("confirmed");
-
-				// The tradeId is emitted in the TradeInitiated event.
-				// Return null here — caller should read it from the receipt logs
-				// or listen to the event. In a real integration use
-				// `decodeEventLog` from viem on the receipt.
-				return null;
+				return hash;
 			} catch (e) {
 				setError(e);
-				return null;
+				throw e;
 			}
 		},
 		[reset, approveAndWrite, writeEscrow],
@@ -217,7 +229,10 @@ export function useEscrow(): EscrowHookReturn {
 
 	// ── fundBuyerCollateral ───────────────────────────────────────────────────
 	const fundBuyerCollateral = useCallback(
-		async ({ tradeId, collateralUsdc = "50.00" }: FundCollateralParams) => {
+		async ({
+			tradeId,
+			collateralUsdc = "50.00",
+		}: FundCollateralParams): Promise<`0x${string}`> => {
 			reset();
 			try {
 				const collateral = parseUsdc(collateralUsdc);
@@ -235,8 +250,10 @@ export function useEscrow(): EscrowHookReturn {
 
 				setTxHash(hash);
 				setTxState("confirmed");
+				return hash;
 			} catch (e) {
 				setError(e);
+				throw e;
 			}
 		},
 		[reset, approveAndWrite, writeEscrow],
@@ -244,7 +261,7 @@ export function useEscrow(): EscrowHookReturn {
 
 	// ── markFiatSent ──────────────────────────────────────────────────────────
 	const markFiatSent = useCallback(
-		async (tradeId: bigint) => {
+		async (tradeId: bigint): Promise<`0x${string}`> => {
 			reset();
 			try {
 				setTxState("writing");
@@ -256,18 +273,27 @@ export function useEscrow(): EscrowHookReturn {
 				});
 				setTxHash(hash);
 				setTxState("waiting-confirmation");
-				// Caller should await useWaitForTransactionReceipt
+				if (publicClient) {
+					const receipt = await publicClient.waitForTransactionReceipt({
+						hash,
+					});
+					if (receipt.status === "reverted") {
+						throw new Error("Mark fiat sent transaction reverted on-chain.");
+					}
+				}
 				setTxState("confirmed");
+				return hash;
 			} catch (e) {
 				setError(e);
+				throw e;
 			}
 		},
-		[reset, writeEscrow],
+		[reset, writeEscrow, publicClient],
 	);
 
 	// ── releaseFunds ──────────────────────────────────────────────────────────
 	const releaseFunds = useCallback(
-		async (tradeId: bigint) => {
+		async (tradeId: bigint): Promise<`0x${string}`> => {
 			reset();
 			try {
 				setTxState("writing");
@@ -278,17 +304,28 @@ export function useEscrow(): EscrowHookReturn {
 					args: [tradeId],
 				});
 				setTxHash(hash);
+				setTxState("waiting-confirmation");
+				if (publicClient) {
+					const receipt = await publicClient.waitForTransactionReceipt({
+						hash,
+					});
+					if (receipt.status === "reverted") {
+						throw new Error("Release funds transaction reverted on-chain.");
+					}
+				}
 				setTxState("confirmed");
+				return hash;
 			} catch (e) {
 				setError(e);
+				throw e;
 			}
 		},
-		[reset, writeEscrow],
+		[reset, writeEscrow, publicClient],
 	);
 
 	// ── raiseDispute ──────────────────────────────────────────────────────────
 	const raiseDispute = useCallback(
-		async (tradeId: bigint) => {
+		async (tradeId: bigint): Promise<`0x${string}`> => {
 			reset();
 			try {
 				setTxState("writing");
@@ -299,12 +336,23 @@ export function useEscrow(): EscrowHookReturn {
 					args: [tradeId],
 				});
 				setTxHash(hash);
+				setTxState("waiting-confirmation");
+				if (publicClient) {
+					const receipt = await publicClient.waitForTransactionReceipt({
+						hash,
+					});
+					if (receipt.status === "reverted") {
+						throw new Error("Raise dispute transaction reverted on-chain.");
+					}
+				}
 				setTxState("confirmed");
+				return hash;
 			} catch (e) {
 				setError(e);
+				throw e;
 			}
 		},
-		[reset, writeEscrow],
+		[reset, writeEscrow, publicClient],
 	);
 
 	return {

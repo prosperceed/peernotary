@@ -217,7 +217,10 @@ function BankCheckoutContent() {
 			// Sync completed status to user dashboard ledger
 			await fetch("/api/user/dashboard", {
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
+				headers: {
+					"Content-Type": "application/json",
+					...(address ? { "x-wallet-address": address } : {}),
+				},
 				body: JSON.stringify({
 					action: "update_status",
 					tradeId,

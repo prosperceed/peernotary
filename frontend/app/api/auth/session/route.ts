@@ -1,10 +1,17 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth/wallet";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
 	try {
-		const user = await getAuthenticatedUser();
-		return NextResponse.json({ authenticated: true, user: { walletAddress: user.walletAddress, createdAt: user.createdAt } });
+		const expectedAddress =
+			request.headers.get("x-wallet-address") ||
+			request.nextUrl.searchParams.get("address") ||
+			undefined;
+		const user = await getAuthenticatedUser(expectedAddress);
+		return NextResponse.json({
+			authenticated: true,
+			user: { walletAddress: user.walletAddress, createdAt: user.createdAt },
+		});
 	} catch {
 		return NextResponse.json({ authenticated: false, user: null });
 	}

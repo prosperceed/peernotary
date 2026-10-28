@@ -287,6 +287,13 @@ export const USDC_ABI = [
 		inputs: [{ name: "account", type: "address" }],
 		outputs: [{ type: "uint256" }],
 	},
+	{
+		name: "decimals",
+		type: "function",
+		stateMutability: "view",
+		inputs: [],
+		outputs: [{ type: "uint8" }],
+	},
 ] as const;
 
 // ─── TRADE STATUS ENUM (mirrors Solidity) ────────────────────────────────────

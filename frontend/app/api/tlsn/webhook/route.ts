@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { keccak256, toUtf8Bytes } from "ethers";
 import { verificationStore } from "@/app/api/tlsn/trades/[tradeId]/verify/route";
 import { oracleRelease } from "@/lib/oracle/escrow";
+import { completePeerTrade } from "@/lib/trades/tradeStore";
 import {
 	validateTlsnPayload,
 	type TlsnWebhookPayload,
@@ -99,6 +100,10 @@ export async function POST(request: NextRequest) {
 			record.status = "completed";
 			record.oracleTransactionHash = transaction.transactionHash;
 			record.updatedAt = new Date();
+			completePeerTrade(record.tradeId, {
+				proofId,
+				txHash: transaction.transactionHash,
+			});
 
 			return NextResponse.json({
 				received: true,

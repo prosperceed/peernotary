@@ -1,6 +1,6 @@
-# PeerNotary — NGN/USDC Escrow As-a-Service
+# PeerNotary — P2P Escrow As-a-Service
 
-A production-ready B2B2C developer platform + P2P trading dApp built on the **Arc Network**.  
+A secure B2B2C developer platform and P2P anti-fraud trading dApp built on the **Arc Network**.  
 Features a full **Developer Dashboard** (API keys, live charts, widget preview) and an interactive **P2P Escrow Trading Widget** (4-step flow with ZK proofs, open banking, and dispute arbitration).
 
 ---
@@ -35,10 +35,12 @@ peernotary/
 ### 1. Frontend & Smart Contracts (`frontend/`)
 
 #### Prerequisites
+
 - **Node.js ≥ 18** (`node -v`)
 - **npm ≥ 9** (or `yarn` / `pnpm`)
 
 #### Install & Run Dev Server
+
 ```bash
 cd frontend
 
@@ -52,6 +54,7 @@ npm run dev
 Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 #### Build & Typecheck
+
 ```bash
 cd frontend
 
@@ -69,9 +72,11 @@ npm run build
 Production-grade Rust verification service built on `tlsn-core` (`v0.1.0-alpha.12`), `axum`, `tokio`, `k256`, and `tiny-keccak`. It enforces cryptographic verification of TLSNotary `Presentation` payloads (Notary key pinning, X.509 certificate chain validation, BLAKE3 Merkle transcript commitments), exact integer financial comparisons, SSRF/domain allowlist enforcement, anti-replay tracking, and domain-separated secp256k1 escrow binding attestations (`PEERNOTARY_TLSN_ESCROW_V1`).
 
 #### Prerequisites
+
 - **Rust & Cargo** (`rustc --version`, `cargo --version`)
 
 #### Configure, Test & Run
+
 ```bash
 cd rust
 cp .env.example .env
@@ -91,6 +96,7 @@ cargo run
 ```
 
 #### Rust Service API Surface
+
 - `GET /health/live` — Liveness probe
 - `GET /health/ready` & `GET /health` — Readiness & cryptographic subsystem status (redacts all secrets)
 - `POST /api/v1/sessions` — Initialize an authenticated TLSNotary verification session bound to `(tradeId, buyerAddress, expectedAmountUnits, expectedCurrency, targetDomain, chainId, escrowAddress)`
@@ -159,6 +165,7 @@ Update `NEXT_PUBLIC_ESCROW_ADDRESS` in `frontend/.env` with the deployed contrac
 ## Deployment (Railway & Vercel)
 
 The monorepo structure allows the frontend and Rust service to be deployed independently:
+
 - **Frontend (Next.js)**: Set root directory / base directory to `frontend` on Railway or Vercel.
 - **Rust Service**: Set root directory to `rust` on Railway with a Cargo build when ready for production.
 

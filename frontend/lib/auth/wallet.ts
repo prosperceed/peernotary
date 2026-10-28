@@ -192,12 +192,20 @@ export async function recordAuthenticationFailure(_address?: string): Promise<vo
 	// No-op in pure in-memory mode — failures are not persisted
 }
 
-export async function getAuthenticatedUser(): Promise<UserRecord> {
+export async function getAuthenticatedUser(expectedAddress?: string): Promise<UserRecord> {
 	const token = (await cookies()).get(COOKIE_NAME)?.value;
 	if (!token) throw new Error("Authentication required");
 
 	const session = inMemorySessions.get(hashToken(token));
 	if (!session || session.expiresAt <= new Date()) throw new Error("Authentication required");
+
+	if (
+		expectedAddress &&
+		session.address.toLowerCase() !== expectedAddress.toLowerCase()
+	) {
+		await logoutWallet();
+		throw new Error("Wallet session mismatch");
+	}
 
 	const user = inMemoryUsers.get(session.address.toLowerCase());
 	if (!user) throw new Error("Authentication required");
@@ -213,12 +221,21 @@ export async function logoutWallet(): Promise<void> {
 	cookieStore.delete(COOKIE_NAME);
 }
 
-export async function requireWalletAddress(): Promise<string> {
+export async function requireWalletAddress(expectedAddress?: string): Promise<string> {
 	const token = (await cookies()).get(COOKIE_NAME)?.value;
 	if (!token) throw new Error("Authentication required");
 
 	const session = inMemorySessions.get(hashToken(token));
 	if (!session || session.expiresAt <= new Date()) throw new Error("Authentication required");
+
+	if (
+		expectedAddress &&
+		session.address.toLowerCase() !== expectedAddress.toLowerCase()
+	) {
+		await logoutWallet();
+		throw new Error("Wallet session mismatch");
+	}
+
 	return session.address;
 }
 

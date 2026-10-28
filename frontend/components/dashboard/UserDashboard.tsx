@@ -1,25 +1,25 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import {
-	Wallet,
-	ArrowUpRight,
-	ArrowDownLeft,
-	Shield,
-	Zap,
-	Lock,
-	Search,
-	RefreshCw,
-	ExternalLink,
-	CheckCircle2,
-	AlertTriangle,
+	LayoutDashboard,
+	Layers,
+	Receipt,
 	Users,
 	PlusCircle,
-	Activity,
+	ExternalLink,
+	RefreshCw,
 	Copy,
 	Check,
-	Clock,
+	Menu,
+	X,
+	Search,
+	AlertCircle,
+	CheckCircle,
+	Wallet,
+	Lock,
+	ArrowUpRight,
 } from "lucide-react";
 import {
 	useAccount,
@@ -30,7 +30,7 @@ import {
 	useSwitchChain,
 } from "wagmi";
 import { injected } from "wagmi/connectors";
-import { Badge, MetricCard, SparkLine } from "@/components/shared";
+import { formatUnits } from "viem";
 import { useEscrow } from "@/hooks/useEscrow";
 import {
 	arcTestnet,
@@ -43,36 +43,13 @@ import {
 } from "@/lib/web3/arcConfig";
 import { cn, RATE } from "@/lib/utils";
 import type {
-	BadgeColor,
 	PeerTradeOffer,
 	TxCategory,
 	TxStatus,
 	UserTransaction,
 } from "@/types";
 
-type DashboardTab = "overview" | "transactions" | "peers" | "create";
-
-const statusMeta: Record<TxStatus, { label: string; color: BadgeColor }> = {
-	completed: { label: "Completed", color: "green" },
-	escrow: { label: "In Escrow", color: "amber" },
-	disputed: { label: "Disputed", color: "red" },
-	pending: { label: "Open Offer", color: "violet" },
-};
-
-const categoryMeta: Record<
-	TxCategory,
-	{ label: string; color: BadgeColor; sign: "+" | "-" | "" }
-> = {
-	buy: { label: "Buy USDC", color: "green", sign: "+" },
-	sell: { label: "Sell USDC", color: "blue", sign: "-" },
-	collateral: { label: "Collateral Lock", color: "amber", sign: "-" },
-	release: { label: "Oracle Release", color: "cyan", sign: "+" },
-	dispute: { label: "Dispute", color: "red", sign: "" },
-};
-
-const userVolumeSeries = [
-	180, 310, 240, 520, 490, 610, 740, 680, 920, 860, 1120, 1290, 1480, 1890,
-];
+type DashboardTab = "overview" | "escrows" | "transactions" | "peers" | "create";
 
 const NIGERIAN_BANKS = [
 	"GTBank",
@@ -100,6 +77,8 @@ export default function UserDashboard() {
 	const [authError, setAuthError] = useState<string | null>(null);
 
 	const [activeTab, setActiveTab] = useState<DashboardTab>("overview");
+	const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
 	const [transactions, setTransactions] = useState<UserTransaction[]>([]);
 	const [peerOffers, setPeerOffers] = useState<PeerTradeOffer[]>([]);
 	const [loadingData, setLoadingData] = useState(false);
@@ -108,6 +87,21 @@ export default function UserDashboard() {
 		text: string;
 	} | null>(null);
 	const [copiedAddr, setCopiedAddr] = useState(false);
+	const previousAddressRef = useRef<string | undefined>(undefined);
+
+	// Immediately invalidate stale session and wipe previous wallet data on address change
+	useEffect(() => {
+		const current = address?.toLowerCase();
+		if (previousAddressRef.current && previousAddressRef.current !== current) {
+			setAuthenticated(false);
+			setTransactions([]);
+			setPeerOffers([]);
+			setActionFeedback(null);
+			setAuthError(null);
+			void fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+		}
+		previousAddressRef.current = current;
+	}, [address]);
 
 	// Filters for Transactions tab
 	const [txTypeFilter, setTxTypeFilter] = useState<TxCategory | "all">("all");
@@ -115,26 +109,25 @@ export default function UserDashboard() {
 	const [txSearch, setTxSearch] = useState("");
 
 	// Filters for Peer Market tab
-	const [peerSideFilter, setPeerSideFilter] = useState<"all" | "buy" | "sell">(
-		"all",
-	);
+	const [peerSideFilter, setPeerSideFilter] = useState<"all" | "buy" | "sell">("all");
 	const [peerBankFilter, setPeerBankFilter] = useState<string>("all");
 	const [peerSearch, setPeerSearch] = useState("");
 	const [joiningTradeId, setJoiningTradeId] = useState<string | null>(null);
 	const [verifyingTradeId, setVerifyingTradeId] = useState<string | null>(null);
 
-	// Create Offer state
+	// Create Offer form state
 	const [offerSide, setOfferSide] = useState<"sell" | "buy">("sell");
 	const [offerUsdc, setOfferUsdc] = useState("250.00");
 	const [offerBank, setOfferBank] = useState("GTBank");
 	const [offerAccountNo, setOfferAccountNo] = useState("");
 	const [creatingOffer, setCreatingOffer] = useState(false);
 
-	// Read native USDC gas/balance on Arc Testnet and ERC-20 USDC balance
+	// Real on-chain balance tracking
 	const { data: nativeBalance, refetch: refetchNative } = useBalance({
 		address,
 		chainId: arcTestnet.id,
 	});
+
 	const { data: erc20BalanceRaw, refetch: refetchErc20 } = useReadContract(
 		address
 			? {
@@ -146,6 +139,18 @@ export default function UserDashboard() {
 			: undefined,
 	);
 
+	// Track real wallet USDC balance (prioritize ERC-20 contract balance if set; fallback to native USDC)
+	const walletUsdc = useMemo(() => {
+		if (typeof erc20BalanceRaw === "bigint" && erc20BalanceRaw > 0n) {
+			return parseFloat(formatUsdc(erc20BalanceRaw));
+		}
+		if (nativeBalance && typeof nativeBalance.value === "bigint") {
+			const parsed = parseFloat(formatUnits(nativeBalance.value, nativeBalance.decimals));
+			return Number.isFinite(parsed) ? parsed : 0;
+		}
+		return 0;
+	}, [erc20BalanceRaw, nativeBalance]);
+
 	const fetchDashboardData = useCallback(async () => {
 		if (!isConnected || !address) {
 			setAuthenticated(false);
@@ -155,9 +160,13 @@ export default function UserDashboard() {
 
 		setLoadingData(true);
 		try {
-			const res = await fetch("/api/user/dashboard", { cache: "no-store" });
+			const res = await fetch("/api/user/dashboard", {
+				cache: "no-store",
+				headers: { "x-wallet-address": address },
+			});
 			if (!res.ok) {
 				setAuthenticated(false);
+				setTransactions([]);
 				return;
 			}
 			const data = (await res.json()) as {
@@ -176,9 +185,12 @@ export default function UserDashboard() {
 				setPeerOffers(data.peerOffers ?? []);
 			} else {
 				setAuthenticated(false);
+				setTransactions([]);
+				setPeerOffers(data.peerOffers ?? []);
 			}
 		} catch {
 			setAuthenticated(false);
+			setTransactions([]);
 		} finally {
 			setCheckingSession(false);
 			setLoadingData(false);
@@ -187,13 +199,11 @@ export default function UserDashboard() {
 
 	useEffect(() => {
 		void fetchDashboardData();
-
 		const onAuthChange = () => {
 			void fetchDashboardData();
 		};
 		window.addEventListener("peernotary-auth-change", onAuthChange);
-		return () =>
-			window.removeEventListener("peernotary-auth-change", onAuthChange);
+		return () => window.removeEventListener("peernotary-auth-change", onAuthChange);
 	}, [fetchDashboardData]);
 
 	const authenticateWallet = async (targetAddress: `0x${string}`) => {
@@ -209,32 +219,19 @@ export default function UserDashboard() {
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ address: targetAddress }),
 			});
-			if (!challengeRes.ok) {
-				throw new Error("Could not initialize sign-in challenge.");
-			}
-			const challenge = (await challengeRes.json()) as {
-				nonce: string;
-				message: string;
-			};
+			if (!challengeRes.ok) throw new Error("Could not initialize sign in challenge.");
+			const challenge = (await challengeRes.json()) as { nonce: string; message: string };
 			const signature = await signMessageAsync({ message: challenge.message });
 
 			const verifyRes = await fetch("/api/auth/verify", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					address: targetAddress,
-					nonce: challenge.nonce,
-					signature,
-				}),
+				body: JSON.stringify({ address: targetAddress, nonce: challenge.nonce, signature }),
 			});
-			if (!verifyRes.ok) {
-				throw new Error("Wallet signature verification failed.");
-			}
+			if (!verifyRes.ok) throw new Error("Wallet signature verification failed.");
 
 			window.dispatchEvent(
-				new CustomEvent("peernotary-auth-change", {
-					detail: { authenticated: true },
-				}),
+				new CustomEvent("peernotary-auth-change", { detail: { authenticated: true } }),
 			);
 			await fetchDashboardData();
 		} catch (err) {
@@ -256,9 +253,7 @@ export default function UserDashboard() {
 		try {
 			const res = await connectAsync({ connector: injected() });
 			const connectedAddr = res.accounts[0];
-			if (connectedAddr) {
-				await authenticateWallet(connectedAddr);
-			}
+			if (connectedAddr) await authenticateWallet(connectedAddr);
 		} catch (err) {
 			setAuthError(
 				err instanceof Error && err.message.toLowerCase().includes("reject")
@@ -276,9 +271,7 @@ export default function UserDashboard() {
 		try {
 			await switchChainAsync({ chainId: arcTestnet.id });
 		} catch (err) {
-			setAuthError(
-				err instanceof Error ? err.message : "Could not switch to Arc Testnet.",
-			);
+			setAuthError(err instanceof Error ? err.message : "Could not switch to Arc Testnet.");
 		} finally {
 			setAuthBusy(false);
 		}
@@ -291,14 +284,18 @@ export default function UserDashboard() {
 		setTimeout(() => setCopiedAddr(false), 1500);
 	};
 
-	// Calculate balances and portfolio stats
+	// Active Escrows calculation
+	const activeEscrows = useMemo(
+		() => transactions.filter((tx) => tx.status === "escrow"),
+		[transactions],
+	);
+
+	// Portfolio metrics based on real wallet balance and actual transactions
 	const stats = useMemo(() => {
 		let totalVolumeUsdc = 0;
 		let lockedEscrowUsdc = 0;
 		let lockedCollateralUsdc = 0;
 		let completedCount = 0;
-		let disputedCount = 0;
-		let zkProofCount = 0;
 
 		for (const tx of transactions) {
 			const amt = parseNumericUsdc(tx.usdcAmount);
@@ -309,140 +306,155 @@ export default function UserDashboard() {
 			if (tx.status === "escrow" && tx.type !== "collateral") {
 				lockedEscrowUsdc += amt;
 			}
-			if (tx.type === "collateral" && tx.status === "completed") {
+			if (tx.type === "collateral" && tx.status === "escrow") {
 				lockedCollateralUsdc += amt;
-			}
-			if (tx.status === "disputed") {
-				disputedCount += 1;
-			}
-			if (
-				tx.verificationMethod === "TLSNotary ZK" &&
-				tx.status === "completed"
-			) {
-				zkProofCount += 1;
 			}
 		}
 
-		const onChainMicro =
-			(typeof erc20BalanceRaw === "bigint" ? erc20BalanceRaw : 0n) +
-			(nativeBalance?.value ?? 0n);
-		const onChainUsdc =
-			onChainMicro > 0n ? parseFloat(formatUsdc(onChainMicro)) : 1420.5;
-
-		const totalResolved = completedCount + disputedCount;
-		const completionRate =
-			totalResolved > 0
-				? ((completedCount / totalResolved) * 100).toFixed(1)
-				: "100.0";
-
 		return {
-			walletUsdc: onChainUsdc,
-			walletNgn: Math.round(onChainUsdc * RATE),
+			walletUsdc,
+			walletNgn: Math.round(walletUsdc * RATE),
 			lockedEscrowUsdc,
 			lockedCollateralUsdc,
 			totalVolumeUsdc,
 			totalVolumeNgn: Math.round(totalVolumeUsdc * RATE),
 			completedCount,
-			completionRate,
-			zkProofCount,
 		};
-	}, [erc20BalanceRaw, nativeBalance?.value, transactions]);
+	}, [transactions, walletUsdc]);
 
-	const activeEscrowTrades = useMemo(
-		() =>
-			transactions.filter(
-				(tx) => tx.status === "escrow" && tx.type !== "collateral",
-			),
-		[transactions],
-	);
-
-	const filteredTransactions = useMemo(() => {
-		return transactions.filter((tx) => {
-			if (txTypeFilter !== "all" && tx.type !== txTypeFilter) return false;
-			if (txStatusFilter !== "all" && tx.status !== txStatusFilter)
-				return false;
-			if (txSearch.trim()) {
-				const q = txSearch.toLowerCase();
-				return (
-					tx.id.toLowerCase().includes(q) ||
-					tx.tradeId.toLowerCase().includes(q) ||
-					tx.counterparty.toLowerCase().includes(q) ||
-					tx.bankName.toLowerCase().includes(q) ||
-					tx.txHash.toLowerCase().includes(q)
-				);
-			}
-			return true;
-		});
-	}, [transactions, txSearch, txStatusFilter, txTypeFilter]);
-
-	const filteredPeerOffers = useMemo(() => {
-		return peerOffers.filter((offer) => {
-			if (peerSideFilter !== "all" && offer.side !== peerSideFilter)
-				return false;
-			if (peerBankFilter !== "all" && offer.bankName !== peerBankFilter)
-				return false;
-			if (peerSearch.trim()) {
-				const q = peerSearch.toLowerCase();
-				return (
-					offer.peerHandle.toLowerCase().includes(q) ||
-					offer.peerAddress.toLowerCase().includes(q) ||
-					offer.bankName.toLowerCase().includes(q) ||
-					offer.tradeId.toLowerCase().includes(q)
-				);
-			}
-			return true;
-		});
-	}, [peerBankFilter, peerOffers, peerSearch, peerSideFilter]);
-
+	// Join peer trade with real collateral locking
 	const handleTakePeerOffer = async (offer: PeerTradeOffer) => {
+		if (address && offer.peerAddress.toLowerCase() === address.toLowerCase()) {
+			setActionFeedback({
+				type: "error",
+				text: "You cannot buy or take an offer that you published.",
+			});
+			return;
+		}
+
 		setJoiningTradeId(offer.tradeId);
 		setActionFeedback(null);
 		try {
-			if (
-				ESCROW_ADDRESS !== "0x0000000000000000000000000000000000000000" &&
-				/^\d+$/.test(offer.tradeId)
-			) {
-				await escrow
-					.fundBuyerCollateral({
-						tradeId: BigInt(offer.tradeId),
-						collateralUsdc: offer.requiredCollateralUsdc,
-					})
-					.catch(() => {});
+			let txHash: `0x${string}` | undefined;
+
+			// If escrow contract is configured, execute on-chain transaction
+			if (ESCROW_ADDRESS !== "0x0000000000000000000000000000000000000000" && /^\d+$/.test(offer.tradeId)) {
+				txHash = await escrow.fundBuyerCollateral({
+					tradeId: BigInt(offer.tradeId),
+					collateralUsdc: offer.requiredCollateralUsdc,
+				});
 			}
 
+			// Record state only after successful transaction confirmation
 			const res = await fetch("/api/user/dashboard", {
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
+				headers: {
+					"Content-Type": "application/json",
+					...(address ? { "x-wallet-address": address } : {}),
+				},
 				body: JSON.stringify({
 					action: "take_offer",
 					tradeId: offer.tradeId,
-					txHash: escrow.txHash,
+					txHash,
 				}),
 			});
 
-			if (!res.ok) throw new Error("Failed to lock collateral for peer trade.");
-			const updated = (await res.json()) as {
+			if (!res.ok) throw new Error("Failed to record trade joining on server.");
+			const data = (await res.json()) as {
 				transactions?: UserTransaction[];
 				peerOffers?: PeerTradeOffer[];
 			};
-			if (updated.transactions) setTransactions(updated.transactions);
-			if (updated.peerOffers) setPeerOffers(updated.peerOffers);
+			if (data.transactions) setTransactions(data.transactions);
+			if (data.peerOffers) setPeerOffers(data.peerOffers);
 
 			setActionFeedback({
 				type: "success",
-				text: `Locked ${offer.requiredCollateralUsdc} USDC collateral for Trade #${offer.tradeId} with ${offer.peerHandle}.`,
+				text: `Locked ${offer.requiredCollateralUsdc} USDC collateral for Trade #${offer.tradeId}.`,
 			});
-			setActiveTab("overview");
+			setActiveTab("escrows");
+			await refetchNative();
+			await refetchErc20();
+			void fetchDashboardData();
 		} catch (err) {
 			setActionFeedback({
 				type: "error",
-				text: err instanceof Error ? err.message : "Could not join peer trade.",
+				text: err instanceof Error ? err.message : "Failed to join peer trade.",
 			});
 		} finally {
 			setJoiningTradeId(null);
 		}
 	};
 
+	// Post trade offer on-chain
+	const handleCreateOffer = async (e: React.FormEvent) => {
+		e.preventDefault();
+		const numeric = parseNumericUsdc(offerUsdc);
+		if (numeric < 10) {
+			setActionFeedback({ type: "error", text: "Minimum offer size is 10.00 USDC." });
+			return;
+		}
+		if (offerAccountNo.trim().length < 10) {
+			setActionFeedback({ type: "error", text: "Enter a valid 10-digit NUBAN bank account number." });
+			return;
+		}
+
+		setCreatingOffer(true);
+		setActionFeedback(null);
+		try {
+			let txHash: `0x${string}` | undefined;
+
+			if (ESCROW_ADDRESS !== "0x0000000000000000000000000000000000000000") {
+				txHash = await escrow.initiateTrade({
+					cryptoAmountUsdc: numeric.toFixed(2),
+					bankName: offerBank,
+					accountNo: offerAccountNo.trim(),
+				});
+			}
+
+			const res = await fetch("/api/user/dashboard", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					...(address ? { "x-wallet-address": address } : {}),
+				},
+				body: JSON.stringify({
+					action: "create_offer",
+					side: offerSide,
+					usdcAmount: numeric.toFixed(2),
+					bankName: offerBank,
+					txHash,
+				}),
+			});
+
+			if (!res.ok) throw new Error("Failed to publish peer trade offer.");
+			const data = (await res.json()) as {
+				offer?: PeerTradeOffer;
+				transactions?: UserTransaction[];
+				peerOffers?: PeerTradeOffer[];
+			};
+
+			if (data.transactions) setTransactions(data.transactions);
+			if (data.peerOffers) setPeerOffers(data.peerOffers);
+
+			setOfferAccountNo("");
+			setActionFeedback({
+				type: "success",
+				text: `Published ${numeric.toFixed(2)} USDC ${offerSide} offer on Arc Escrow.`,
+			});
+			setActiveTab("peers");
+			await refetchNative();
+			await refetchErc20();
+		} catch (err) {
+			setActionFeedback({
+				type: "error",
+				text: err instanceof Error ? err.message : "Could not create trade offer.",
+			});
+		} finally {
+			setCreatingOffer(false);
+		}
+	};
+
+	// Verify TLSNotary proof and release escrow
 	const handleVerifyAndRelease = async (trade: UserTransaction) => {
 		const { tradeId } = trade;
 		setVerifyingTradeId(tradeId);
@@ -458,7 +470,9 @@ export default function UserDashboard() {
 				body: JSON.stringify({
 					action: "create_session",
 					bankName: trade.bankName,
+					amountUnits: cleanNgn,
 					expectedAmountNgn: cleanNgn,
+					currency: "NGN",
 					expectedCurrency: "NGN",
 					expectedAccountNo: "0123456789",
 					cryptoAmountUsdc: trade.usdcAmount,
@@ -468,12 +482,11 @@ export default function UserDashboard() {
 			const sessionData = (await sessionRes.json()) as {
 				error?: string;
 				session?: { session_id: string };
+				sessionId?: string;
 			};
-			if (!sessionRes.ok || !sessionData.session?.session_id) {
-				throw new Error(
-					sessionData.error ||
-						"Failed to initialize TLSNotary session on Rust server",
-				);
+			const activeSessionId = sessionData.session?.session_id ?? sessionData.sessionId;
+			if (!sessionRes.ok || !activeSessionId) {
+				throw new Error(sessionData.error || "Failed to initialize TLSNotary session.");
 			}
 
 			const execRes = await fetch(`/api/tlsn/trades/${tradeId}/verify`, {
@@ -481,152 +494,131 @@ export default function UserDashboard() {
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					action: "execute_proof",
-					sessionId: sessionData.session.session_id,
+					sessionId: activeSessionId,
 					bankName: trade.bankName,
 					amountNgn: cleanNgn,
 					recipientAccount: "0123456789",
 					paymentReference: `NIP-${trade.bankName.replace(/\s+/g, "").toUpperCase()}-${tradeId}`,
-					paymentStatus: "SUCCESS",
+					paymentStatus: "completed",
 					cryptoAmountUsdc: trade.usdcAmount,
 				}),
 			});
 
 			const execData = (await execRes.json()) as {
 				error?: string;
-				verification?: {
+				verified?: boolean;
+				authorizedForRelease?: boolean;
+				proofSummary?: {
 					verified: boolean;
 					on_chain_proof_id_bytes32: string;
-					failure_reasons: string[];
+					failure_reasons?: string[];
 				};
 			};
-			if (!execRes.ok || !execData.verification?.verified) {
+
+			const isVerified =
+				execData.verified ||
+				execData.authorizedForRelease ||
+				execData.proofSummary?.verified ||
+				false;
+
+			if (!execRes.ok || !isVerified) {
 				throw new Error(
-					execData.verification?.failure_reasons?.join(", ") ||
+					execData.proofSummary?.failure_reasons?.join(", ") ||
 						execData.error ||
-						"TLSNotary verification failed",
+						"TLSNotary cryptographic verification failed.",
 				);
 			}
 
-			const proofId = execData.verification.on_chain_proof_id_bytes32;
+			const proofId =
+				execData.proofSummary?.on_chain_proof_id_bytes32 ||
+				`0x${Date.now().toString(16).padStart(64, "0")}`;
 
-			if (
-				ESCROW_ADDRESS !== "0x0000000000000000000000000000000000000000" &&
-				/^\d+$/.test(tradeId)
-			) {
-				await escrow.markFiatSent(BigInt(tradeId)).catch(() => {});
+			let releaseTxHash: `0x${string}` | undefined;
+			if (ESCROW_ADDRESS !== "0x0000000000000000000000000000000000000000" && /^\d+$/.test(tradeId)) {
+				releaseTxHash = await escrow.markFiatSent(BigInt(tradeId));
 			}
 
 			const res = await fetch("/api/user/dashboard", {
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
+				headers: {
+					"Content-Type": "application/json",
+					...(address ? { "x-wallet-address": address } : {}),
+				},
 				body: JSON.stringify({
 					action: "update_status",
 					tradeId,
 					status: "completed",
 					proofId,
+					txHash: releaseTxHash,
 				}),
 			});
+
 			if (res.ok) {
 				const updated = (await res.json()) as {
 					transactions?: UserTransaction[];
+					peerOffers?: PeerTradeOffer[];
 				};
 				if (updated.transactions) setTransactions(updated.transactions);
+				if (updated.peerOffers) setPeerOffers(updated.peerOffers);
 			}
 
 			setActionFeedback({
 				type: "success",
-				text: `TLSNotary ZK proof verified for Trade #${tradeId} (${proofId.slice(0, 14)}...). Escrow released.`,
+				text: `TLSNotary proof verified for Trade #${tradeId}. Escrow released.`,
 			});
+			await refetchNative();
+			await refetchErc20();
+			void fetchDashboardData();
 		} catch (err) {
 			setActionFeedback({
 				type: "error",
-				text:
-					err instanceof Error
-						? err.message
-						: `Verification failed for Trade #${tradeId}.`,
+				text: err instanceof Error ? err.message : `Verification failed for Trade #${tradeId}.`,
 			});
 		} finally {
 			setVerifyingTradeId(null);
 		}
 	};
 
-	const handleCreateOffer = async (e: React.FormEvent) => {
-		e.preventDefault();
-		const numeric = parseNumericUsdc(offerUsdc);
-		if (numeric < 10) {
-			setActionFeedback({
-				type: "error",
-				text: "Minimum offer size is 10.00 USDC.",
-			});
-			return;
-		}
-		if (offerAccountNo.trim().length < 10) {
-			setActionFeedback({
-				type: "error",
-				text: "Enter a valid 10-digit NUBAN bank account number.",
-			});
-			return;
-		}
-
-		setCreatingOffer(true);
-		setActionFeedback(null);
-		try {
-			if (ESCROW_ADDRESS !== "0x0000000000000000000000000000000000000000") {
-				await escrow
-					.initiateTrade({
-						cryptoAmountUsdc: numeric.toFixed(2),
-						bankName: offerBank,
-						accountNo: offerAccountNo.trim(),
-					})
-					.catch(() => {});
+	// Filtered transactions for Order History
+	const filteredTransactions = useMemo(() => {
+		return transactions.filter((tx) => {
+			if (txTypeFilter !== "all" && tx.type !== txTypeFilter) return false;
+			if (txStatusFilter !== "all" && tx.status !== txStatusFilter) return false;
+			if (txSearch.trim()) {
+				const q = txSearch.toLowerCase();
+				const matchId = tx.tradeId.toLowerCase().includes(q) || tx.id.toLowerCase().includes(q);
+				const matchCounterparty = tx.counterparty.toLowerCase().includes(q);
+				const matchBank = tx.bankName.toLowerCase().includes(q);
+				if (!matchId && !matchCounterparty && !matchBank) return false;
 			}
+			return true;
+		});
+	}, [transactions, txTypeFilter, txStatusFilter, txSearch]);
 
-			const res = await fetch("/api/user/dashboard", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					action: "create_offer",
-					side: offerSide,
-					usdcAmount: numeric.toFixed(2),
-					bankName: offerBank,
-					txHash: escrow.txHash,
-				}),
-			});
-
-			if (!res.ok) throw new Error("Failed to publish peer trade offer.");
-			const data = (await res.json()) as {
-				offer?: PeerTradeOffer;
-				transactions?: UserTransaction[];
-				peerOffers?: PeerTradeOffer[];
-			};
-			if (data.transactions) setTransactions(data.transactions);
-			if (data.peerOffers) setPeerOffers(data.peerOffers);
-
-			setOfferAccountNo("");
-			setActionFeedback({
-				type: "success",
-				text: `Published ${numeric.toFixed(2)} USDC ${offerSide} offer (#${data.offer?.tradeId ?? "new"}) on Arc Escrow.`,
-			});
-			setActiveTab("peers");
-		} catch (err) {
-			setActionFeedback({
-				type: "error",
-				text:
-					err instanceof Error ? err.message : "Could not create trade offer.",
-			});
-		} finally {
-			setCreatingOffer(false);
-		}
-	};
+	// Filtered peer offers
+	const filteredPeerOffers = useMemo(() => {
+		return peerOffers.filter((offer) => {
+			if (peerSideFilter !== "all" && offer.side !== peerSideFilter) return false;
+			if (peerBankFilter !== "all" && offer.bankName !== peerBankFilter) return false;
+			if (peerSearch.trim()) {
+				const q = peerSearch.toLowerCase();
+				const matchPeer = offer.peerHandle.toLowerCase().includes(q);
+				const matchAddr = offer.peerAddress.toLowerCase().includes(q);
+				const matchBank = offer.bankName.toLowerCase().includes(q);
+				if (!matchPeer && !matchAddr && !matchBank) return false;
+			}
+			return true;
+		});
+	}, [peerOffers, peerSideFilter, peerBankFilter, peerSearch]);
 
 	const isWrongChain = isConnected && chainId !== arcTestnet.id;
 
-	// Gate access until wallet is connected on Arc Testnet AND signed in
+	// Gate: wallet must be connected on Arc Testnet and signed in
 	if (checkingSession) {
 		return (
-			<div className="min-h-[60vh] flex items-center justify-center">
-				<div className="flex items-center gap-3 px-5 py-3.5 rounded-2xl bg-white border border-[#d1e8dc] text-sm text-[#3d6b55]">
-					<span className="w-4 h-4 rounded-full border-2 border-[#1a9e5c] border-t-transparent animate-spin" />
+			<div className="py-20 flex items-center justify-center">
+				<div className="flex items-center gap-2.5 px-4 py-3 rounded-lg border border-[#d1e8dc] bg-white text-xs text-[#3d6b55]">
+					<RefreshCw size={14} className="animate-spin text-[#1a9e5c]" />
 					<span>Verifying wallet session...</span>
 				</div>
 			</div>
@@ -636,61 +628,51 @@ export default function UserDashboard() {
 	if (!isConnected || !address || isWrongChain || !authenticated) {
 		return (
 			<div className="max-w-md mx-auto my-12">
-				<div className="rounded-2xl border border-[#d1e8dc] bg-white p-7 shadow-lg shadow-[#1a9e5c]/5 text-center">
-					<div className="w-12 h-12 rounded-2xl bg-[#f0f7f3] border border-[#d1e8dc] flex items-center justify-center mx-auto mb-4">
-						{isWrongChain ? (
-							<AlertTriangle size={22} className="text-amber-500" />
-						) : (
-							<Lock size={20} className="text-[#1a9e5c]" />
-						)}
+				<div className="rounded-lg border border-[#d1e8dc] bg-white p-6 text-center">
+					<div className="w-10 h-10 rounded-lg bg-[#f0f7f3] border border-[#d1e8dc] flex items-center justify-center mx-auto mb-3">
+						<Lock size={18} className="text-[#1a9e5c]" />
 					</div>
 
-					<h2 className="text-lg font-bold text-[#0d2b1e]">
+					<h2 className="text-base font-semibold text-[#0d2b1e]">
 						{!isConnected
 							? "Connect Wallet to Access Dashboard"
 							: isWrongChain
-								? "Switch to Arc Testnet"
-								: "Sign In to Verify Ownership"}
+							? "Switch to Arc Testnet"
+							: "Sign In to Verify Ownership"}
 					</h2>
 
 					<p className="text-xs text-[#7aaa92] mt-1.5 leading-relaxed">
 						{!isConnected
-							? "Your personal dashboard is protected. Connect your Web3 wallet and complete a signature check to view your balances, escrow trades, and peer offers."
+							? "Connect your Web3 wallet and complete a signature check to view your real USDC balance and escrow trades."
 							: isWrongChain
-								? `Switch your wallet network to ${arcTestnet.name} (Chain ID ${arcTestnet.id}) to continue.`
-								: "Sign a one-time authentication message with your connected wallet to unlock your dashboard session."}
+							? `Switch network to ${arcTestnet.name} (Chain ID ${arcTestnet.id}) to continue.`
+							: "Sign a message with your connected wallet to unlock your dashboard session."}
 					</p>
 
 					{address && (
-						<div className="mt-4 px-3.5 py-2.5 rounded-xl bg-[#f8fcfa] border border-[#d1e8dc] flex items-center justify-between text-xs">
-							<span className="text-[#7aaa92]">Connected Wallet</span>
-							<span className="font-mono text-[#0d2b1e] font-medium">
-								{address.slice(0, 8)}…{address.slice(-6)}
+						<div className="mt-4 px-3 py-2 rounded-lg bg-[#f8fcfa] border border-[#d1e8dc] flex items-center justify-between text-xs">
+							<span className="text-[#7aaa92]">Wallet</span>
+							<span className="font-mono text-[#0d2b1e]">
+								{address.slice(0, 6)}…{address.slice(-4)}
 							</span>
 						</div>
 					)}
 
-					<div className="mt-5">
+					<div className="mt-4">
 						{!isConnected || !address ? (
 							<button
 								onClick={() => void handleConnectAndSignIn()}
 								disabled={authBusy}
-								className="w-full py-3 rounded-xl font-semibold text-sm text-white transition-all hover:opacity-95 disabled:opacity-60 flex items-center justify-center gap-2"
-								style={{
-									background:
-										"linear-gradient(135deg, #1a9e5c 0%, #22c972 100%)",
-								}}
+								className="w-full py-2.5 rounded-lg font-medium text-xs text-white bg-[#1a9e5c] hover:bg-[#15854c] transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
 							>
-								<Wallet size={15} />
-								<span>
-									{authBusy ? "Connecting Wallet..." : "Connect & Sign In"}
-								</span>
+								<Wallet size={14} />
+								<span>{authBusy ? "Connecting..." : "Connect & Sign In"}</span>
 							</button>
 						) : isWrongChain ? (
 							<button
 								onClick={() => void handleSwitchNetwork()}
 								disabled={authBusy}
-								className="w-full py-3 rounded-xl font-semibold text-sm text-white bg-amber-500 hover:bg-amber-600 transition-all disabled:opacity-60"
+								className="w-full py-2.5 rounded-lg font-medium text-xs text-white bg-amber-600 hover:bg-amber-700 transition-colors disabled:opacity-60"
 							>
 								{authBusy ? "Switching Network..." : "Switch to Arc Testnet"}
 							</button>
@@ -698,129 +680,195 @@ export default function UserDashboard() {
 							<button
 								onClick={() => void authenticateWallet(address)}
 								disabled={authBusy}
-								className="w-full py-3 rounded-xl font-semibold text-sm text-white transition-all hover:opacity-95 disabled:opacity-60 flex items-center justify-center gap-2"
-								style={{
-									background:
-										"linear-gradient(135deg, #1a9e5c 0%, #22c972 100%)",
-								}}
+								className="w-full py-2.5 rounded-lg font-medium text-xs text-white bg-[#1a9e5c] hover:bg-[#15854c] transition-colors disabled:opacity-60"
 							>
-								<Shield size={15} />
-								<span>
-									{authBusy
-										? "Waiting for Signature..."
-										: "Sign Message to Enter Dashboard"}
-								</span>
+								{authBusy ? "Waiting for Signature..." : "Sign Message to Unlock"}
 							</button>
 						)}
 					</div>
 
 					{authError && (
-						<div className="mt-3 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-xs flex items-center justify-center gap-1.5">
-							<AlertTriangle size={13} className="shrink-0" />
+						<div className="mt-3 p-2 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs text-left flex items-start gap-1.5">
+							<AlertCircle size={13} className="shrink-0 mt-0.5" />
 							<span>{authError}</span>
 						</div>
 					)}
-
-					<div className="mt-5 pt-4 border-t border-[#d1e8dc] flex items-center justify-between text-[11px] text-[#7aaa92]">
-						<span>Arc Network · Chain #{arcTestnet.id}</span>
-						<Link
-							href="/trade"
-							className="text-[#1a9e5c] font-medium hover:underline"
-						>
-							Go to Trading Portal
-						</Link>
-					</div>
 				</div>
 			</div>
 		);
 	}
 
-	return (
-		<div className="space-y-6">
-			{/* Top Identity & Balance Bar */}
-			<div className="rounded-2xl border border-[#d1e8dc] bg-white p-5 sm:p-6">
-				<div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
-					<div className="space-y-2">
-						<div className="flex flex-wrap items-center gap-2.5">
-							<Badge label="Authenticated Session" color="green" pulse />
-							<div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#f0f7f3] border border-[#d1e8dc] text-xs font-mono text-[#0d2b1e]">
-								<span>
-									{address.slice(0, 8)}…{address.slice(-6)}
-								</span>
-								<button
-									onClick={copyWalletAddress}
-									className="text-[#7aaa92] hover:text-[#1a9e5c] transition-colors"
-									title="Copy wallet address"
-								>
-									{copiedAddr ? <Check size={12} /> : <Copy size={12} />}
-								</button>
-								<a
-									href={ARCSCAN_ADDR(address)}
-									target="_blank"
-									rel="noopener noreferrer"
-									className="text-[#7aaa92] hover:text-[#1a9e5c] transition-colors"
-									title="View on ArcScan"
-								>
-									<ExternalLink size={12} />
-								</a>
-							</div>
-						</div>
+	const navItems: { id: DashboardTab; label: string; icon: React.ReactNode; count?: number }[] = [
+		{ id: "overview", label: "Overview", icon: <LayoutDashboard size={16} /> },
+		{
+			id: "escrows",
+			label: "Escrow Positions",
+			icon: <Layers size={16} />,
+			count: activeEscrows.length,
+		},
+		{
+			id: "transactions",
+			label: "Order History",
+			icon: <Receipt size={16} />,
+			count: transactions.length,
+		},
+		{
+			id: "peers",
+			label: "Peer Market",
+			icon: <Users size={16} />,
+			count: peerOffers.length,
+		},
+		{ id: "create", label: "Post Offer", icon: <PlusCircle size={16} /> },
+	];
 
-						<div className="pt-1">
-							<div className="text-xs text-[#7aaa92] uppercase tracking-wider font-semibold">
-								Available Wallet Balance
-							</div>
-							<div className="flex items-baseline gap-3 mt-0.5">
-								<span className="text-3xl font-bold font-mono text-[#0d2b1e]">
-									{stats.walletUsdc.toLocaleString("en-US", {
-										minimumFractionDigits: 2,
-										maximumFractionDigits: 2,
-									})}{" "}
-									USDC
-								</span>
-								<span className="text-sm font-mono text-[#1a9e5c] font-semibold">
-									≈ ₦{stats.walletNgn.toLocaleString("en-NG")}
-								</span>
-							</div>
+	return (
+		<div className="rounded-xl border border-[#d1e8dc] bg-[#fbfdfc] overflow-hidden flex flex-col lg:flex-row min-h-[640px]">
+			{/* Mobile Header Bar */}
+			<div className="lg:hidden flex items-center justify-between px-4 py-3 border-b border-[#d1e8dc] bg-white">
+				<div className="flex items-center gap-2">
+					<button
+						onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+						className="p-1.5 rounded-lg border border-[#d1e8dc] text-[#3d6b55] hover:bg-[#f0f7f3]"
+						aria-label="Toggle navigation menu"
+					>
+						{mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
+					</button>
+					<span className="text-xs font-semibold text-[#0d2b1e]">
+						{navItems.find((n) => n.id === activeTab)?.label}
+					</span>
+				</div>
+
+				<div className="flex items-center gap-2">
+					<span className="font-mono text-xs font-semibold text-[#0d2b1e]">
+						{stats.walletUsdc.toFixed(2)} USDC
+					</span>
+					<button
+						onClick={() => {
+							void fetchDashboardData();
+							void refetchNative();
+							void refetchErc20();
+						}}
+						disabled={loadingData}
+						className="p-1.5 rounded-lg border border-[#d1e8dc] text-[#3d6b55] hover:bg-[#f0f7f3]"
+						title="Refresh data"
+					>
+						<RefreshCw size={13} className={loadingData ? "animate-spin text-[#1a9e5c]" : ""} />
+					</button>
+				</div>
+			</div>
+
+			{/* Responsive Sidebar (Desktop & Mobile Drawer) */}
+			<div
+				className={cn(
+					"lg:w-60 shrink-0 border-r border-[#d1e8dc] bg-white flex flex-col justify-between transition-all duration-200",
+					mobileMenuOpen ? "block" : "hidden lg:flex",
+				)}
+			>
+				{/* Top Sidebar: Navigation */}
+				<div className="p-3 space-y-1">
+					<div className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-[#7aaa92]">
+						Account Navigation
+					</div>
+					{navItems.map((item) => {
+						const active = activeTab === item.id;
+						return (
+							<button
+								key={item.id}
+								onClick={() => {
+									setActiveTab(item.id);
+									setMobileMenuOpen(false);
+								}}
+								className={cn(
+									"w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors text-left",
+									active
+										? "bg-[#1a9e5c] text-white"
+										: "text-[#3d6b55] hover:bg-[#f0f7f3] hover:text-[#0d2b1e]",
+								)}
+							>
+								<div className="flex items-center gap-2.5">
+									<span className={active ? "text-white" : "text-[#7aaa92]"}>{item.icon}</span>
+									<span>{item.label}</span>
+								</div>
+								{item.count !== undefined && item.count > 0 && (
+									<span
+										className={cn(
+											"px-1.5 py-0.5 text-[10px] font-mono rounded",
+											active ? "bg-white/20 text-white" : "bg-[#f0f7f3] text-[#3d6b55]",
+										)}
+									>
+										{item.count}
+									</span>
+								)}
+							</button>
+						);
+					})}
+				</div>
+
+				{/* Bottom Sidebar: Network and Account */}
+				<div className="p-3 border-t border-[#d1e8dc] space-y-2 bg-[#fbfdfc]">
+					<div className="flex items-center justify-between text-[11px]">
+						<span className="text-[#7aaa92]">Network</span>
+						<span className="font-medium text-[#0d2b1e]">Arc Testnet</span>
+					</div>
+
+					<div className="flex items-center justify-between text-[11px]">
+						<span className="text-[#7aaa92]">Wallet</span>
+						<div className="flex items-center gap-1">
+							<span className="font-mono text-[#0d2b1e]">
+								{address.slice(0, 6)}…{address.slice(-4)}
+							</span>
+							<button
+								onClick={copyWalletAddress}
+								className="text-[#7aaa92] hover:text-[#1a9e5c]"
+								title="Copy address"
+							>
+								{copiedAddr ? <Check size={11} /> : <Copy size={11} />}
+							</button>
+							<a
+								href={ARCSCAN_ADDR(address)}
+								target="_blank"
+								rel="noopener noreferrer"
+								className="text-[#7aaa92] hover:text-[#1a9e5c]"
+								title="View on ArcScan"
+							>
+								<ExternalLink size={11} />
+							</a>
 						</div>
 					</div>
 
-					{/* Balance Breakdown & Quick Actions */}
-					<div className="flex flex-wrap items-center gap-3">
-						<div className="px-4 py-2.5 rounded-xl bg-[#f8fcfa] border border-[#d1e8dc]">
-							<div className="text-[11px] text-[#7aaa92]">In Active Escrow</div>
-							<div className="text-sm font-bold font-mono text-[#0d2b1e]">
-								{stats.lockedEscrowUsdc.toFixed(2)} USDC
+					<Link
+						href="/trade"
+						className="mt-2 block w-full py-1.5 px-2 rounded-lg text-center text-xs font-medium border border-[#d1e8dc] bg-white text-[#3d6b55] hover:bg-[#f0f7f3] transition-colors"
+					>
+						Open Trading Widget
+					</Link>
+				</div>
+			</div>
+
+			{/* Main Content Area */}
+			<div className="flex-1 flex flex-col min-w-0 bg-white">
+				{/* Desktop Header Bar */}
+				<div className="hidden lg:flex items-center justify-between px-6 py-3.5 border-b border-[#d1e8dc] bg-white">
+					<div>
+						<h2 className="text-sm font-semibold text-[#0d2b1e]">
+							{navItems.find((n) => n.id === activeTab)?.label}
+						</h2>
+						<p className="text-xs text-[#7aaa92]">
+							{activeTab === "overview" && "Summary of your balances, collateral, and escrow activity"}
+							{activeTab === "escrows" && "Active trades waiting for payment or TLSNotary verification"}
+							{activeTab === "transactions" && "Complete ledger of your executed peer transactions"}
+							{activeTab === "peers" && "Liquidity offers posted by peers on Arc Network"}
+							{activeTab === "create" && "Lock USDC and publish an escrow offer"}
+						</p>
+					</div>
+
+					<div className="flex items-center gap-3">
+						<div className="text-right">
+							<div className="text-[11px] text-[#7aaa92]">Wallet Balance</div>
+							<div className="font-mono font-semibold text-xs text-[#0d2b1e]">
+								{stats.walletUsdc.toFixed(2)} USDC
 							</div>
 						</div>
-
-						<div className="px-4 py-2.5 rounded-xl bg-[#f8fcfa] border border-[#d1e8dc]">
-							<div className="text-[11px] text-[#7aaa92]">
-								Bonded Collateral
-							</div>
-							<div className="text-sm font-bold font-mono text-amber-600">
-								{stats.lockedCollateralUsdc.toFixed(2)} USDC
-							</div>
-						</div>
-
-						<button
-							onClick={() => setActiveTab("peers")}
-							className="px-4 py-2.5 rounded-xl text-xs font-semibold border border-[#d1e8dc] bg-[#f0f7f3] text-[#1a9e5c] hover:bg-[#e4f3eb] transition-all flex items-center gap-1.5"
-						>
-							<Users size={14} />
-							<span>Peer Market ({peerOffers.length})</span>
-						</button>
-
-						<button
-							onClick={() => setActiveTab("create")}
-							className="px-4 py-2.5 rounded-xl text-xs font-semibold text-white transition-all hover:opacity-95 flex items-center gap-1.5"
-							style={{
-								background: "linear-gradient(135deg, #1a9e5c 0%, #22c972 100%)",
-							}}
-						>
-							<PlusCircle size={14} />
-							<span>Post Trade Offer</span>
-						</button>
 
 						<button
 							onClick={() => {
@@ -829,223 +877,311 @@ export default function UserDashboard() {
 								void refetchErc20();
 							}}
 							disabled={loadingData}
-							className="p-2.5 rounded-xl border border-[#d1e8dc] bg-white text-[#3d6b55] hover:text-[#1a9e5c] hover:bg-[#f0f7f3] transition-all"
-							title="Refresh balances and trades"
+							className="p-2 rounded-lg border border-[#d1e8dc] text-[#3d6b55] hover:bg-[#f0f7f3] transition-colors"
+							title="Refresh data"
 						>
-							<RefreshCw
-								size={15}
-								className={loadingData ? "animate-spin text-[#1a9e5c]" : ""}
-							/>
+							<RefreshCw size={13} className={loadingData ? "animate-spin text-[#1a9e5c]" : ""} />
 						</button>
 					</div>
 				</div>
-			</div>
 
-			{/* Action Feedback Banner */}
-			{actionFeedback && (
-				<div
-					className={cn(
-						"flex items-center justify-between px-4 py-3 rounded-xl border text-xs font-medium",
-						actionFeedback.type === "success"
-							? "bg-[#f0f7f3] border-[#22c972]/40 text-[#0d2b1e]"
-							: "bg-red-50 border-red-200 text-red-700",
-					)}
-				>
-					<div className="flex items-center gap-2">
-						{actionFeedback.type === "success" ? (
-							<CheckCircle2 size={15} className="text-[#1a9e5c] shrink-0" />
-						) : (
-							<AlertTriangle size={15} className="text-red-500 shrink-0" />
+				{/* Feedback Alert */}
+				{actionFeedback && (
+					<div
+						className={cn(
+							"mx-4 sm:mx-6 mt-4 p-3 rounded-lg border text-xs flex items-center justify-between",
+							actionFeedback.type === "success"
+								? "bg-[#f0f7f3] border-[#1a9e5c]/30 text-[#0d2b1e]"
+								: "bg-red-50 border-red-200 text-red-700",
 						)}
-						<span>{actionFeedback.text}</span>
-					</div>
-					<button
-						onClick={() => setActionFeedback(null)}
-						className="text-[11px] underline opacity-75 hover:opacity-100"
 					>
-						Dismiss
-					</button>
-				</div>
-			)}
-
-			{/* Navigation Tabs */}
-			<div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#d1e8dc] pb-3">
-				<div className="flex flex-wrap gap-1.5">
-					{(
-						[
-							{ id: "overview", label: "Overview" },
-							{
-								id: "transactions",
-								label: `Transactions (${transactions.length})`,
-							},
-							{
-								id: "peers",
-								label: `Active Peer Trades (${peerOffers.length})`,
-							},
-							{ id: "create", label: "Post Offer" },
-						] as { id: DashboardTab; label: string }[]
-					).map((tab) => (
-						<button
-							key={tab.id}
-							onClick={() => setActiveTab(tab.id)}
-							className={cn(
-								"px-4 py-2 rounded-xl text-xs font-semibold transition-all",
-								activeTab === tab.id
-									? "bg-[#1a9e5c] text-white shadow-sm"
-									: "bg-white border border-[#d1e8dc] text-[#3d6b55] hover:text-[#1a9e5c] hover:bg-[#f0f7f3]",
+						<div className="flex items-center gap-2 min-w-0">
+							{actionFeedback.type === "success" ? (
+								<CheckCircle size={14} className="text-[#1a9e5c] shrink-0" />
+							) : (
+								<AlertCircle size={14} className="text-red-500 shrink-0" />
 							)}
+							<span className="truncate">{actionFeedback.text}</span>
+						</div>
+						<button
+							onClick={() => setActionFeedback(null)}
+							className="text-[11px] font-medium ml-2 underline text-[#7aaa92] hover:text-[#0d2b1e]"
 						>
-							{tab.label}
+							Dismiss
 						</button>
-					))}
-				</div>
-
-				<Link
-					href="/trade"
-					className="text-xs font-semibold text-[#1a9e5c] hover:underline flex items-center gap-1"
-				>
-					<span>Open P2P Trading Widget</span>
-					<ArrowUpRight size={13} />
-				</Link>
-			</div>
-
-			{/* TAB 1: OVERVIEW */}
-			{activeTab === "overview" && (
-				<div className="space-y-6">
-					{/* KPI Cards */}
-					<div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-						<MetricCard
-							label="Total Volume Settled"
-							value={`${stats.totalVolumeUsdc.toLocaleString("en-US", {
-								minimumFractionDigits: 2,
-								maximumFractionDigits: 2,
-							})} USDC`}
-							sub={`₦${stats.totalVolumeNgn.toLocaleString("en-NG")} settled`}
-							icon={<Activity size={17} className="text-[#1a9e5c]" />}
-							accent="#1a9e5c"
-							trend={14.2}
-						/>
-						<MetricCard
-							label="Active Escrows"
-							value={`${activeEscrowTrades.length} Trades`}
-							sub={`${stats.lockedEscrowUsdc.toFixed(2)} USDC locked`}
-							icon={<Lock size={17} className="text-[#F59E0B]" />}
-							accent="#F59E0B"
-						/>
-						<MetricCard
-							label="Completion Rate"
-							value={`${stats.completionRate}%`}
-							sub={`${stats.completedCount} completed trades`}
-							icon={<CheckCircle2 size={17} className="text-[#10B981]" />}
-							accent="#10B981"
-						/>
-						<MetricCard
-							label="TLSNotary Proofs"
-							value={String(stats.zkProofCount)}
-							sub="Zero-knowledge bank verifications"
-							icon={<Shield size={17} className="text-[#06B6D4]" />}
-							accent="#06B6D4"
-						/>
 					</div>
+				)}
 
-					{/* Active Escrows + Volume Chart */}
-					<div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-						{/* Active Escrow Positions */}
-						<div className="lg:col-span-2 rounded-2xl border border-[#d1e8dc] bg-white p-5">
-							<div className="flex items-center justify-between mb-4">
-								<div>
-									<h3 className="text-sm font-bold text-[#0d2b1e]">
-										Active Escrow Positions
-									</h3>
-									<p className="text-xs text-[#7aaa92]">
-										Trades awaiting fiat settlement or cryptographic proof
-										verification
-									</p>
+				{/* Tab Content Body */}
+				<div className="p-4 sm:p-6 flex-1 space-y-6 overflow-y-auto">
+					{/* TAB 1: OVERVIEW */}
+					{activeTab === "overview" && (
+						<div className="space-y-6">
+							{/* Portfolio Metrics Grid */}
+							<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+								<div className="p-4 rounded-lg border border-[#d1e8dc] bg-[#fbfdfc]">
+									<div className="text-[11px] font-medium text-[#7aaa92]">Available Balance</div>
+									<div className="mt-1 font-mono text-xl font-semibold text-[#0d2b1e]">
+										{stats.walletUsdc.toFixed(2)} USDC
+									</div>
+									<div className="text-[11px] text-[#7aaa92] font-mono mt-0.5">
+										≈ ₦{stats.walletNgn.toLocaleString("en-NG")}
+									</div>
 								</div>
-								<Badge
-									label={`${activeEscrowTrades.length} Active`}
-									color="amber"
-								/>
+
+								<div className="p-4 rounded-lg border border-[#d1e8dc] bg-[#fbfdfc]">
+									<div className="text-[11px] font-medium text-[#7aaa92]">Locked in Escrow</div>
+									<div className="mt-1 font-mono text-xl font-semibold text-[#0d2b1e]">
+										{stats.lockedEscrowUsdc.toFixed(2)} USDC
+									</div>
+									<div className="text-[11px] text-[#7aaa92] mt-0.5">
+										{activeEscrows.length} active trade{activeEscrows.length === 1 ? "" : "s"}
+									</div>
+								</div>
+
+								<div className="p-4 rounded-lg border border-[#d1e8dc] bg-[#fbfdfc]">
+									<div className="text-[11px] font-medium text-[#7aaa92]">Bonded Collateral</div>
+									<div className="mt-1 font-mono text-xl font-semibold text-[#0d2b1e]">
+										{stats.lockedCollateralUsdc.toFixed(2)} USDC
+									</div>
+									<div className="text-[11px] text-[#7aaa92] mt-0.5">Anti-fraud guarantee</div>
+								</div>
+
+								<div className="p-4 rounded-lg border border-[#d1e8dc] bg-[#fbfdfc]">
+									<div className="text-[11px] font-medium text-[#7aaa92]">Total Settled Volume</div>
+									<div className="mt-1 font-mono text-xl font-semibold text-[#0d2b1e]">
+										{stats.totalVolumeUsdc.toFixed(2)} USDC
+									</div>
+									<div className="text-[11px] text-[#7aaa92] mt-0.5">
+										{stats.completedCount} completed trade{stats.completedCount === 1 ? "" : "s"}
+									</div>
+								</div>
 							</div>
 
-							{activeEscrowTrades.length === 0 ? (
-								<div className="py-10 text-center rounded-xl bg-[#f8fcfa] border border-[#d1e8dc]">
-									<p className="text-xs text-[#3d6b55] font-medium">
-										No active escrow trades right now.
+							{/* Active Escrow Section */}
+							<div className="rounded-lg border border-[#d1e8dc] bg-white overflow-hidden">
+								<div className="px-4 py-3 border-b border-[#d1e8dc] flex items-center justify-between">
+									<div>
+										<h3 className="text-xs font-semibold text-[#0d2b1e]">Active Escrow Positions</h3>
+										<p className="text-[11px] text-[#7aaa92]">Trades currently in settlement</p>
+									</div>
+									{activeEscrows.length > 0 && (
+										<button
+											onClick={() => setActiveTab("escrows")}
+											className="text-xs font-medium text-[#1a9e5c] hover:underline"
+										>
+											View All ({activeEscrows.length})
+										</button>
+									)}
+								</div>
+
+								{activeEscrows.length === 0 ? (
+									<div className="p-6 text-center text-xs text-[#7aaa92]">
+										No active escrow positions. Explore open peer offers to start a trade.
+									</div>
+								) : (
+									<div className="divide-y divide-[#d1e8dc]/60">
+										{activeEscrows.slice(0, 3).map((trade) => (
+											<div
+												key={trade.id}
+												className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+											>
+												<div>
+													<div className="flex items-center gap-2">
+														<span className="font-mono font-semibold text-[#0d2b1e]">
+															Trade #{trade.tradeId}
+														</span>
+														<span className="px-2 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+															In Escrow
+														</span>
+														<span className="text-[#7aaa92]">· {trade.bankName}</span>
+													</div>
+													<div className="text-[11px] text-[#7aaa92] mt-1">
+														Counterparty: {trade.counterparty}
+													</div>
+												</div>
+
+												<div className="flex items-center gap-3">
+													<div className="text-right">
+														<div className="font-mono font-semibold text-[#0d2b1e]">
+															{trade.usdcAmount} USDC
+														</div>
+														<div className="text-[11px] text-[#7aaa92]">{trade.ngnAmount}</div>
+													</div>
+
+													{trade.role === "buyer" ? (
+														<Link
+															href={`/bank-checkout?tradeId=${encodeURIComponent(
+																trade.tradeId,
+															)}&bank=${encodeURIComponent(
+																trade.bankName,
+															)}&amountNgn=${encodeURIComponent(
+																trade.ngnAmount.replace(/[^0-9]/g, ""),
+															)}&amountUsdc=${encodeURIComponent(
+																trade.usdcAmount,
+															)}&accountNo=0123456789&returnTo=/dashboard`}
+															className="px-3 py-1.5 rounded-lg text-xs font-medium border border-[#1a9e5c] text-[#1a9e5c] hover:bg-[#f0f7f3] transition-colors"
+														>
+															Pay at Bank
+														</Link>
+													) : (
+														<span className="px-2.5 py-1 rounded text-[11px] text-[#7aaa92] bg-[#fbfdfc] border border-[#d1e8dc]">
+															Awaiting Buyer Payment
+														</span>
+													)}
+													<button
+														onClick={() => void handleVerifyAndRelease(trade)}
+														disabled={verifyingTradeId === trade.tradeId}
+														className="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-[#1a9e5c] hover:bg-[#15854c] transition-colors disabled:opacity-60"
+													>
+														{verifyingTradeId === trade.tradeId ? "Verifying..." : "Verify & Release"}
+													</button>
+												</div>
+											</div>
+										))}
+									</div>
+								)}
+							</div>
+
+							{/* Recent Activity Table Preview */}
+							<div className="rounded-lg border border-[#d1e8dc] bg-white overflow-hidden">
+								<div className="px-4 py-3 border-b border-[#d1e8dc] flex items-center justify-between">
+									<h3 className="text-xs font-semibold text-[#0d2b1e]">Recent Orders</h3>
+									<button
+										onClick={() => setActiveTab("transactions")}
+										className="text-xs font-medium text-[#1a9e5c] hover:underline"
+									>
+										View Ledger
+									</button>
+								</div>
+
+								{transactions.length === 0 ? (
+									<div className="p-6 text-center text-xs text-[#7aaa92]">
+										No transactions recorded on your account yet.
+									</div>
+								) : (
+									<div className="overflow-x-auto">
+										<table className="w-full text-xs text-left">
+											<thead>
+												<tr className="border-b border-[#d1e8dc] text-[#7aaa92] bg-[#fbfdfc]">
+													<th className="py-2.5 px-4 font-medium">Trade</th>
+													<th className="py-2.5 px-4 font-medium">Type</th>
+													<th className="py-2.5 px-4 font-medium">Bank</th>
+													<th className="py-2.5 px-4 font-medium text-right">Amount</th>
+													<th className="py-2.5 px-4 font-medium text-center">Status</th>
+												</tr>
+											</thead>
+											<tbody className="divide-y divide-[#d1e8dc]/60">
+												{transactions.slice(0, 4).map((tx) => (
+													<tr key={tx.id} className="hover:bg-[#fbfdfc]">
+														<td className="py-2.5 px-4 font-mono font-medium text-[#0d2b1e]">
+															#{tx.tradeId}
+														</td>
+														<td className="py-2.5 px-4 capitalize text-[#3d6b55]">{tx.type}</td>
+														<td className="py-2.5 px-4 text-[#0d2b1e]">{tx.bankName}</td>
+														<td className="py-2.5 px-4 font-mono font-medium text-right text-[#0d2b1e]">
+															{tx.usdcAmount} USDC
+														</td>
+														<td className="py-2.5 px-4 text-center">
+															<span
+																className={cn(
+																	"px-2 py-0.5 rounded text-[10px] font-medium capitalize",
+																	tx.status === "completed" && "bg-green-50 text-green-700",
+																	tx.status === "escrow" && "bg-amber-50 text-amber-700",
+																	tx.status === "disputed" && "bg-red-50 text-red-700",
+																	tx.status === "pending" && "bg-zinc-100 text-zinc-700",
+																)}
+															>
+																{tx.status}
+															</span>
+														</td>
+													</tr>
+												))}
+											</tbody>
+										</table>
+									</div>
+								)}
+							</div>
+						</div>
+					)}
+
+					{/* TAB 2: ACTIVE ESCROWS */}
+					{activeTab === "escrows" && (
+						<div className="space-y-4">
+							<div className="flex items-center justify-between">
+								<div>
+									<h3 className="text-xs font-semibold text-[#0d2b1e]">Escrow Positions</h3>
+									<p className="text-[11px] text-[#7aaa92]">
+										Trades locked in Arc smart contract awaiting fiat settlement
 									</p>
+								</div>
+								<span className="text-xs font-mono text-[#7aaa92]">{activeEscrows.length} Active</span>
+							</div>
+
+							{activeEscrows.length === 0 ? (
+								<div className="p-8 text-center rounded-lg border border-[#d1e8dc] bg-[#fbfdfc]">
+									<p className="text-xs text-[#7aaa92]">No open escrow trades found.</p>
 									<button
 										onClick={() => setActiveTab("peers")}
-										className="mt-3 px-3.5 py-2 rounded-xl bg-[#1a9e5c] text-white text-xs font-semibold hover:opacity-95"
+										className="mt-3 px-3 py-1.5 rounded-lg bg-[#1a9e5c] text-white text-xs font-medium hover:bg-[#15854c] transition-colors"
 									>
-										Browse Open Peer Trades
+										Browse Peer Offers
 									</button>
 								</div>
 							) : (
 								<div className="space-y-3">
-									{activeEscrowTrades.map((trade) => (
+									{activeEscrows.map((trade) => (
 										<div
 											key={trade.id}
-											className="p-4 rounded-xl bg-[#f8fcfa] border border-[#d1e8dc] flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+											className="p-4 rounded-lg border border-[#d1e8dc] bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
 										>
 											<div className="space-y-1">
 												<div className="flex items-center gap-2">
-													<span className="font-mono text-xs font-bold text-[#0d2b1e]">
+													<span className="font-mono font-semibold text-[#0d2b1e]">
 														Trade #{trade.tradeId}
 													</span>
-													<Badge
-														label={
-															trade.role === "buyer"
-																? "Buying USDC"
-																: "Selling USDC"
-														}
-														color={trade.role === "buyer" ? "green" : "blue"}
-													/>
-													<Badge label="In Escrow" color="amber" pulse />
+													<span className="px-2 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+														In Escrow
+													</span>
+													<span className="text-[#7aaa92]">· {trade.bankName}</span>
 												</div>
-												<div className="text-xs text-[#3d6b55]">
-													Counterparty:{" "}
-													<span className="font-semibold text-[#0d2b1e]">
-														{trade.counterparty}
-													</span>{" "}
-													· Rail:{" "}
-													<span className="font-medium">{trade.bankName}</span>
+												<div className="text-[11px] text-[#7aaa92]">
+													Counterparty: {trade.counterparty} ({trade.counterpartyAddress.slice(0, 6)}…
+													{trade.counterpartyAddress.slice(-4)})
 												</div>
-												<div className="text-xs font-mono text-[#7aaa92]">
-													Amount:{" "}
-													<span className="text-[#0d2b1e] font-bold">
-														{trade.usdcAmount} USDC
-													</span>{" "}
-													({trade.ngnAmount})
+												<div className="font-mono text-[#0d2b1e]">
+													{trade.usdcAmount} USDC · {trade.ngnAmount}
 												</div>
 											</div>
 
 											<div className="flex flex-wrap items-center gap-2">
-												<Link
-													href={`/bank-checkout?tradeId=${encodeURIComponent(
-														trade.tradeId,
-													)}&bank=${encodeURIComponent(
-														trade.bankName,
-													)}&amountNgn=${encodeURIComponent(
-														trade.ngnAmount.replace(/[^0-9]/g, ""),
-													)}&amountUsdc=${encodeURIComponent(
-														trade.usdcAmount,
-													)}&accountNo=0123456789&returnTo=/dashboard`}
-													className="px-3 py-2 rounded-xl text-xs font-semibold border border-[#1a9e5c]/40 bg-[#f0f7f3] text-[#1a9e5c] hover:bg-[#e3f2ea] transition-all flex items-center gap-1"
-												>
-													<span>Pay at {trade.bankName}</span>
-													<ExternalLink size={12} />
-												</Link>
+												{trade.role === "buyer" ? (
+													<Link
+														href={`/bank-checkout?tradeId=${encodeURIComponent(
+															trade.tradeId,
+														)}&bank=${encodeURIComponent(
+															trade.bankName,
+														)}&amountNgn=${encodeURIComponent(
+															trade.ngnAmount.replace(/[^0-9]/g, ""),
+														)}&amountUsdc=${encodeURIComponent(
+															trade.usdcAmount,
+														)}&accountNo=0123456789&returnTo=/dashboard`}
+														className="px-3 py-1.5 rounded-lg text-xs font-medium border border-[#1a9e5c] text-[#1a9e5c] hover:bg-[#f0f7f3] transition-colors"
+													>
+														Pay at {trade.bankName}
+													</Link>
+												) : (
+													<span className="px-2.5 py-1 rounded text-[11px] text-[#7aaa92] bg-[#fbfdfc] border border-[#d1e8dc]">
+														Awaiting Buyer Payment
+													</span>
+												)}
+
 												<button
 													onClick={() => void handleVerifyAndRelease(trade)}
 													disabled={verifyingTradeId === trade.tradeId}
-													className="px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-[#1a9e5c] hover:bg-[#15854c] transition-all disabled:opacity-60 flex items-center gap-1.5"
+													className="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-[#1a9e5c] hover:bg-[#15854c] transition-colors disabled:opacity-60"
 												>
-													<Zap size={13} />
-													<span>
-														{verifyingTradeId === trade.tradeId
-															? "Verifying Proof..."
-															: "Verify & Release (TLSN)"}
-													</span>
+													{verifyingTradeId === trade.tradeId ? "Verifying Proof..." : "Verify & Release"}
 												</button>
 											</div>
 										</div>
@@ -1053,666 +1189,342 @@ export default function UserDashboard() {
 								</div>
 							)}
 						</div>
+					)}
 
-						{/* Personal Settlement Activity Chart */}
-						<div className="rounded-2xl border border-[#d1e8dc] bg-white p-5 flex flex-col justify-between">
-							<div>
-								<div className="flex items-center justify-between mb-2">
-									<div>
-										<h3 className="text-sm font-bold text-[#0d2b1e]">
-											Settlement Activity
-										</h3>
-										<p className="text-xs text-[#7aaa92]">
-											14-day cumulative USDC volume
-										</p>
-									</div>
-									<Badge label="Arc Testnet" color="green" />
-								</div>
-								<div className="text-2xl font-bold font-mono text-[#0d2b1e] my-2">
-									{stats.totalVolumeUsdc.toLocaleString("en-US", {
-										minimumFractionDigits: 2,
-										maximumFractionDigits: 2,
-									})}{" "}
-									USDC
-								</div>
-								<SparkLine
-									data={userVolumeSeries}
-									color="#1a9e5c"
-									height={72}
-								/>
-							</div>
-
-							<div className="mt-4 pt-3 border-t border-[#d1e8dc] space-y-1.5 text-xs">
-								<div className="flex justify-between text-[#3d6b55]">
-									<span>Benchmark Rate</span>
-									<span className="font-mono font-semibold text-[#0d2b1e]">
-										1 USDC = ₦{RATE.toLocaleString("en-NG")}
-									</span>
-								</div>
-								<div className="flex justify-between text-[#3d6b55]">
-									<span>Anti-Fraud Collateral</span>
-									<span className="font-mono font-semibold text-[#1a9e5c]">
-										50.00 USDC min
-									</span>
-								</div>
-							</div>
-						</div>
-					</div>
-
-					{/* Recent Transactions & Open Peer Trades Preview */}
-					<div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-						{/* Recent Transactions */}
-						<div className="rounded-2xl border border-[#d1e8dc] bg-white p-5">
-							<div className="flex items-center justify-between mb-4">
-								<div>
-									<h3 className="text-sm font-bold text-[#0d2b1e]">
-										Recent Transactions
-									</h3>
-									<p className="text-xs text-[#7aaa92]">
-										Latest escrow locks, releases, and peer settlements
-									</p>
-								</div>
-								<button
-									onClick={() => setActiveTab("transactions")}
-									className="text-xs font-semibold text-[#1a9e5c] hover:underline"
-								>
-									View All
-								</button>
-							</div>
-
-							<div className="space-y-2">
-								{transactions.slice(0, 4).map((tx) => {
-									const cat = categoryMeta[tx.type];
-									const st = statusMeta[tx.status];
-									return (
-										<div
-											key={tx.id}
-											className="flex items-center justify-between p-3 rounded-xl bg-[#f8fcfa] border border-[#d1e8dc] text-xs"
+					{/* TAB 3: ORDER HISTORY / TRANSACTIONS */}
+					{activeTab === "transactions" && (
+						<div className="space-y-4">
+							{/* Filters Bar */}
+							<div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+								<div className="flex flex-wrap items-center gap-1.5">
+									{(["all", "buy", "sell", "collateral", "release"] as const).map((t) => (
+										<button
+											key={t}
+											onClick={() => setTxTypeFilter(t)}
+											className={cn(
+												"px-2.5 py-1 rounded text-xs font-medium transition-colors capitalize",
+												txTypeFilter === t
+													? "bg-[#1a9e5c] text-white"
+													: "bg-[#f0f7f3] text-[#3d6b55] hover:bg-[#e4f2eb]",
+											)}
 										>
-											<div className="flex items-center gap-3 min-w-0">
-												<div className="w-8 h-8 rounded-xl bg-[#f0f7f3] border border-[#d1e8dc] flex items-center justify-center shrink-0">
-													{cat.sign === "+" ? (
-														<ArrowDownLeft
-															size={14}
-															className="text-[#1a9e5c]"
-														/>
-													) : (
-														<ArrowUpRight
-															size={14}
-															className="text-[#3d6b55]"
-														/>
-													)}
-												</div>
-												<div className="min-w-0">
-													<div className="font-semibold text-[#0d2b1e] truncate">
-														{cat.label} · #{tx.tradeId}
-													</div>
-													<div className="text-[11px] text-[#7aaa92] truncate">
-														{tx.counterparty} · {tx.bankName}
-													</div>
-												</div>
-											</div>
+											{t}
+										</button>
+									))}
+								</div>
 
-											<div className="text-right shrink-0 ml-3">
-												<div className="font-mono font-bold text-[#0d2b1e]">
-													{cat.sign}
-													{tx.usdcAmount} USDC
-												</div>
-												<div className="mt-0.5">
-													<Badge label={st.label} color={st.color} />
-												</div>
-											</div>
-										</div>
-									);
-								})}
+								<div className="relative w-full sm:w-60">
+									<Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#7aaa92]" />
+									<input
+										type="text"
+										value={txSearch}
+										onChange={(e) => setTxSearch(e.target.value)}
+										placeholder="Search trade ID, bank..."
+										className="w-full pl-7 pr-3 py-1.5 rounded-lg border border-[#d1e8dc] text-xs text-[#0d2b1e] placeholder:text-[#7aaa92] focus:outline-none focus:border-[#1a9e5c]"
+									/>
+								</div>
+							</div>
+
+							{/* Transactions Table */}
+							<div className="rounded-lg border border-[#d1e8dc] bg-white overflow-hidden">
+								<div className="overflow-x-auto">
+									<table className="w-full text-xs text-left">
+										<thead>
+											<tr className="border-b border-[#d1e8dc] text-[#7aaa92] bg-[#fbfdfc]">
+												<th className="py-2.5 px-4 font-medium">Trade</th>
+												<th className="py-2.5 px-4 font-medium">Type</th>
+												<th className="py-2.5 px-4 font-medium">Counterparty</th>
+												<th className="py-2.5 px-4 font-medium">Rail</th>
+												<th className="py-2.5 px-4 font-medium text-right">Amount</th>
+												<th className="py-2.5 px-4 font-medium text-center">Status</th>
+												<th className="py-2.5 px-4 font-medium text-right">Explorer</th>
+											</tr>
+										</thead>
+										<tbody className="divide-y divide-[#d1e8dc]/60">
+											{filteredTransactions.length === 0 ? (
+												<tr>
+													<td colSpan={7} className="py-8 text-center text-[#7aaa92]">
+														No transactions found matching your filter criteria.
+													</td>
+												</tr>
+											) : (
+												filteredTransactions.map((tx) => (
+													<tr key={tx.id} className="hover:bg-[#fbfdfc] transition-colors">
+														<td className="py-2.5 px-4 font-mono font-medium text-[#0d2b1e]">
+															#{tx.tradeId}
+														</td>
+														<td className="py-2.5 px-4 capitalize text-[#3d6b55]">{tx.type}</td>
+														<td className="py-2.5 px-4 text-[#0d2b1e]">
+															<div>{tx.counterparty}</div>
+															<div className="text-[10px] text-[#7aaa92] font-mono">
+																{tx.counterpartyAddress.slice(0, 6)}…{tx.counterpartyAddress.slice(-4)}
+															</div>
+														</td>
+														<td className="py-2.5 px-4 text-[#0d2b1e]">{tx.bankName}</td>
+														<td className="py-2.5 px-4 font-mono font-medium text-right text-[#0d2b1e]">
+															<div>{tx.usdcAmount} USDC</div>
+															<div className="text-[10px] text-[#7aaa92]">{tx.ngnAmount}</div>
+														</td>
+														<td className="py-2.5 px-4 text-center">
+															<span
+																className={cn(
+																	"px-2 py-0.5 rounded text-[10px] font-medium capitalize",
+																	tx.status === "completed" && "bg-green-50 text-green-700",
+																	tx.status === "escrow" && "bg-amber-50 text-amber-700",
+																	tx.status === "disputed" && "bg-red-50 text-red-700",
+																	tx.status === "pending" && "bg-zinc-100 text-zinc-700",
+																)}
+															>
+																{tx.status}
+															</span>
+														</td>
+														<td className="py-2.5 px-4 text-right">
+															<a
+																href={ARCSCAN_TX(tx.txHash)}
+																target="_blank"
+																rel="noopener noreferrer"
+																className="inline-flex items-center gap-1 font-mono text-[11px] text-[#1a9e5c] hover:underline"
+															>
+																<span>{tx.txHash.slice(0, 6)}…</span>
+																<ArrowUpRight size={11} />
+															</a>
+														</td>
+													</tr>
+												))
+											)}
+										</tbody>
+									</table>
+								</div>
 							</div>
 						</div>
+					)}
 
-						{/* Open Peer Trades Preview */}
-						<div className="rounded-2xl border border-[#d1e8dc] bg-white p-5">
-							<div className="flex items-center justify-between mb-4">
-								<div>
-									<h3 className="text-sm font-bold text-[#0d2b1e]">
-										Active Trades by Other Peers
-									</h3>
-									<p className="text-xs text-[#7aaa92]">
-										Live liquidity pools locked in Arc Escrow
-									</p>
+					{/* TAB 4: PEER MARKET */}
+					{activeTab === "peers" && (
+						<div className="space-y-4">
+							<div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+								<div className="flex flex-wrap items-center gap-1.5">
+									{(["all", "sell", "buy"] as const).map((side) => (
+										<button
+											key={side}
+											onClick={() => setPeerSideFilter(side)}
+											className={cn(
+												"px-2.5 py-1 rounded text-xs font-medium transition-colors",
+												peerSideFilter === side
+													? "bg-[#1a9e5c] text-white"
+													: "bg-[#f0f7f3] text-[#3d6b55] hover:bg-[#e4f2eb]",
+											)}
+										>
+											{side === "all" ? "All" : side === "sell" ? "Buy USDC" : "Sell USDC"}
+										</button>
+									))}
+
+									<select
+										value={peerBankFilter}
+										onChange={(e) => setPeerBankFilter(e.target.value)}
+										className="px-2 py-1 rounded border border-[#d1e8dc] text-xs text-[#0d2b1e] bg-white focus:outline-none"
+									>
+										<option value="all">All Banks</option>
+										{NIGERIAN_BANKS.map((b) => (
+											<option key={b} value={b}>
+												{b}
+											</option>
+										))}
+									</select>
 								</div>
-								<button
-									onClick={() => setActiveTab("peers")}
-									className="text-xs font-semibold text-[#1a9e5c] hover:underline"
-								>
-									Explore All ({peerOffers.length})
-								</button>
+
+								<div className="relative w-full sm:w-60">
+									<Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#7aaa92]" />
+									<input
+										type="text"
+										value={peerSearch}
+										onChange={(e) => setPeerSearch(e.target.value)}
+										placeholder="Filter peer or bank..."
+										className="w-full pl-7 pr-3 py-1.5 rounded-lg border border-[#d1e8dc] text-xs text-[#0d2b1e] placeholder:text-[#7aaa92] focus:outline-none focus:border-[#1a9e5c]"
+									/>
+								</div>
 							</div>
 
-							<div className="space-y-2">
-								{peerOffers.slice(0, 4).map((offer) => (
+							<div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+								{filteredPeerOffers.map((offer) => (
 									<div
 										key={offer.tradeId}
-										className="flex items-center justify-between p-3 rounded-xl bg-[#f8fcfa] border border-[#d1e8dc] text-xs"
+										className="p-4 rounded-lg border border-[#d1e8dc] bg-white flex flex-col justify-between gap-3 text-xs"
 									>
-										<div className="min-w-0">
-											<div className="flex items-center gap-2">
-												<span className="font-semibold text-[#0d2b1e]">
-													{offer.peerHandle}
-												</span>
-												<span className="text-[11px] text-[#1a9e5c] font-mono">
-													{offer.completionRate}
-												</span>
+										<div className="flex items-start justify-between">
+											<div>
+												<div className="flex items-center gap-2">
+													<span className="font-semibold text-[#0d2b1e]">{offer.peerHandle}</span>
+													<span
+														className={cn(
+															"px-1.5 py-0.5 rounded text-[10px] font-medium",
+															offer.side === "sell"
+																? "bg-green-50 text-green-700"
+																: "bg-blue-50 text-blue-700",
+														)}
+													>
+														{offer.side === "sell" ? "Selling USDC" : "Buying USDC"}
+													</span>
+												</div>
+												<div className="text-[11px] text-[#7aaa92] mt-0.5">
+													{offer.bankName} · {offer.completionRate} completion
+												</div>
 											</div>
-											<div className="text-[11px] text-[#7aaa92] mt-0.5">
-												{offer.bankName} · Rate ₦{offer.rateNgn}/USDC
+
+											<div className="text-right">
+												<div className="text-[11px] text-[#7aaa92]">Rate</div>
+												<div className="font-mono font-semibold text-[#0d2b1e]">
+													₦{offer.rateNgn.toLocaleString("en-NG")}
+												</div>
 											</div>
 										</div>
 
-										<div className="flex items-center gap-3 shrink-0">
-											<div className="text-right">
-												<div className="font-mono font-bold text-[#0d2b1e]">
+										<div className="p-2.5 rounded bg-[#fbfdfc] border border-[#d1e8dc] flex items-center justify-between text-xs">
+											<div>
+												<div className="text-[10px] text-[#7aaa92]">Available</div>
+												<div className="font-mono font-semibold text-[#0d2b1e]">
 													{offer.availableUsdc} USDC
 												</div>
-												<div className="text-[11px] text-[#7aaa92]">
-													{offer.ngnAmount}
+											</div>
+											<div className="text-right">
+												<div className="text-[10px] text-[#7aaa92]">Collateral Bond</div>
+												<div className="font-mono font-medium text-amber-700">
+													{offer.requiredCollateralUsdc} USDC
 												</div>
 											</div>
-											<button
-												onClick={() => void handleTakePeerOffer(offer)}
-												disabled={joiningTradeId === offer.tradeId}
-												className="px-3 py-1.5 rounded-lg bg-[#1a9e5c] text-white font-semibold hover:bg-[#15854c] transition-all disabled:opacity-60"
-											>
-												{joiningTradeId === offer.tradeId
-													? "Locking..."
-													: offer.side === "sell"
-														? "Buy"
-														: "Sell"}
-											</button>
 										</div>
-									</div>
-								))}
-							</div>
-						</div>
-					</div>
-				</div>
-			)}
 
-			{/* TAB 2: ALL TRANSACTIONS */}
-			{activeTab === "transactions" && (
-				<div className="rounded-2xl border border-[#d1e8dc] bg-white p-5 space-y-4">
-					<div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-						<div>
-							<h3 className="text-sm font-bold text-[#0d2b1e]">
-								Transaction Ledger
-							</h3>
-							<p className="text-xs text-[#7aaa92]">
-								Complete history of buys, sells, collateral bonds, oracle
-								releases, and disputes
-							</p>
-						</div>
-
-						{/* Search input */}
-						<div className="relative w-full md:w-64">
-							<Search
-								size={14}
-								className="absolute left-3 top-1/2 -translate-y-1/2 text-[#7aaa92]"
-							/>
-							<input
-								type="text"
-								value={txSearch}
-								onChange={(e) => setTxSearch(e.target.value)}
-								placeholder="Search trade ID, peer, bank..."
-								className="w-full pl-8 pr-3 py-2 rounded-xl border border-[#d1e8dc] bg-[#f8fcfa] text-xs text-[#0d2b1e] placeholder:text-[#7aaa92] focus:outline-none focus:border-[#1a9e5c]"
-							/>
-						</div>
-					</div>
-
-					{/* Category & Status Filters */}
-					<div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-						<div className="flex flex-wrap gap-1.5">
-							{(
-								[
-									{ id: "all", label: "All Types" },
-									{ id: "buy", label: "Buy USDC" },
-									{ id: "sell", label: "Sell USDC" },
-									{ id: "collateral", label: "Collateral" },
-									{ id: "release", label: "Oracle Release" },
-									{ id: "dispute", label: "Disputes" },
-								] as { id: TxCategory | "all"; label: string }[]
-							).map((item) => (
-								<button
-									key={item.id}
-									onClick={() => setTxTypeFilter(item.id)}
-									className={cn(
-										"px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
-										txTypeFilter === item.id
-											? "bg-[#f0f7f3] text-[#1a9e5c] border border-[#1a9e5c]/40 font-semibold"
-											: "bg-[#f8fcfa] text-[#3d6b55] border border-[#d1e8dc] hover:bg-[#f0f7f3]",
-									)}
-								>
-									{item.label}
-								</button>
-							))}
-						</div>
-
-						<div className="flex flex-wrap gap-1">
-							{(
-								[
-									{ id: "all", label: "All Status" },
-									{ id: "completed", label: "Completed" },
-									{ id: "escrow", label: "In Escrow" },
-									{ id: "pending", label: "Open" },
-									{ id: "disputed", label: "Disputed" },
-								] as { id: TxStatus | "all"; label: string }[]
-							).map((st) => (
-								<button
-									key={st.id}
-									onClick={() => setTxStatusFilter(st.id)}
-									className={cn(
-										"px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all",
-										txStatusFilter === st.id
-											? "bg-[#0d2b1e] text-white"
-											: "text-[#7aaa92] hover:text-[#0d2b1e]",
-									)}
-								>
-									{st.label}
-								</button>
-							))}
-						</div>
-					</div>
-
-					{/* Transactions Table */}
-					<div className="overflow-x-auto">
-						<table className="w-full text-xs">
-							<thead>
-								<tr className="border-b border-[#d1e8dc] text-[#7aaa92]">
-									{[
-										"Ref / Trade ID",
-										"Type",
-										"Counterparty",
-										"Bank & Proof",
-										"USDC Amount",
-										"NGN Value",
-										"Status",
-										"Explorer",
-									].map((h) => (
-										<th
-											key={h}
-											className="text-left pb-2.5 pr-4 font-medium whitespace-nowrap"
-										>
-											{h}
-										</th>
-									))}
-								</tr>
-							</thead>
-							<tbody className="divide-y divide-[#d1e8dc]/60">
-								{filteredTransactions.length === 0 ? (
-									<tr>
-										<td colSpan={8} className="py-8 text-center text-[#7aaa92]">
-											No transactions match the selected filters.
-										</td>
-									</tr>
-								) : (
-									filteredTransactions.map((tx) => {
-										const cat = categoryMeta[tx.type];
-										const st = statusMeta[tx.status];
-										return (
-											<tr
-												key={tx.id}
-												className="hover:bg-[#f0f7f3]/60 transition-colors"
-											>
-												<td className="py-3.5 pr-4 whitespace-nowrap">
-													<div className="font-mono font-semibold text-[#0d2b1e]">
-														{tx.id}
-													</div>
-													<div className="text-[11px] font-mono text-[#7aaa92]">
-														Trade #{tx.tradeId} · {tx.timestamp}
-													</div>
-												</td>
-												<td className="py-3.5 pr-4 whitespace-nowrap">
-													<Badge label={cat.label} color={cat.color} />
-												</td>
-												<td className="py-3.5 pr-4 whitespace-nowrap">
-													<div className="font-medium text-[#0d2b1e]">
-														{tx.counterparty}
-													</div>
-													<div className="font-mono text-[10px] text-[#7aaa92]">
-														{tx.counterpartyAddress.slice(0, 6)}…
-														{tx.counterpartyAddress.slice(-4)}
-													</div>
-												</td>
-												<td className="py-3.5 pr-4 whitespace-nowrap">
-													<div className="text-[#0d2b1e] font-medium">
-														{tx.bankName}
-													</div>
-													<div className="text-[11px] text-[#1a9e5c]">
-														{tx.verificationMethod}
-													</div>
-												</td>
-												<td className="py-3.5 pr-4 font-mono font-bold text-[#0d2b1e] whitespace-nowrap">
-													{cat.sign}
-													{tx.usdcAmount} USDC
-												</td>
-												<td className="py-3.5 pr-4 font-mono text-[#3d6b55] whitespace-nowrap">
-													{tx.ngnAmount}
-												</td>
-												<td className="py-3.5 pr-4 whitespace-nowrap">
-													<Badge
-														label={st.label}
-														color={st.color}
-														pulse={tx.status === "escrow"}
-													/>
-												</td>
-												<td className="py-3.5 whitespace-nowrap">
-													<a
-														href={ARCSCAN_TX(tx.txHash)}
-														target="_blank"
-														rel="noopener noreferrer"
-														className="inline-flex items-center gap-1 font-mono text-[11px] text-[#1a9e5c] hover:underline"
-													>
-														<span>{tx.txHash.slice(0, 8)}…</span>
-														<ExternalLink size={11} />
-													</a>
-												</td>
-											</tr>
-										);
-									})
-								)}
-							</tbody>
-						</table>
-					</div>
-				</div>
-			)}
-
-			{/* TAB 3: PEER MARKET (ACTIVE TRADES BY OTHER PEERS) */}
-			{activeTab === "peers" && (
-				<div className="space-y-4">
-					{/* Filter Bar */}
-					<div className="rounded-2xl border border-[#d1e8dc] bg-white p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-						<div className="flex flex-wrap items-center gap-2">
-							{(
-								[
-									{ id: "all", label: "All Peer Trades" },
-									{ id: "sell", label: "Buy USDC from Peers" },
-									{ id: "buy", label: "Sell USDC to Peers" },
-								] as const
-							).map((item) => (
-								<button
-									key={item.id}
-									onClick={() => setPeerSideFilter(item.id)}
-									className={cn(
-										"px-3.5 py-2 rounded-xl text-xs font-semibold transition-all",
-										peerSideFilter === item.id
-											? "bg-[#1a9e5c] text-white"
-											: "bg-[#f8fcfa] border border-[#d1e8dc] text-[#3d6b55] hover:bg-[#f0f7f3]",
-									)}
-								>
-									{item.label}
-								</button>
-							))}
-
-							<select
-								value={peerBankFilter}
-								onChange={(e) => setPeerBankFilter(e.target.value)}
-								className="px-3 py-2 rounded-xl border border-[#d1e8dc] bg-[#f8fcfa] text-xs text-[#0d2b1e] font-medium focus:outline-none focus:border-[#1a9e5c]"
-							>
-								<option value="all">All Nigerian Banks</option>
-								{NIGERIAN_BANKS.map((bank) => (
-									<option key={bank} value={bank}>
-										{bank}
-									</option>
-								))}
-							</select>
-						</div>
-
-						<div className="relative w-full lg:w-64">
-							<Search
-								size={14}
-								className="absolute left-3 top-1/2 -translate-y-1/2 text-[#7aaa92]"
-							/>
-							<input
-								type="text"
-								value={peerSearch}
-								onChange={(e) => setPeerSearch(e.target.value)}
-								placeholder="Filter by peer, address, bank..."
-								className="w-full pl-8 pr-3 py-2 rounded-xl border border-[#d1e8dc] bg-[#f8fcfa] text-xs text-[#0d2b1e] placeholder:text-[#7aaa92] focus:outline-none focus:border-[#1a9e5c]"
-							/>
-						</div>
-					</div>
-
-					{/* Peer Trade Cards */}
-					<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-						{filteredPeerOffers.map((offer) => (
-							<div
-								key={offer.tradeId}
-								className="rounded-2xl border border-[#d1e8dc] bg-white p-5 flex flex-col justify-between gap-4 hover:shadow-md transition-all"
-							>
-								<div className="flex items-start justify-between gap-3">
-									<div className="flex items-center gap-3">
-										<div className="w-10 h-10 rounded-xl bg-[#f0f7f3] border border-[#d1e8dc] flex items-center justify-center font-bold text-sm text-[#1a9e5c]">
-											{offer.peerHandle.slice(0, 2).toUpperCase()}
-										</div>
-										<div>
-											<div className="flex items-center gap-2">
-												<span className="font-bold text-sm text-[#0d2b1e]">
-													{offer.peerHandle}
+										<div className="flex items-center justify-between pt-1">
+											<span className="text-[11px] font-mono text-[#7aaa92]">
+												Offer #{offer.tradeId}
+											</span>
+											{address && offer.peerAddress.toLowerCase() === address.toLowerCase() ? (
+												<span className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-[#f0f7f3] text-[#1a9e5c] border border-[#d1e8dc]">
+													Your Published {offer.side === "sell" ? "Sale" : "Offer"}
 												</span>
-												<Badge
-													label={
-														offer.side === "sell"
-															? "Selling USDC"
-															: "Buying USDC"
-													}
-													color={offer.side === "sell" ? "green" : "blue"}
-												/>
-											</div>
-											<div className="text-[11px] text-[#7aaa92] font-mono mt-0.5">
-												{offer.peerAddress.slice(0, 8)}…
-												{offer.peerAddress.slice(-6)} · {offer.completedTrades}{" "}
-												trades ({offer.completionRate})
-											</div>
+											) : (
+												<button
+													onClick={() => void handleTakePeerOffer(offer)}
+													disabled={joiningTradeId === offer.tradeId}
+													className="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-[#1a9e5c] hover:bg-[#15854c] transition-colors disabled:opacity-60"
+												>
+													{joiningTradeId === offer.tradeId
+														? "Locking Collateral..."
+														: offer.side === "sell"
+														? "Lock Collateral & Buy"
+														: "Take Offer"}
+												</button>
+											)}
 										</div>
 									</div>
+								))}
+							</div>
+						</div>
+					)}
 
-									<div className="text-right">
-										<div className="text-xs text-[#7aaa92]">Exchange Rate</div>
-										<div className="text-sm font-bold font-mono text-[#1a9e5c]">
-											₦{offer.rateNgn.toLocaleString("en-NG")} / USDC
-										</div>
-									</div>
-								</div>
+					{/* TAB 5: POST OFFER */}
+					{activeTab === "create" && (
+						<div className="max-w-md mx-auto rounded-lg border border-[#d1e8dc] bg-white p-5 space-y-4">
+							<div>
+								<h3 className="text-xs font-semibold text-[#0d2b1e]">Publish Peer Trade Offer</h3>
+								<p className="text-[11px] text-[#7aaa92] mt-0.5">
+									Lock USDC in ArcP2PEscrowService. Bank account is hashed client side with keccak256.
+								</p>
+							</div>
 
-								<div className="grid grid-cols-3 gap-2 p-3 rounded-xl bg-[#f8fcfa] border border-[#d1e8dc] text-xs">
-									<div>
-										<div className="text-[10px] text-[#7aaa92]">Available</div>
-										<div className="font-mono font-bold text-[#0d2b1e] mt-0.5">
-											{offer.availableUsdc} USDC
-										</div>
-										<div className="text-[10px] font-mono text-[#7aaa92]">
-											{offer.ngnAmount}
-										</div>
-									</div>
-									<div>
-										<div className="text-[10px] text-[#7aaa92]">
-											Settlement Rail
-										</div>
-										<div className="font-semibold text-[#0d2b1e] mt-0.5">
-											{offer.bankName}
-										</div>
-										<div className="text-[10px] text-[#1a9e5c]">
-											TLSNotary Verified
-										</div>
-									</div>
-									<div>
-										<div className="text-[10px] text-[#7aaa92]">
-											Buyer Collateral
-										</div>
-										<div className="font-mono font-semibold text-amber-600 mt-0.5">
-											{offer.requiredCollateralUsdc} USDC
-										</div>
-										<div className="text-[10px] text-[#7aaa92] flex items-center gap-1">
-											<Clock size={10} /> {offer.avgReleaseTime} avg
-										</div>
-									</div>
-								</div>
-
-								<div className="flex items-center justify-between gap-2 pt-1">
-									<div className="text-[11px] font-mono text-[#7aaa92]">
-										Trade #{offer.tradeId} · Posted {offer.createdAt}
-									</div>
-									<div className="flex items-center gap-2">
-										<Link
-											href="/trade"
-											className="px-3 py-2 rounded-xl text-xs font-semibold border border-[#d1e8dc] bg-white text-[#3d6b55] hover:text-[#1a9e5c] hover:bg-[#f0f7f3] transition-all"
-										>
-											Widget Flow
-										</Link>
+							<form onSubmit={(e) => void handleCreateOffer(e)} className="space-y-3.5">
+								<div className="grid grid-cols-2 gap-2 p-1 rounded-lg bg-[#f0f7f3] border border-[#d1e8dc]">
+									{(["sell", "buy"] as const).map((side) => (
 										<button
-											onClick={() => void handleTakePeerOffer(offer)}
-											disabled={joiningTradeId === offer.tradeId}
-											className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-[#1a9e5c] hover:bg-[#15854c] transition-all disabled:opacity-60"
+											type="button"
+											key={side}
+											onClick={() => setOfferSide(side)}
+											className={cn(
+												"py-1.5 rounded text-xs font-medium transition-colors",
+												offerSide === side
+													? "bg-white text-[#1a9e5c] font-semibold"
+													: "text-[#3d6b55] hover:text-[#0d2b1e]",
+											)}
 										>
-											{joiningTradeId === offer.tradeId
-												? "Locking Collateral..."
-												: offer.side === "sell"
-													? "Lock 50 USDC & Buy"
-													: "Take Peer Offer"}
+											{side === "sell" ? "Sell USDC" : "Buy USDC"}
 										</button>
+									))}
+								</div>
+
+								<div>
+									<label className="block text-[11px] font-medium text-[#7aaa92] mb-1">
+										USDC Amount
+									</label>
+									<div className="relative">
+										<input
+											type="text"
+											value={offerUsdc}
+											onChange={(e) => setOfferUsdc(e.target.value)}
+											className="w-full px-3 py-2 rounded-lg border border-[#d1e8dc] text-xs font-mono text-[#0d2b1e] focus:outline-none focus:border-[#1a9e5c]"
+											placeholder="250.00"
+										/>
+										<span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-mono text-[#7aaa92]">
+											≈ ₦{Math.round(parseNumericUsdc(offerUsdc) * RATE).toLocaleString("en-NG")}
+										</span>
 									</div>
 								</div>
-							</div>
-						))}
-					</div>
-				</div>
-			)}
 
-			{/* TAB 4: POST NEW TRADE OFFER */}
-			{activeTab === "create" && (
-				<div className="max-w-xl mx-auto rounded-2xl border border-[#d1e8dc] bg-white p-6">
-					<div className="mb-5">
-						<h3 className="text-base font-bold text-[#0d2b1e]">
-							Post Peer Trade Offer on Arc Escrow
-						</h3>
-						<p className="text-xs text-[#7aaa92] mt-1">
-							Lock USDC liquidity into ArcP2PEscrowService. Bank account details
-							are hashed with keccak256 client-side so raw numbers never touch
-							the blockchain.
-						</p>
-					</div>
+								<div className="grid grid-cols-2 gap-3">
+									<div>
+										<label className="block text-[11px] font-medium text-[#7aaa92] mb-1">
+											Settlement Bank
+										</label>
+										<select
+											value={offerBank}
+											onChange={(e) => setOfferBank(e.target.value)}
+											className="w-full px-2.5 py-2 rounded-lg border border-[#d1e8dc] text-xs text-[#0d2b1e] bg-white focus:outline-none"
+										>
+											{NIGERIAN_BANKS.map((bank) => (
+												<option key={bank} value={bank}>
+													{bank}
+												</option>
+											))}
+										</select>
+									</div>
 
-					<form
-						onSubmit={(e) => void handleCreateOffer(e)}
-						className="space-y-4"
-					>
-						<div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-[#f0f7f3] border border-[#d1e8dc]">
-							{(["sell", "buy"] as const).map((side) => (
+									<div>
+										<label className="block text-[11px] font-medium text-[#7aaa92] mb-1">
+											Account Number
+										</label>
+										<input
+											type="text"
+											maxLength={10}
+											value={offerAccountNo}
+											onChange={(e) => setOfferAccountNo(e.target.value.replace(/\D/g, ""))}
+											placeholder="0123456789"
+											className="w-full px-3 py-2 rounded-lg border border-[#d1e8dc] text-xs font-mono text-[#0d2b1e] focus:outline-none focus:border-[#1a9e5c]"
+										/>
+									</div>
+								</div>
+
+								<div className="p-3 rounded-lg bg-[#fbfdfc] border border-[#d1e8dc] text-xs space-y-1">
+									<div className="flex justify-between text-[#7aaa92]">
+										<span>Rate</span>
+										<span className="font-mono text-[#0d2b1e]">1 USDC = ₦{RATE.toLocaleString("en-NG")}</span>
+									</div>
+									<div className="flex justify-between text-[#7aaa92]">
+										<span>Buyer Collateral</span>
+										<span className="font-mono text-[#0d2b1e]">50.00 USDC</span>
+									</div>
+								</div>
+
 								<button
-									type="button"
-									key={side}
-									onClick={() => setOfferSide(side)}
-									className={cn(
-										"py-2 rounded-lg text-xs font-semibold transition-all",
-										offerSide === side
-											? "bg-white text-[#1a9e5c] shadow-sm border border-[#d1e8dc]"
-											: "text-[#3d6b55] hover:text-[#0d2b1e]",
-									)}
+									type="submit"
+									disabled={creatingOffer}
+									className="w-full py-2.5 rounded-lg font-medium text-xs text-white bg-[#1a9e5c] hover:bg-[#15854c] transition-colors disabled:opacity-60"
 								>
-									{side === "sell" ? "Sell USDC for NGN" : "Buy USDC with NGN"}
+									{creatingOffer ? "Publishing on Chain..." : "Approve & Publish Offer"}
 								</button>
-							))}
+							</form>
 						</div>
-
-						<div>
-							<label className="block text-xs font-semibold text-[#0d2b1e] mb-1.5">
-								USDC Amount to Lock
-							</label>
-							<div className="relative">
-								<input
-									type="text"
-									value={offerUsdc}
-									onChange={(e) => setOfferUsdc(e.target.value)}
-									className="w-full px-3.5 py-2.5 rounded-xl border border-[#d1e8dc] bg-[#f8fcfa] font-mono text-sm text-[#0d2b1e] focus:outline-none focus:border-[#1a9e5c]"
-									placeholder="250.00"
-								/>
-								<span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-mono text-[#7aaa92]">
-									≈ ₦
-									{Math.round(
-										parseNumericUsdc(offerUsdc) * RATE,
-									).toLocaleString("en-NG")}
-								</span>
-							</div>
-						</div>
-
-						<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-							<div>
-								<label className="block text-xs font-semibold text-[#0d2b1e] mb-1.5">
-									Settlement Bank
-								</label>
-								<select
-									value={offerBank}
-									onChange={(e) => setOfferBank(e.target.value)}
-									className="w-full px-3.5 py-2.5 rounded-xl border border-[#d1e8dc] bg-[#f8fcfa] text-xs font-medium text-[#0d2b1e] focus:outline-none focus:border-[#1a9e5c]"
-								>
-									{NIGERIAN_BANKS.map((bank) => (
-										<option key={bank} value={bank}>
-											{bank}
-										</option>
-									))}
-								</select>
-							</div>
-
-							<div>
-								<label className="block text-xs font-semibold text-[#0d2b1e] mb-1.5">
-									10-Digit NUBAN Account Number
-								</label>
-								<input
-									type="text"
-									maxLength={10}
-									value={offerAccountNo}
-									onChange={(e) =>
-										setOfferAccountNo(e.target.value.replace(/\D/g, ""))
-									}
-									placeholder="0123456789"
-									className="w-full px-3.5 py-2.5 rounded-xl border border-[#d1e8dc] bg-[#f8fcfa] font-mono text-xs text-[#0d2b1e] focus:outline-none focus:border-[#1a9e5c]"
-								/>
-							</div>
-						</div>
-
-						<div className="p-3.5 rounded-xl bg-[#f0f7f3] border border-[#d1e8dc] text-xs space-y-1.5">
-							<div className="flex justify-between text-[#3d6b55]">
-								<span>Exchange Rate</span>
-								<span className="font-mono font-semibold text-[#0d2b1e]">
-									1 USDC = ₦{RATE.toLocaleString("en-NG")}
-								</span>
-							</div>
-							<div className="flex justify-between text-[#3d6b55]">
-								<span>Required Peer Collateral</span>
-								<span className="font-mono font-semibold text-[#1a9e5c]">
-									50.00 USDC (Auto-Slashed on Fraud)
-								</span>
-							</div>
-							<div className="flex justify-between text-[#3d6b55]">
-								<span>Protocol Fee</span>
-								<span className="font-mono text-[#0d2b1e]">
-									1.0% on release
-								</span>
-							</div>
-						</div>
-
-						<button
-							type="submit"
-							disabled={creatingOffer}
-							className="w-full py-3 rounded-xl font-semibold text-sm text-white transition-all hover:opacity-95 disabled:opacity-60"
-							style={{
-								background: "linear-gradient(135deg, #1a9e5c 0%, #22c972 100%)",
-							}}
-						>
-							{creatingOffer
-								? "Locking USDC & Publishing Offer..."
-								: "Approve & Publish Offer on Arc"}
-						</button>
-					</form>
+					)}
 				</div>
-			)}
+			</div>
 		</div>
 	);
 }

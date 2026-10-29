@@ -138,7 +138,7 @@ export default function TradePage() {
 							</h1>
 						</div>
 						<p className="text-xs text-[#7aaa92] mt-0.5">
-							Live USDC/NGN liquidity book on Arc Testnet with Flutterwave Standard Checkout and TLSNotary proofs
+							Live peer-to-peer USDC/NGN exchange with automated escrow settlement
 						</p>
 					</div>
 

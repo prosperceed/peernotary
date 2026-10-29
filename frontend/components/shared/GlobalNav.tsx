@@ -22,7 +22,12 @@ import {
 } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { cn } from "@/lib/utils";
-import { arcTestnet } from "@/lib/web3/arcConfig";
+import {
+	arcTestnet,
+	signWalletMessage,
+	switchToArcTestnet,
+	formatUserFriendlyWalletError,
+} from "@/lib/web3/arcConfig";
 import type { View } from "@/types";
 
 const TICKER_ITEMS = [
@@ -70,7 +75,7 @@ function WalletButton({
 	onAuthChange?: (authenticated: boolean) => void;
 }) {
 	const { address, chainId, isConnected } = useAccount();
-	const { connectAsync } = useConnect();
+	const { connectAsync, connectors } = useConnect();
 	const { disconnect } = useDisconnect();
 	const { signMessageAsync } = useSignMessage();
 	const { switchChainAsync } = useSwitchChain();
@@ -174,15 +179,16 @@ function WalletButton({
 		setBusy(true);
 		setError(undefined);
 		try {
-			await switchChainAsync({ chainId: arcTestnet.id });
+			await switchToArcTestnet(switchChainAsync);
 			void invalidateSession();
 			disconnect();
 			setAuthenticated(false);
 		} catch (caught) {
 			setError(
-				caught instanceof Error
-					? caught.message
-					: "Could not switch to Arc Testnet.",
+				formatUserFriendlyWalletError(
+					caught,
+					"Could not switch to Arc Testnet. Please switch networks in your wallet.",
+				),
 			);
 		} finally {
 			setBusy(false);
@@ -190,7 +196,7 @@ function WalletButton({
 	};
 
 	const authenticate = async (walletAddress: `0x${string}`) => {
-		if (chainId !== arcTestnet.id) {
+		if (chainId && chainId !== arcTestnet.id) {
 			setError(`Switch to ${arcTestnet.name} before signing in.`);
 			return;
 		}
@@ -203,10 +209,14 @@ function WalletButton({
 				body: JSON.stringify({ address: walletAddress }),
 			});
 			if (!challengeResponse.ok)
-				throw new Error("Could not authenticate wallet.");
+				throw new Error("Could not initialize sign-in request. Please try again.");
 			const challenge: { nonce: string; message: string } =
 				await challengeResponse.json();
-			const signature = await signMessageAsync({ message: challenge.message });
+			const signature = await signWalletMessage(
+				challenge.message,
+				walletAddress,
+				signMessageAsync,
+			);
 			const verifyResponse = await fetch("/api/auth/verify", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
@@ -217,16 +227,15 @@ function WalletButton({
 				}),
 			});
 			if (!verifyResponse.ok)
-				throw new Error("Authentication was rejected by the server.");
+				throw new Error("Signature verification failed. Please sign in again.");
 			updateAuthState(true);
 		} catch (caught) {
 			updateAuthState(false);
 			setError(
-				caught instanceof Error && caught.message.includes("rejected")
-					? "Signature request cancelled."
-					: caught instanceof Error
-					? caught.message
-					: "Authentication failed.",
+				formatUserFriendlyWalletError(
+					caught,
+					"Sign-in could not be completed. Please try again.",
+				),
 			);
 		} finally {
 			setBusy(false);
@@ -236,15 +245,16 @@ function WalletButton({
 	const handleConnect = async () => {
 		setError(undefined);
 		try {
-			const result = await connectAsync({ connector: injected() });
+			const targetConnector = connectors[0] ?? injected();
+			const result = await connectAsync({ connector: targetConnector });
 			const connectedAddress = result.accounts[0];
 			if (connectedAddress) await authenticate(connectedAddress);
 		} catch (caught) {
 			setError(
-				caught instanceof Error &&
-					caught.message.toLowerCase().includes("reject")
-					? "Wallet connection cancelled."
-					: "Could not connect wallet.",
+				formatUserFriendlyWalletError(
+					caught,
+					"Could not connect to your wallet. Please make sure your wallet extension is unlocked.",
+				),
 			);
 		}
 	};

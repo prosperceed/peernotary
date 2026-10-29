@@ -30,6 +30,7 @@ import {
 	USDC_ADDRESS,
 	USDC_ABI,
 	formatUsdc,
+	formatUserFriendlyWalletError,
 } from "@/lib/web3/arcConfig";
 import { cn, RATE } from "@/lib/utils";
 import type {
@@ -552,10 +553,10 @@ export default function TradingWidget({
 		} catch (err) {
 			setFeedback({
 				type: "error",
-				text:
-					err instanceof Error
-						? err.message
-						: "Collateral lock or order creation failed.",
+				text: formatUserFriendlyWalletError(
+					err,
+					"Could not lock collateral or initialize order. Please try again.",
+				),
 			});
 		} finally {
 			setCreatingOrder(false);
@@ -863,10 +864,10 @@ export default function TradingWidget({
 								<span className="text-[10px] font-mono text-[#1a9e5c]">Recommended</span>
 							</div>
 							<div className="text-xs font-semibold text-[#0d2b1e] mt-1.5">
-								Flutterwave Standard Checkout
+								Instant Bank Checkout
 							</div>
 							<div className="text-[11px] text-[#7aaa92] mt-0.5">
-								Hosted NGN bank transfer / card + webhook verification
+								Verified NGN bank transfer or card payment
 							</div>
 						</button>
 
@@ -888,13 +889,13 @@ export default function TradingWidget({
 									size={15}
 									className={verifyMode === "zk" ? "text-[#1a9e5c]" : "text-[#7aaa92]"}
 								/>
-								<span className="text-[10px] font-mono text-[#7aaa92]">TLSNotary</span>
+								<span className="text-[10px] font-mono text-[#7aaa92]">Zero-Knowledge</span>
 							</div>
 							<div className="text-xs font-semibold text-[#0d2b1e] mt-1.5">
-								Direct TLSNotary ZK Proof
+								Cryptographic Proof
 							</div>
 							<div className="text-[11px] text-[#7aaa92] mt-0.5">
-								Verify bank API transcript via Rust notary (:7047)
+								Direct bank session verification
 							</div>
 						</button>
 					</div>
@@ -924,7 +925,7 @@ export default function TradingWidget({
 									<span>
 										{redirectingBank
 											? "Opening Checkout..."
-											: "Pay via Flutterwave Standard"}
+											: "Proceed to Bank Checkout"}
 									</span>
 									<ExternalLink size={13} />
 								</button>

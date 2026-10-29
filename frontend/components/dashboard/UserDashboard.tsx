@@ -40,6 +40,9 @@ import {
 	USDC_ABI,
 	USDC_ADDRESS,
 	formatUsdc,
+	signWalletMessage,
+	switchToArcTestnet,
+	formatUserFriendlyWalletError,
 } from "@/lib/web3/arcConfig";
 import { cn, RATE } from "@/lib/utils";
 import type {
@@ -66,7 +69,7 @@ function parseNumericUsdc(val: string): number {
 
 export default function UserDashboard() {
 	const { address, chainId, isConnected } = useAccount();
-	const { connectAsync } = useConnect();
+	const { connectAsync, connectors } = useConnect();
 	const { signMessageAsync } = useSignMessage();
 	const { switchChainAsync } = useSwitchChain();
 	const escrow = useEscrow();
@@ -223,7 +226,7 @@ export default function UserDashboard() {
 	}, [fetchDashboardData]);
 
 	const authenticateWallet = async (targetAddress: `0x${string}`) => {
-		if (chainId !== arcTestnet.id) {
+		if (chainId && chainId !== arcTestnet.id) {
 			setAuthError(`Switch to ${arcTestnet.name} before signing in.`);
 			return;
 		}
@@ -235,16 +238,20 @@ export default function UserDashboard() {
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ address: targetAddress }),
 			});
-			if (!challengeRes.ok) throw new Error("Could not initialize sign in challenge.");
+			if (!challengeRes.ok) throw new Error("Could not initialize sign-in request. Please try again.");
 			const challenge = (await challengeRes.json()) as { nonce: string; message: string };
-			const signature = await signMessageAsync({ message: challenge.message });
+			const signature = await signWalletMessage(
+				challenge.message,
+				targetAddress,
+				signMessageAsync,
+			);
 
 			const verifyRes = await fetch("/api/auth/verify", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ address: targetAddress, nonce: challenge.nonce, signature }),
 			});
-			if (!verifyRes.ok) throw new Error("Wallet signature verification failed.");
+			if (!verifyRes.ok) throw new Error("Signature verification failed. Please sign in again.");
 
 			window.dispatchEvent(
 				new CustomEvent("peernotary-auth-change", { detail: { authenticated: true } }),
@@ -252,11 +259,10 @@ export default function UserDashboard() {
 			await fetchDashboardData();
 		} catch (err) {
 			setAuthError(
-				err instanceof Error && err.message.toLowerCase().includes("reject")
-					? "Signature request was cancelled."
-					: err instanceof Error
-						? err.message
-						: "Authentication failed.",
+				formatUserFriendlyWalletError(
+					err,
+					"Sign-in could not be completed. Please try again.",
+				),
 			);
 		} finally {
 			setAuthBusy(false);
@@ -267,14 +273,16 @@ export default function UserDashboard() {
 		setAuthBusy(true);
 		setAuthError(null);
 		try {
-			const res = await connectAsync({ connector: injected() });
+			const targetConnector = connectors[0] ?? injected();
+			const res = await connectAsync({ connector: targetConnector });
 			const connectedAddr = res.accounts[0];
 			if (connectedAddr) await authenticateWallet(connectedAddr);
 		} catch (err) {
 			setAuthError(
-				err instanceof Error && err.message.toLowerCase().includes("reject")
-					? "Wallet connection cancelled."
-					: "Could not connect wallet.",
+				formatUserFriendlyWalletError(
+					err,
+					"Could not connect to your wallet. Please make sure your wallet extension is unlocked.",
+				),
 			);
 		} finally {
 			setAuthBusy(false);
@@ -285,9 +293,14 @@ export default function UserDashboard() {
 		setAuthBusy(true);
 		setAuthError(null);
 		try {
-			await switchChainAsync({ chainId: arcTestnet.id });
+			await switchToArcTestnet(switchChainAsync);
 		} catch (err) {
-			setAuthError(err instanceof Error ? err.message : "Could not switch to Arc Testnet.");
+			setAuthError(
+				formatUserFriendlyWalletError(
+					err,
+					"Could not switch to Arc Testnet. Please switch networks in your wallet.",
+				),
+			);
 		} finally {
 			setAuthBusy(false);
 		}
@@ -466,7 +479,7 @@ export default function UserDashboard() {
 		} catch (err) {
 			setActionFeedback({
 				type: "error",
-				text: err instanceof Error ? err.message : "Failed to join peer trade.",
+				text: formatUserFriendlyWalletError(err, "Failed to join peer trade."),
 			});
 		} finally {
 			setJoiningTradeId(null);
@@ -536,7 +549,7 @@ export default function UserDashboard() {
 		} catch (err) {
 			setActionFeedback({
 				type: "error",
-				text: err instanceof Error ? err.message : "Could not create trade offer.",
+				text: formatUserFriendlyWalletError(err, "Could not create trade offer."),
 			});
 		} finally {
 			setCreatingOffer(false);
@@ -661,7 +674,10 @@ export default function UserDashboard() {
 		} catch (err) {
 			setActionFeedback({
 				type: "error",
-				text: err instanceof Error ? err.message : `Verification failed for Trade #${tradeId}.`,
+				text: formatUserFriendlyWalletError(
+					err,
+					`Verification failed for Trade #${tradeId}.`,
+				),
 			});
 		} finally {
 			setVerifyingTradeId(null);

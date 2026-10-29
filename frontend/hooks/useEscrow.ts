@@ -34,6 +34,7 @@ import {
 	hashBankDetails,
 	MIN_COLLATERAL_USDC,
 	arcTestnet,
+	formatUserFriendlyWalletError,
 } from "@/lib/web3/arcConfig";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
@@ -86,7 +87,7 @@ export interface FundCollateralParams {
 // ─── HOOK ─────────────────────────────────────────────────────────────────────
 export function useEscrow(): EscrowHookReturn {
 	const { address, isConnected, chainId } = useAccount();
-	const { connectAsync } = useConnect();
+	const { connectAsync, connectors } = useConnect();
 	const { disconnect } = useDisconnect();
 	const publicClient = usePublicClient();
 
@@ -117,12 +118,10 @@ export function useEscrow(): EscrowHookReturn {
 
 	// ── Helpers ──────────────────────────────────────────────────────────────
 	const setError = (e: unknown) => {
-		const msg =
-			e instanceof Error
-				? e.message.includes("User rejected") || e.message.includes("rejected")
-					? "Transaction cancelled by user in wallet."
-					: e.message.slice(0, 160)
-				: "An unexpected error occurred.";
+		const msg = formatUserFriendlyWalletError(
+			e,
+			"Transaction could not be completed. Please try again.",
+		);
 		setErrorMsg(msg);
 		setTxState("error");
 	};
@@ -135,11 +134,12 @@ export function useEscrow(): EscrowHookReturn {
 
 	const connect = useCallback(async () => {
 		try {
-			await connectAsync({ connector: injected() });
+			const targetConnector = connectors[0] ?? injected();
+			await connectAsync({ connector: targetConnector });
 		} catch (e) {
 			setError(e);
 		}
-	}, [connectAsync]);
+	}, [connectAsync, connectors]);
 
 	/**
 	 * Two-step ERC-20 approve → contract write helper.

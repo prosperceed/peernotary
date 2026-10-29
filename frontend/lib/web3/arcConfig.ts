@@ -314,3 +314,163 @@ export const MIN_COLLATERAL_USDC = 50_000_000n; // 50 USDC in micro-USDC
 
 /** Default platform fee: 1% (100 bps) */
 export const DEFAULT_FEE_BPS = 100;
+
+interface Eip1193Provider {
+	request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+}
+
+function getInjectedProvider(): Eip1193Provider | null {
+	if (typeof window === "undefined") return null;
+	const win = window as unknown as { ethereum?: Eip1193Provider };
+	return win.ethereum ?? null;
+}
+
+/**
+ * Resilient message signing that avoids Wagmi v2 stale connector `getChainId is not a function`
+ * errors by falling back directly to the browser's EIP-1193 `personal_sign` method.
+ */
+export async function signWalletMessage(
+	message: string,
+	account: `0x${string}`,
+	wagmiSignAsync?: (args: { message: string; account?: `0x${string}` }) => Promise<`0x${string}`>,
+): Promise<`0x${string}`> {
+	if (wagmiSignAsync) {
+		try {
+			return await wagmiSignAsync({ message, account });
+		} catch (err) {
+			const msg = err instanceof Error ? err.message.toLowerCase() : "";
+			// If user explicitly rejected in wallet, do not prompt a second time
+			if (
+				msg.includes("user rejected") ||
+				msg.includes("user denied") ||
+				msg.includes("action_rejected")
+			) {
+				throw err;
+			}
+			// Otherwise (e.g. `connection.connector.getChainId is not a function`), fall through to EIP-1193
+		}
+	}
+
+	const provider = getInjectedProvider();
+	if (!provider) {
+		throw new Error("No wallet extension detected. Please install or unlock MetaMask.");
+	}
+
+	const sig = await provider.request({
+		method: "personal_sign",
+		params: [message, account],
+	});
+
+	if (typeof sig !== "string" || !sig.startsWith("0x")) {
+		throw new Error("Wallet did not return a valid signature.");
+	}
+	return sig as `0x${string}`;
+}
+
+/**
+ * Resilient chain switcher for Arc Testnet (#5042002 / 0x4cef52) that falls back to
+ * `wallet_switchEthereumChain` and `wallet_addEthereumChain` if Wagmi's connector state is stale.
+ */
+export async function switchToArcTestnet(
+	wagmiSwitchAsync?: (args: { chainId: number }) => Promise<unknown>,
+): Promise<void> {
+	if (wagmiSwitchAsync) {
+		try {
+			await wagmiSwitchAsync({ chainId: arcTestnet.id });
+			return;
+		} catch (err) {
+			const msg = err instanceof Error ? err.message.toLowerCase() : "";
+			if (msg.includes("user rejected") || msg.includes("user denied")) {
+				throw err;
+			}
+		}
+	}
+
+	const provider = getInjectedProvider();
+	if (!provider) {
+		throw new Error("No wallet extension detected.");
+	}
+
+	const hexChainId = `0x${arcTestnet.id.toString(16)}`;
+	try {
+		await provider.request({
+			method: "wallet_switchEthereumChain",
+			params: [{ chainId: hexChainId }],
+		});
+	} catch (switchErr) {
+		const code = (switchErr as { code?: number })?.code;
+		if (code === 4902) {
+			await provider.request({
+				method: "wallet_addEthereumChain",
+				params: [
+					{
+						chainId: hexChainId,
+						chainName: arcTestnet.name,
+						nativeCurrency: arcTestnet.nativeCurrency,
+						rpcUrls: [arcTestnet.rpcUrls.default.http[0]],
+						blockExplorerUrls: [arcTestnet.blockExplorers.default.url],
+					},
+				],
+			});
+			return;
+		}
+		throw switchErr;
+	}
+}
+
+/**
+ * Converts technical wallet/connector exceptions into clear, non-technical messages for users.
+ */
+export function formatUserFriendlyWalletError(
+	err: unknown,
+	fallback = "Could not complete wallet request. Please try again.",
+): string {
+	const raw = err instanceof Error ? err.message : String(err ?? "");
+	const lower = raw.toLowerCase();
+
+	if (
+		lower.includes("user rejected") ||
+		lower.includes("user denied") ||
+		lower.includes("action_rejected") ||
+		lower.includes("rejected the request") ||
+		lower.includes("cancelled")
+	) {
+		return "You cancelled the request in your wallet.";
+	}
+
+	if (lower.includes("already pending") || lower.includes("-32002")) {
+		return "A wallet prompt is already open. Please check your wallet extension.";
+	}
+
+	if (
+		lower.includes("getchainid") ||
+		lower.includes("is not a function") ||
+		lower.includes("connector") ||
+		lower.includes("provider is disconnected")
+	) {
+		return "Your wallet connection needs a quick refresh. Please disconnect and reconnect your wallet.";
+	}
+
+	if (lower.includes("insufficient funds") || lower.includes("exceeds balance")) {
+		return "Insufficient USDC balance in your wallet for this transaction.";
+	}
+
+	if (lower.includes("switch") && lower.includes("chain")) {
+		return "Please switch your wallet network to Arc Testnet and try again.";
+	}
+
+	// Never expose raw stack traces, TypeError strings, or RPC JSON blobs
+	if (
+		lower.includes("typeerror") ||
+		lower.includes("undefined") ||
+		lower.includes("null") ||
+		lower.includes("viem") ||
+		lower.includes("wagmi") ||
+		raw.length > 110
+	) {
+		return fallback;
+	}
+
+	return raw || fallback;
+}
+

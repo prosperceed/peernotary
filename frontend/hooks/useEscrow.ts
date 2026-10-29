@@ -385,7 +385,7 @@ export function useTradeData(tradeId: bigint | null) {
 					abi: ESCROW_ABI,
 					functionName: "getTrade",
 					args: [tradeId],
-				}
+			  }
 			: undefined,
 	);
 }

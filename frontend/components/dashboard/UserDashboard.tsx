@@ -40,10 +40,13 @@ import {
 	USDC_ABI,
 	USDC_ADDRESS,
 	formatUsdc,
-	signWalletMessage,
 	switchToArcTestnet,
 	formatUserFriendlyWalletError,
 } from "@/lib/web3/arcConfig";
+import {
+	supabaseWalletSignin,
+	supabaseWalletSignOut,
+} from "@/lib/supabase/client";
 import { cn, RATE } from "@/lib/utils";
 import type {
 	PeerTradeOffer,
@@ -110,7 +113,7 @@ export default function UserDashboard() {
 			setPeerOffers([]);
 			setActionFeedback(null);
 			setAuthError(null);
-			void fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+			void supabaseWalletSignOut();
 		}
 		previousAddressRef.current = current;
 	}, [address]);
@@ -233,29 +236,10 @@ export default function UserDashboard() {
 		setAuthBusy(true);
 		setAuthError(null);
 		try {
-			const challengeRes = await fetch("/api/auth/nonce", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ address: targetAddress }),
+			await supabaseWalletSignin({
+				address: targetAddress,
+				wagmiSignAsync: signMessageAsync,
 			});
-			if (!challengeRes.ok) throw new Error("Could not initialize sign-in request. Please try again.");
-			const challenge = (await challengeRes.json()) as { nonce: string; message: string };
-			const signature = await signWalletMessage(
-				challenge.message,
-				targetAddress,
-				signMessageAsync,
-			);
-
-			const verifyRes = await fetch("/api/auth/verify", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ address: targetAddress, nonce: challenge.nonce, signature }),
-			});
-			if (!verifyRes.ok) throw new Error("Signature verification failed. Please sign in again.");
-
-			window.dispatchEvent(
-				new CustomEvent("peernotary-auth-change", { detail: { authenticated: true } }),
-			);
 			await fetchDashboardData();
 		} catch (err) {
 			setAuthError(

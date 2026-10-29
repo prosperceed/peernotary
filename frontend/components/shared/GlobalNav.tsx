@@ -24,10 +24,14 @@ import { injected } from "wagmi/connectors";
 import { cn } from "@/lib/utils";
 import {
 	arcTestnet,
-	signWalletMessage,
 	switchToArcTestnet,
 	formatUserFriendlyWalletError,
 } from "@/lib/web3/arcConfig";
+import {
+	getSupabaseWalletSession,
+	supabaseWalletSignin,
+	supabaseWalletSignOut,
+} from "@/lib/supabase/client";
 import type { View } from "@/types";
 
 const TICKER_ITEMS = [
@@ -110,9 +114,10 @@ function WalletButton({
 	}, []);
 
 	const invalidateSession = async () => {
-		updateAuthState(false);
+		setAuthenticated(false);
+		onAuthChange?.(false);
 		setOpen(false);
-		await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+		await supabaseWalletSignOut();
 	};
 
 	// ── Sync auth state with wallet connection ────────────────────────────────
@@ -134,27 +139,10 @@ function WalletButton({
 				return;
 			}
 
-			void fetch("/api/auth/session", {
-				headers: { "x-wallet-address": normalizedAddress },
-			})
-				.then((response) => response.json())
-				.then(
-					(session: {
-						authenticated?: boolean;
-						user?: { walletAddress?: string };
-					}) => {
-						const isAuth = Boolean(
-							session.authenticated &&
-							session.user?.walletAddress?.toLowerCase() === normalizedAddress,
-						);
-						setAuthenticated(isAuth);
-						onAuthChange?.(isAuth);
-					},
-				)
-				.catch(() => {
-					setAuthenticated(false);
-					onAuthChange?.(false);
-				});
+			void getSupabaseWalletSession(normalizedAddress).then((state) => {
+				setAuthenticated(state.authenticated);
+				onAuthChange?.(state.authenticated);
+			});
 		};
 
 		checkSession();
@@ -179,9 +167,9 @@ function WalletButton({
 		setError(undefined);
 		try {
 			await switchToArcTestnet(switchChainAsync);
-			void invalidateSession();
-			disconnect();
-			setAuthenticated(false);
+			if (address) {
+				await authenticate(address);
+			}
 		} catch (caught) {
 			setError(
 				formatUserFriendlyWalletError(
@@ -202,36 +190,15 @@ function WalletButton({
 		setBusy(true);
 		setError(undefined);
 		try {
-			const challengeResponse = await fetch("/api/auth/nonce", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ address: walletAddress }),
+			const state = await supabaseWalletSignin({
+				address: walletAddress,
+				wagmiSignAsync: signMessageAsync,
 			});
-			if (!challengeResponse.ok)
-				throw new Error(
-					"Could not initialize sign-in request. Please try again.",
-				);
-			const challenge: { nonce: string; message: string } =
-				await challengeResponse.json();
-			const signature = await signWalletMessage(
-				challenge.message,
-				walletAddress,
-				signMessageAsync,
-			);
-			const verifyResponse = await fetch("/api/auth/verify", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					address: walletAddress,
-					nonce: challenge.nonce,
-					signature,
-				}),
-			});
-			if (!verifyResponse.ok)
-				throw new Error("Signature verification failed. Please sign in again.");
-			updateAuthState(true);
+			setAuthenticated(state.authenticated);
+			onAuthChange?.(state.authenticated);
 		} catch (caught) {
-			updateAuthState(false);
+			setAuthenticated(false);
+			onAuthChange?.(false);
 			setError(
 				formatUserFriendlyWalletError(
 					caught,
@@ -268,7 +235,8 @@ function WalletButton({
 	};
 
 	// ── Truncate helper ───────────────────────────────────────────────────────
-	const truncate = (addr: string) => `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+	const truncate = (addr: string) =>
+		`${addr.slice(0, 6)}…${addr.slice(-4)}`;
 
 	// ── STATE 1: Not connected ────────────────────────────────────────────────
 	if (!isConnected || !address) {

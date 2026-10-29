@@ -18,11 +18,19 @@ export async function POST(request: NextRequest) {
 		const { session, user } = await signInWallet(address, nonce, signature);
 		return NextResponse.json({
 			authenticated: true,
+			session: {
+				id: session.id,
+				chainId: session.chainId,
+				expiresAt: session.expiresAt.toISOString(),
+				supabaseAccessToken: session.supabaseAccessToken,
+				privileges: session.privileges,
+			},
 			user: {
 				id: user.id,
 				walletAddress: session.address,
 				username: user.username ?? null,
 				onboardingCompleted: user.onboardingCompleted,
+				privileges: user.privileges,
 			},
 		});
 	} catch {

@@ -145,8 +145,7 @@ function WalletButton({
 					}) => {
 						const isAuth = Boolean(
 							session.authenticated &&
-								session.user?.walletAddress?.toLowerCase() ===
-									normalizedAddress,
+							session.user?.walletAddress?.toLowerCase() === normalizedAddress,
 						);
 						setAuthenticated(isAuth);
 						onAuthChange?.(isAuth);
@@ -209,7 +208,9 @@ function WalletButton({
 				body: JSON.stringify({ address: walletAddress }),
 			});
 			if (!challengeResponse.ok)
-				throw new Error("Could not initialize sign-in request. Please try again.");
+				throw new Error(
+					"Could not initialize sign-in request. Please try again.",
+				);
 			const challenge: { nonce: string; message: string } =
 				await challengeResponse.json();
 			const signature = await signWalletMessage(
@@ -267,8 +268,7 @@ function WalletButton({
 	};
 
 	// ── Truncate helper ───────────────────────────────────────────────────────
-	const truncate = (addr: string) =>
-		`${addr.slice(0, 6)}…${addr.slice(-4)}`;
+	const truncate = (addr: string) => `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 
 	// ── STATE 1: Not connected ────────────────────────────────────────────────
 	if (!isConnected || !address) {
@@ -416,7 +416,8 @@ function WalletButton({
 					"transition-all duration-200",
 					"hover:bg-[#f0f7f3] hover:border-[#1a9e5c]/40 hover:shadow-md hover:shadow-[#22c972]/15 hover:-translate-y-px",
 					"active:scale-[0.97] active:translate-y-0",
-					open && "bg-[#f0f7f3] border-[#1a9e5c]/40 shadow-md shadow-[#22c972]/10",
+					open &&
+						"bg-[#f0f7f3] border-[#1a9e5c]/40 shadow-md shadow-[#22c972]/10",
 					"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#22c972]/40",
 				)}
 				aria-haspopup="true"
@@ -597,7 +598,13 @@ export default function GlobalNav() {
 		{ label: "Home", view: "home", source: "/" },
 		{ label: "Trading Portal", view: "trade", source: "/trade" },
 		...(isAuthed
-			? [{ label: "Dashboard", view: "dashboard" as const, source: "/dashboard" }]
+			? [
+					{
+						label: "Dashboard",
+						view: "dashboard" as const,
+						source: "/dashboard",
+					},
+				]
 			: []),
 		{ label: "Developer Portal", view: "dev", source: "/dev" },
 	];
@@ -661,8 +668,8 @@ export default function GlobalNav() {
 						{view === "trade"
 							? "P2P Trade"
 							: view === "dev"
-							? "Dev Portal"
-							: label}
+								? "Dev Portal"
+								: label}
 					</Link>
 				))}
 			</div>

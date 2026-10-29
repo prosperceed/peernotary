@@ -48,6 +48,7 @@ impl AppConfig {
             .map_err(|_| ConfigError::InvalidValue("HOST/PORT", "invalid socket address".into()))?;
 
         let service_api_key = env::var("TLSN_SERVICE_API_KEY")
+            .or_else(|_| env::var("RUST_API_AUTH_SECRET"))
             .or_else(|_| env::var("TLSN_WEBHOOK_SECRET"))
             .map_err(|_| ConfigError::MissingVar("TLSN_SERVICE_API_KEY or TLSN_WEBHOOK_SECRET"))?;
 
@@ -73,10 +74,12 @@ impl AppConfig {
             .and_then(|s| s.split("||").next().map(|part| part.trim().to_string()))
             .filter(|s| !s.is_empty());
 
-        let notary_signing_key_hex = env::var("NOTARY_SIGNING_KEY_HEX").unwrap_or_else(|_| {
-            // Deterministic development default only when NOT in production
-            "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a".to_string()
-        });
+        let notary_signing_key_hex = env::var("NOTARY_SIGNING_KEY_HEX")
+            .or_else(|_| env::var("NOTARY_SIGNING_KEY"))
+            .unwrap_or_else(|_| {
+                // Deterministic development default only when NOT in production
+                "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a".to_string()
+            });
 
         let key_bytes =
             hex::decode(notary_signing_key_hex.trim_start_matches("0x")).map_err(|_| {
@@ -123,7 +126,8 @@ impl AppConfig {
             .parse()
             .map_err(|_| ConfigError::InvalidValue("ARC_CHAIN_ID", "must be a valid u64".into()))?;
 
-        let expected_escrow_address = env::var("ESCROW_ADDRESS")
+        let expected_escrow_address = env::var("ARC_ESCROW_CONTRACT_ADDRESS")
+            .or_else(|_| env::var("ESCROW_ADDRESS"))
             .or_else(|_| env::var("NEXT_PUBLIC_ESCROW_ADDRESS"))
             .unwrap_or_else(|_| "0x5042f1114C6F272f5909f16510399986EF0D734D".to_string())
             .to_ascii_lowercase();

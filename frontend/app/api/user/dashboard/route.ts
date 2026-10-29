@@ -8,6 +8,7 @@ import {
 	createPeerOffer,
 	getActivePeerOffers,
 	getUserLedger,
+	reconcileExpiredTrades,
 	takePeerOffer,
 } from "@/lib/trades/tradeStore";
 
@@ -16,6 +17,8 @@ export async function GET(request: NextRequest) {
 		const expectedAddress = request.headers.get("x-wallet-address") || undefined;
 		const user = await getAuthenticatedUser(expectedAddress);
 		const current = user.walletAddress.toLowerCase();
+
+		reconcileExpiredTrades();
 		const transactions = [...getUserLedger(current)];
 
 		// Inspect recent on-chain trade slots 1..10 when RPC is reachable
@@ -40,7 +43,6 @@ export async function GET(request: NextRequest) {
 				const isCompletedOnChain = statusNum === 3;
 
 				if (isCompletedOnChain) {
-					// Ensure completed on-chain trades are removed from publishing list & marked completed
 					completePeerTrade(id, {
 						proofId: String(trade.proofId ?? ""),
 						txHash: String(trade.proofId ?? ""),
@@ -50,14 +52,22 @@ export async function GET(request: NextRequest) {
 				if (!transactions.some((t) => t.tradeId === id)) {
 					const usdc = formatUsdc(BigInt(trade.cryptoAmount ?? 0n));
 					const ngn = Math.round(parseFloat(usdc) * RATE).toLocaleString("en-NG");
-					const mappedStatus =
-						isCompletedOnChain
-							? "completed"
-							: statusNum === 5
+					const mappedStatus = isCompletedOnChain
+						? "completed"
+						: statusNum === 5
 							? "disputed"
 							: statusNum === 1 || statusNum === 2
-							? "escrow"
-							: "pending";
+								? "escrow"
+								: "pending";
+					const mappedLifecycle = isCompletedOnChain
+						? "COMPLETED"
+						: statusNum === 5
+							? "DISPUTED"
+							: statusNum === 2
+								? "PAYMENT_CONFIRMED"
+								: statusNum === 1
+									? "AWAITING_PAYMENT"
+									: "OPEN";
 
 					transactions.unshift({
 						id: `ONCHAIN-${id}`,
@@ -73,10 +83,11 @@ export async function GET(request: NextRequest) {
 						usdcAmount: usdc,
 						ngnAmount: `₦${ngn}`,
 						bankName: "Arc Escrow",
-						verificationMethod: "TLSNotary ZK",
+						verificationMethod: "Flutterwave Checkout",
 						status: mappedStatus,
+						lifecycleState: mappedLifecycle,
 						txHash: String(trade.proofId ?? "0x0"),
-						timestamp: isCompletedOnChain ? "Completed" : "On-chain",
+						timestamp: isCompletedOnChain ? "Settled" : mappedLifecycle.replace(/_/g, " "),
 					});
 				}
 			}
@@ -85,7 +96,10 @@ export async function GET(request: NextRequest) {
 		return NextResponse.json({
 			authenticated: true,
 			user: {
+				id: user.id,
 				walletAddress: user.walletAddress,
+				username: user.username ?? null,
+				onboardingCompleted: user.onboardingCompleted,
 				createdAt: user.createdAt,
 				lastAuthenticatedAt: user.lastAuthenticatedAt,
 			},
@@ -109,6 +123,7 @@ export async function POST(request: NextRequest) {
 			action?: "create_offer" | "take_offer" | "update_status";
 			usdcAmount?: string;
 			bankName?: string;
+			accountNumber?: string;
 			side?: "buy" | "sell";
 			tradeId?: string;
 			status?: "completed" | "escrow" | "disputed" | "pending";
@@ -125,6 +140,7 @@ export async function POST(request: NextRequest) {
 			const { offer, transaction } = createPeerOffer(user.walletAddress, {
 				usdcAmount: numericUsdc,
 				bankName: body.bankName,
+				accountNumber: body.accountNumber,
 				side: body.side,
 				txHash: body.txHash,
 			});
@@ -150,8 +166,12 @@ export async function POST(request: NextRequest) {
 
 			try {
 				takePeerOffer(user.walletAddress, body.tradeId, body.txHash);
-			} catch {
-				return NextResponse.json({ error: "OFFER_NOT_FOUND" }, { status: 404 });
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : "OFFER_NOT_FOUND";
+				return NextResponse.json(
+					{ error: msg },
+					{ status: msg === "CANNOT_BUY_OWN_OFFER" ? 400 : 404 },
+				);
 			}
 
 			return NextResponse.json({
@@ -163,7 +183,6 @@ export async function POST(request: NextRequest) {
 
 		if (body.action === "update_status" && body.tradeId && body.status) {
 			if (body.status === "completed") {
-				// Remove settled sale from publishing list and mark completed for both ends
 				completePeerTrade(body.tradeId, {
 					proofId: body.proofId,
 					txHash: body.txHash,

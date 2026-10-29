@@ -10,7 +10,13 @@ export async function GET(request: NextRequest) {
 		const user = await getAuthenticatedUser(expectedAddress);
 		return NextResponse.json({
 			authenticated: true,
-			user: { walletAddress: user.walletAddress, createdAt: user.createdAt },
+			user: {
+				id: user.id,
+				walletAddress: user.walletAddress,
+				username: user.username ?? null,
+				onboardingCompleted: user.onboardingCompleted,
+				createdAt: user.createdAt,
+			},
 		});
 	} catch {
 		return NextResponse.json({ authenticated: false, user: null });

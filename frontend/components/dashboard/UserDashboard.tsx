@@ -76,6 +76,13 @@ export default function UserDashboard() {
 	const [authBusy, setAuthBusy] = useState(false);
 	const [authError, setAuthError] = useState<string | null>(null);
 
+	// Optional username onboarding state
+	const [username, setUsername] = useState<string | null>(null);
+	const [onboardingCompleted, setOnboardingCompleted] = useState(true);
+	const [usernameInput, setUsernameInput] = useState("");
+	const [usernameBusy, setUsernameBusy] = useState(false);
+	const [usernameError, setUsernameError] = useState<string | null>(null);
+
 	const [activeTab, setActiveTab] = useState<DashboardTab>("overview");
 	const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -94,6 +101,8 @@ export default function UserDashboard() {
 		const current = address?.toLowerCase();
 		if (previousAddressRef.current && previousAddressRef.current !== current) {
 			setAuthenticated(false);
+			setUsername(null);
+			setOnboardingCompleted(true);
 			setTransactions([]);
 			setPeerOffers([]);
 			setActionFeedback(null);
@@ -171,7 +180,11 @@ export default function UserDashboard() {
 			}
 			const data = (await res.json()) as {
 				authenticated?: boolean;
-				user?: { walletAddress?: string };
+				user?: {
+					walletAddress?: string;
+					username?: string | null;
+					onboardingCompleted?: boolean;
+				};
 				transactions?: UserTransaction[];
 				peerOffers?: PeerTradeOffer[];
 			};
@@ -181,10 +194,13 @@ export default function UserDashboard() {
 				data.user?.walletAddress?.toLowerCase() === address.toLowerCase()
 			) {
 				setAuthenticated(true);
+				setUsername(data.user?.username ?? null);
+				setOnboardingCompleted(Boolean(data.user?.onboardingCompleted || data.user?.username));
 				setTransactions(data.transactions ?? []);
 				setPeerOffers(data.peerOffers ?? []);
 			} else {
 				setAuthenticated(false);
+				setUsername(null);
 				setTransactions([]);
 				setPeerOffers(data.peerOffers ?? []);
 			}
@@ -284,9 +300,81 @@ export default function UserDashboard() {
 		setTimeout(() => setCopiedAddr(false), 1500);
 	};
 
+	const handleSaveUsername = async (e: React.FormEvent) => {
+		e.preventDefault();
+		if (!usernameInput.trim()) return;
+		setUsernameBusy(true);
+		setUsernameError(null);
+		try {
+			const res = await fetch("/api/user/username", {
+				method: "PUT",
+				headers: {
+					"Content-Type": "application/json",
+					...(address ? { "x-wallet-address": address } : {}),
+				},
+				body: JSON.stringify({ username: usernameInput.trim() }),
+			});
+			const data = (await res.json()) as {
+				error?: string;
+				username?: string | null;
+				onboardingCompleted?: boolean;
+			};
+			if (!res.ok) {
+				throw new Error(data.error || "Could not save username.");
+			}
+			setUsername(data.username ?? usernameInput.trim());
+			setOnboardingCompleted(true);
+			setUsernameInput("");
+			setActionFeedback({
+				type: "success",
+				text: `Username @${data.username ?? usernameInput.trim()} linked to your wallet profile.`,
+			});
+		} catch (err) {
+			setUsernameError(err instanceof Error ? err.message : "Could not save username.");
+		} finally {
+			setUsernameBusy(false);
+		}
+	};
+
+	const handleSkipUsername = async () => {
+		setUsernameBusy(true);
+		setUsernameError(null);
+		try {
+			const res = await fetch("/api/user/username", {
+				method: "PUT",
+				headers: {
+					"Content-Type": "application/json",
+					...(address ? { "x-wallet-address": address } : {}),
+				},
+				body: JSON.stringify({ skip: true }),
+			});
+			if (res.ok) {
+				setOnboardingCompleted(true);
+			}
+		} catch {
+			setOnboardingCompleted(true);
+		} finally {
+			setUsernameBusy(false);
+		}
+	};
+
 	// Active Escrows calculation
 	const activeEscrows = useMemo(
 		() => transactions.filter((tx) => tx.status === "escrow"),
+		[transactions],
+	);
+
+	// Trades requiring manual recovery / review
+	const tradesRequiringAttention = useMemo(
+		() =>
+			transactions.filter(
+				(tx) =>
+					tx.lifecycleState === "PAYOUT_ON_HOLD" ||
+					tx.lifecycleState === "RELEASE_ON_HOLD" ||
+					tx.lifecycleState === "LATE_PAYMENT_REVIEW" ||
+					tx.lifecycleState === "REFUND_PENDING" ||
+					tx.status === "disputed",
+			),
 		[transactions],
 	);
 
@@ -422,6 +510,7 @@ export default function UserDashboard() {
 					side: offerSide,
 					usdcAmount: numeric.toFixed(2),
 					bankName: offerBank,
+					accountNumber: offerAccountNo.trim(),
 					txHash,
 				}),
 			});
@@ -806,6 +895,12 @@ export default function UserDashboard() {
 
 				{/* Bottom Sidebar: Network and Account */}
 				<div className="p-3 border-t border-[#d1e8dc] space-y-2 bg-[#fbfdfc]">
+					{username && (
+						<div className="flex items-center justify-between text-[11px]">
+							<span className="text-[#7aaa92]">Handle</span>
+							<span className="font-mono font-semibold text-[#1a9e5c]">@{username}</span>
+						</div>
+					)}
 					<div className="flex items-center justify-between text-[11px]">
 						<span className="text-[#7aaa92]">Network</span>
 						<span className="font-medium text-[#0d2b1e]">Arc Testnet</span>
@@ -914,6 +1009,104 @@ export default function UserDashboard() {
 
 				{/* Tab Content Body */}
 				<div className="p-4 sm:p-6 flex-1 space-y-6 overflow-y-auto">
+					{/* Optional Username Onboarding Card */}
+					{!onboardingCompleted && !username && (
+						<div className="p-4 rounded-lg border border-[#1a9e5c]/30 bg-[#f0f7f3] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+							<div className="space-y-1">
+								<div className="text-xs font-semibold text-[#0d2b1e]">
+									Claim your PeerNotary handle (optional)
+								</div>
+								<p className="text-[11px] text-[#3d6b55]">
+									Set a unique username (3 to 24 chars, letters, numbers, or underscore) so counterparties recognize your offers. Your wallet address remains your cryptographic identity.
+								</p>
+								{usernameError && (
+									<p className="text-[11px] font-medium text-red-600">{usernameError}</p>
+								)}
+							</div>
+
+							<form onSubmit={handleSaveUsername} className="flex flex-wrap items-center gap-2 shrink-0">
+								<input
+									type="text"
+									value={usernameInput}
+									onChange={(e) => setUsernameInput(e.target.value)}
+									placeholder="e.g. lagos_desk"
+									maxLength={24}
+									className="px-3 py-1.5 rounded-lg border border-[#d1e8dc] bg-white text-xs font-mono text-[#0d2b1e] focus:outline-none focus:border-[#1a9e5c]"
+								/>
+								<button
+									type="submit"
+									disabled={usernameBusy || usernameInput.trim().length < 3}
+									className="px-3 py-1.5 rounded-lg bg-[#1a9e5c] text-white text-xs font-semibold hover:bg-[#15854c] disabled:opacity-50"
+								>
+									{usernameBusy ? "Saving..." : "Claim Handle"}
+								</button>
+								<button
+									type="button"
+									onClick={() => void handleSkipUsername()}
+									disabled={usernameBusy}
+									className="px-2.5 py-1.5 rounded-lg border border-[#d1e8dc] bg-white text-[#7aaa92] hover:text-[#0d2b1e] text-xs font-medium"
+								>
+									Skip for now
+								</button>
+							</form>
+						</div>
+					)}
+
+					{/* Trades Requiring Attention Banner */}
+					{tradesRequiringAttention.length > 0 && (
+						<div className="p-4 rounded-lg border border-amber-300 bg-amber-50/70 space-y-2.5">
+							<div className="flex items-center justify-between">
+								<div className="flex items-center gap-2 text-xs font-semibold text-amber-900">
+									<AlertCircle size={14} className="text-amber-700" />
+									<span>
+										Trades Requiring Attention ({tradesRequiringAttention.length})
+									</span>
+								</div>
+								<span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-amber-100 text-amber-800">
+									Hold / Recovery Protection Active
+								</span>
+							</div>
+							<div className="divide-y divide-amber-200/60">
+								{tradesRequiringAttention.map((attTrade) => (
+									<div
+										key={attTrade.id}
+										className="py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+									>
+										<div>
+											<span className="font-mono font-semibold text-amber-950">
+												Trade #{attTrade.tradeId}
+											</span>{" "}
+											<span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-white border border-amber-300 text-amber-800">
+												{attTrade.lifecycleState ?? "ON_HOLD"}
+											</span>
+											{attTrade.holdReason && (
+												<p className="text-[11px] text-amber-800 mt-0.5">
+													{attTrade.holdReason}
+												</p>
+											)}
+										</div>
+										<Link
+											href={`/bank-checkout?tradeId=${encodeURIComponent(
+												attTrade.tradeId,
+											)}&bank=${encodeURIComponent(
+												attTrade.bankName,
+											)}&amountNgn=${encodeURIComponent(
+												attTrade.ngnAmount.replace(/[^0-9]/g, ""),
+											)}&amountUsdc=${encodeURIComponent(
+												attTrade.usdcAmount,
+											)}&accountNo=${encodeURIComponent(
+												attTrade.sellerAccountNumber || "0123456789",
+											)}&returnTo=/dashboard`}
+											className="px-3 py-1.5 rounded-lg bg-amber-700 text-white text-xs font-medium hover:bg-amber-800 shrink-0 text-center"
+										>
+											Resolve in Settlement Portal
+										</Link>
+									</div>
+								))}
+							</div>
+						</div>
+					)}
+
 					{/* TAB 1: OVERVIEW */}
 					{activeTab === "overview" && (
 						<div className="space-y-6">
@@ -991,8 +1184,8 @@ export default function UserDashboard() {
 														<span className="font-mono font-semibold text-[#0d2b1e]">
 															Trade #{trade.tradeId}
 														</span>
-														<span className="px-2 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
-															In Escrow
+														<span className="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-amber-50 text-amber-700 border border-amber-200">
+															{trade.lifecycleState ?? "AWAITING_PAYMENT"}
 														</span>
 														<span className="text-[#7aaa92]">· {trade.bankName}</span>
 													</div>
@@ -1009,26 +1202,22 @@ export default function UserDashboard() {
 														<div className="text-[11px] text-[#7aaa92]">{trade.ngnAmount}</div>
 													</div>
 
-													{trade.role === "buyer" ? (
-														<Link
-															href={`/bank-checkout?tradeId=${encodeURIComponent(
-																trade.tradeId,
-															)}&bank=${encodeURIComponent(
-																trade.bankName,
-															)}&amountNgn=${encodeURIComponent(
-																trade.ngnAmount.replace(/[^0-9]/g, ""),
-															)}&amountUsdc=${encodeURIComponent(
-																trade.usdcAmount,
-															)}&accountNo=0123456789&returnTo=/dashboard`}
-															className="px-3 py-1.5 rounded-lg text-xs font-medium border border-[#1a9e5c] text-[#1a9e5c] hover:bg-[#f0f7f3] transition-colors"
-														>
-															Pay at Bank
-														</Link>
-													) : (
-														<span className="px-2.5 py-1 rounded text-[11px] text-[#7aaa92] bg-[#fbfdfc] border border-[#d1e8dc]">
-															Awaiting Buyer Payment
-														</span>
-													)}
+													<Link
+														href={`/bank-checkout?tradeId=${encodeURIComponent(
+															trade.tradeId,
+														)}&bank=${encodeURIComponent(
+															trade.bankName,
+														)}&amountNgn=${encodeURIComponent(
+															trade.ngnAmount.replace(/[^0-9]/g, ""),
+														)}&amountUsdc=${encodeURIComponent(
+															trade.usdcAmount,
+														)}&accountNo=${encodeURIComponent(
+															trade.sellerAccountNumber || "0123456789",
+														)}&returnTo=/dashboard`}
+														className="px-3 py-1.5 rounded-lg text-xs font-medium border border-[#1a9e5c] text-[#1a9e5c] hover:bg-[#f0f7f3] transition-colors"
+													>
+														{trade.role === "buyer" ? "Flutterwave Checkout" : "Manage Settlement"}
+													</Link>
 													<button
 														onClick={() => void handleVerifyAndRelease(trade)}
 														disabled={verifyingTradeId === trade.tradeId}
@@ -1140,8 +1329,8 @@ export default function UserDashboard() {
 													<span className="font-mono font-semibold text-[#0d2b1e]">
 														Trade #{trade.tradeId}
 													</span>
-													<span className="px-2 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
-														In Escrow
+													<span className="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-amber-50 text-amber-700 border border-amber-200">
+														{trade.lifecycleState ?? "AWAITING_PAYMENT"}
 													</span>
 													<span className="text-[#7aaa92]">· {trade.bankName}</span>
 												</div>
@@ -1155,26 +1344,22 @@ export default function UserDashboard() {
 											</div>
 
 											<div className="flex flex-wrap items-center gap-2">
-												{trade.role === "buyer" ? (
-													<Link
-														href={`/bank-checkout?tradeId=${encodeURIComponent(
-															trade.tradeId,
-														)}&bank=${encodeURIComponent(
-															trade.bankName,
-														)}&amountNgn=${encodeURIComponent(
-															trade.ngnAmount.replace(/[^0-9]/g, ""),
-														)}&amountUsdc=${encodeURIComponent(
-															trade.usdcAmount,
-														)}&accountNo=0123456789&returnTo=/dashboard`}
-														className="px-3 py-1.5 rounded-lg text-xs font-medium border border-[#1a9e5c] text-[#1a9e5c] hover:bg-[#f0f7f3] transition-colors"
-													>
-														Pay at {trade.bankName}
-													</Link>
-												) : (
-													<span className="px-2.5 py-1 rounded text-[11px] text-[#7aaa92] bg-[#fbfdfc] border border-[#d1e8dc]">
-														Awaiting Buyer Payment
-													</span>
-												)}
+												<Link
+													href={`/bank-checkout?tradeId=${encodeURIComponent(
+														trade.tradeId,
+													)}&bank=${encodeURIComponent(
+														trade.bankName,
+													)}&amountNgn=${encodeURIComponent(
+														trade.ngnAmount.replace(/[^0-9]/g, ""),
+													)}&amountUsdc=${encodeURIComponent(
+														trade.usdcAmount,
+													)}&accountNo=${encodeURIComponent(
+														trade.sellerAccountNumber || "0123456789",
+													)}&returnTo=/dashboard`}
+													className="px-3 py-1.5 rounded-lg text-xs font-medium border border-[#1a9e5c] text-[#1a9e5c] hover:bg-[#f0f7f3] transition-colors"
+												>
+													{trade.role === "buyer" ? "Flutterwave Checkout" : "Settlement Portal"}
+												</Link>
 
 												<button
 													onClick={() => void handleVerifyAndRelease(trade)}

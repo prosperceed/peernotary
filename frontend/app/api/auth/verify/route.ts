@@ -15,8 +15,16 @@ export async function POST(request: NextRequest) {
 		) {
 			return NextResponse.json({ error: "MALFORMED_REQUEST" }, { status: 400 });
 		}
-		const session = await signInWallet(address, nonce, signature);
-		return NextResponse.json({ authenticated: true, user: { walletAddress: session.address } });
+		const { session, user } = await signInWallet(address, nonce, signature);
+		return NextResponse.json({
+			authenticated: true,
+			user: {
+				id: user.id,
+				walletAddress: session.address,
+				username: user.username ?? null,
+				onboardingCompleted: user.onboardingCompleted,
+			},
+		});
 	} catch {
 		await recordAuthenticationFailure();
 		return NextResponse.json({ error: "AUTHENTICATION_FAILED" }, { status: 401 });

@@ -77,18 +77,12 @@ export function MetricCard({
 }: MetricCardProps) {
 	return (
 		<div
-			className="relative rounded-2xl border border-[#d1e8dc] bg-white p-5 overflow-hidden group transition-all duration-300 hover:shadow-md"
+			className="relative rounded-lg border border-[#d1e8dc] bg-white p-4 overflow-hidden transition-colors"
 			style={{ ["--accent" as string]: accent }}
 		>
-			<div
-				className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none rounded-2xl"
-				style={{
-					background: `radial-gradient(ellipse at 0% 0%, ${accent}10 0%, transparent 60%)`,
-				}}
-			/>
-			<div className="flex items-start justify-between mb-3">
+			<div className="flex items-start justify-between mb-2.5">
 				<div
-					className="w-9 h-9 rounded-xl flex items-center justify-center"
+					className="w-8 h-8 rounded-lg flex items-center justify-center"
 					style={{ background: `${accent}15` }}
 				>
 					{icon}
@@ -96,7 +90,7 @@ export function MetricCard({
 				{trend !== undefined && (
 					<span
 						className={cn(
-							"text-xs font-mono px-2 py-0.5 rounded-full",
+							"text-[11px] font-mono px-2 py-0.5 rounded",
 							trend > 0
 								? "bg-[#f0f7f3] text-[#1a9e5c] border border-[#d1e8dc]"
 								: "bg-red-50 text-red-500 border border-red-200",
@@ -107,11 +101,11 @@ export function MetricCard({
 					</span>
 				)}
 			</div>
-			<div className="text-2xl font-bold text-[#0d2b1e] font-mono tracking-tight">
+			<div className="text-lg font-semibold text-[#0d2b1e] font-mono tracking-tight">
 				{value}
 			</div>
 			<div className="text-xs text-[#3d6b55] mt-1">{label}</div>
-			{sub && <div className="text-xs text-[#7aaa92] mt-0.5">{sub}</div>}
+			{sub && <div className="text-[11px] text-[#7aaa92] mt-0.5">{sub}</div>}
 		</div>
 	);
 }
@@ -124,45 +118,36 @@ interface StepBarProps {
 
 export function StepBar({ current, steps }: StepBarProps) {
 	return (
-		<div className="flex items-center gap-1.5 mb-5">
+		<div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-5">
 			{steps.map((label, i) => {
 				const done = i < current;
 				const active = i === current;
 				return (
-					<React.Fragment key={i}>
-						<div
+					<div
+						key={label}
+						className={cn(
+							"flex items-center gap-2 px-2.5 py-2 rounded-lg border text-xs transition-colors min-w-0",
+							done
+								? "border-[#1a9e5c]/40 bg-[#f0f7f3] text-[#0d2b1e]"
+								: active
+								? "border-[#1a9e5c] bg-[#1a9e5c] text-white"
+								: "border-[#d1e8dc] bg-[#fbfdfc] text-[#7aaa92]",
+						)}
+					>
+						<span
 							className={cn(
-								"flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold border-2 transition-all duration-300 flex-shrink-0",
+								"w-5 h-5 rounded flex items-center justify-center text-[10px] font-mono font-semibold shrink-0",
 								done
-									? "border-[#22c972] bg-[#22c972] text-white"
+									? "bg-[#1a9e5c] text-white"
 									: active
-									? "border-[#1a9e5c] bg-[#f0f7f3] text-[#1a9e5c]"
-									: "border-[#d1e8dc] bg-white text-[#7aaa92]",
+									? "bg-white/20 text-white"
+									: "bg-white border border-[#d1e8dc] text-[#7aaa92]",
 							)}
 						>
 							{done ? "✓" : i + 1}
-						</div>
-						<span
-							className={cn(
-								"text-[10px] whitespace-nowrap hidden sm:inline",
-								done
-									? "text-[#22c972]"
-									: active
-									? "text-[#1a9e5c]"
-									: "text-[#7aaa92]",
-							)}
-						>
-							{label}
 						</span>
-						{i < steps.length - 1 && (
-							<div
-								className={cn(
-									"h-px flex-1 min-w-[8px] transition-all duration-500",
-									done ? "bg-[#22c972]/50" : "bg-[#d1e8dc]",
-								)}
-							/>
-						)}
-					</React.Fragment>
+						<span className="text-[11px] font-medium truncate">{label}</span>
+					</div>
 				);
 			})}
 		</div>

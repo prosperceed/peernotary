@@ -1,16 +1,17 @@
 import "server-only";
 
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { getAddress, isAddress, verifyMessage } from "ethers";
 import { cookies } from "next/headers";
-
-// ─── TYPES ────────────────────────────────────────────────────────────────────
+import { supabaseServerUpsert } from "@/lib/supabase/server";
 
 export interface AuthNonce {
+	id: string;
 	address: string;
 	nonce: string;
 	message: string;
 	domain: string;
+	uri: string;
 	chainId: number;
 	expiresAt: Date;
 	usedAt?: Date;
@@ -18,38 +19,58 @@ export interface AuthNonce {
 }
 
 export interface UserRecord {
+	id: string;
 	walletAddress: string;
+	username?: string;
+	onboardingCompleted: boolean;
 	createdAt: Date;
 	updatedAt: Date;
 	lastAuthenticatedAt: Date;
 }
 
 export interface AuthSession {
-	userId?: string;
+	id: string;
+	userId: string;
 	address: string;
 	tokenHash: string;
 	expiresAt: Date;
+	revokedAt?: Date;
 	createdAt: Date;
 }
 
-// ─── CONSTANTS ────────────────────────────────────────────────────────────────
-
-const NONCE_TTL_MS = 5 * 60 * 1000;       // 5 minutes
-const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const NONCE_TTL_MS = 5 * 60 * 1000;
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const COOKIE_NAME = "peernotary_session";
 const DEFAULT_DOMAIN = "PeerNotary";
-const CHAIN_ID = Number(process.env.AUTH_CHAIN_ID ?? "5042002");
+const CHAIN_ID = Number(process.env.AUTH_CHAIN_ID ?? process.env.ARC_CHAIN_ID ?? "5042002");
 const RATE_LIMIT_WINDOW_MS = 60 * 1_000;
 const RATE_LIMIT_MAX = 30;
 
-// ─── IN-MEMORY STORES ─────────────────────────────────────────────────────────
+const RESERVED_USERNAMES = new Set([
+	"admin",
+	"system",
+	"support",
+	"peernotary",
+	"flutterwave",
+	"arc",
+	"escrow",
+	"oracle",
+	"moderator",
+	"root",
+	"api",
+	"help",
+	"security",
+	"official",
+	"treasury",
+	"null",
+	"undefined",
+]);
 
-const inMemoryNonces   = new Map<string, AuthNonce>();
-const inMemoryUsers    = new Map<string, UserRecord>();
+const inMemoryNonces = new Map<string, AuthNonce>();
+const inMemoryUsers = new Map<string, UserRecord>();
 const inMemorySessions = new Map<string, AuthSession>();
+const usernameDirectory = new Map<string, string>(); // username -> lowercase walletAddress
 const rateLimitBuckets = new Map<string, { count: number; resetAt: number }>();
-
-// ─── HELPERS ──────────────────────────────────────────────────────────────────
 
 function normalizeAddress(value: string): string {
 	if (!isAddress(value)) throw new Error("Invalid wallet address");
@@ -60,8 +81,7 @@ function hashToken(token: string): string {
 	return createHash("sha256").update(token).digest("hex");
 }
 
-/** Opaque random hex ID */
-function createOpaqueId(bytes = 32): string {
+function createOpaqueId(bytes = 24): string {
 	return randomBytes(bytes).toString("hex");
 }
 
@@ -82,6 +102,7 @@ function checkRateLimit(key: string): void {
 
 function buildChallengeMessage(
 	domain: string,
+	uri: string,
 	address: string,
 	nonce: string,
 	issuedAt: string,
@@ -90,7 +111,7 @@ function buildChallengeMessage(
 	return (
 		`${domain} wants you to sign in with your Ethereum account:\n${address}\n\n` +
 		`PeerNotary wallet authentication\n\n` +
-		`URI: ${domain}\n` +
+		`URI: ${uri}\n` +
 		`Chain ID: ${CHAIN_ID}\n` +
 		`Nonce: ${nonce}\n` +
 		`Issued At: ${issuedAt}\n` +
@@ -99,7 +120,97 @@ function buildChallengeMessage(
 	);
 }
 
-// ─── EXPORTED AUTH FUNCTIONS ──────────────────────────────────────────────────
+export function validateAndNormalizeUsername(raw: string): string {
+	const normalized = raw.trim().replace(/^@+/, "").toLowerCase();
+	if (normalized.length < 3 || normalized.length > 24) {
+		throw new Error("Username must be between 3 and 24 characters.");
+	}
+	if (!/^[a-z0-9_]+$/.test(normalized)) {
+		throw new Error("Username may only contain lowercase letters, numbers, and underscores.");
+	}
+	if (
+		RESERVED_USERNAMES.has(normalized) ||
+		normalized.startsWith("admin_") ||
+		normalized.startsWith("peernotary_") ||
+		normalized.startsWith("system_")
+	) {
+		throw new Error("This username is reserved and cannot be claimed.");
+	}
+	return normalized;
+}
+
+export function getUsernameForAddress(address: string): string | undefined {
+	return inMemoryUsers.get(address.toLowerCase())?.username;
+}
+
+export async function setWalletUsername(
+	walletAddress: string,
+	options: { username?: string; skipOnboarding?: boolean },
+): Promise<UserRecord> {
+	const normalizedAddr = normalizeAddress(walletAddress);
+	const lowerKey = normalizedAddr.toLowerCase();
+	const now = new Date();
+
+	let user = inMemoryUsers.get(lowerKey);
+	if (!user) {
+		user = {
+			id: randomUUID(),
+			walletAddress: normalizedAddr,
+			onboardingCompleted: false,
+			createdAt: now,
+			updatedAt: now,
+			lastAuthenticatedAt: now,
+		};
+		inMemoryUsers.set(lowerKey, user);
+	}
+
+	if (options.skipOnboarding && !options.username) {
+		user.onboardingCompleted = true;
+		user.updatedAt = now;
+		void supabaseServerUpsert(
+			"profiles",
+			{
+				id: user.id,
+				onboarding_completed: true,
+				updated_at: now.toISOString(),
+			},
+			{ onConflict: "id" },
+		);
+		return user;
+	}
+
+	if (!options.username) {
+		throw new Error("Username is required.");
+	}
+
+	const cleanUsername = validateAndNormalizeUsername(options.username);
+	const existingOwner = usernameDirectory.get(cleanUsername);
+	if (existingOwner && existingOwner !== lowerKey) {
+		throw new Error("Username is already taken by another trader.");
+	}
+
+	if (user.username && user.username !== cleanUsername) {
+		usernameDirectory.delete(user.username);
+	}
+
+	usernameDirectory.set(cleanUsername, lowerKey);
+	user.username = cleanUsername;
+	user.onboardingCompleted = true;
+	user.updatedAt = now;
+
+	void supabaseServerUpsert(
+		"profiles",
+		{
+			id: user.id,
+			username: cleanUsername,
+			onboarding_completed: true,
+			updated_at: now.toISOString(),
+		},
+		{ onConflict: "id" },
+	);
+
+	return user;
+}
 
 export async function createWalletChallenge(
 	addressInput: string,
@@ -108,27 +219,50 @@ export async function createWalletChallenge(
 	const address = normalizeAddress(addressInput);
 	checkRateLimit(`challenge:${address.toLowerCase()}`);
 
-	const nonce      = createOpaqueId(24);
-	const issuedAt   = new Date();
-	const expiresAt  = new Date(Date.now() + NONCE_TTL_MS);
-	const domain     = process.env.AUTH_DOMAIN ?? requestDomain ?? DEFAULT_DOMAIN;
-	const message    = buildChallengeMessage(
+	const nonce = createOpaqueId(24);
+	const issuedAt = new Date();
+	const expiresAt = new Date(Date.now() + NONCE_TTL_MS);
+	const domain = process.env.AUTH_DOMAIN ?? requestDomain ?? DEFAULT_DOMAIN;
+	const uri = process.env.NEXT_PUBLIC_APP_URL ?? `https://${domain}`;
+	const message = buildChallengeMessage(
 		domain,
+		uri,
 		address,
 		nonce,
 		issuedAt.toISOString(),
 		expiresAt.toISOString(),
 	);
 
-	inMemoryNonces.set(nonceKey(address, nonce), {
+	const record: AuthNonce = {
+		id: randomUUID(),
 		address,
 		nonce,
 		message,
 		domain,
+		uri,
 		chainId: CHAIN_ID,
 		expiresAt,
 		createdAt: issuedAt,
-	});
+	};
+
+	inMemoryNonces.set(nonceKey(address, nonce), record);
+
+	void supabaseServerUpsert(
+		"wallet_nonces",
+		{
+			id: record.id,
+			wallet_address: address.toLowerCase(),
+			nonce,
+			domain,
+			uri,
+			chain_id: CHAIN_ID,
+			statement: "Authenticate this wallet for PeerNotary.",
+			message,
+			issued_at: issuedAt.toISOString(),
+			expires_at: expiresAt.toISOString(),
+		},
+		{ onConflict: "nonce" },
+	);
 
 	return { address, nonce, message, expiresAt: expiresAt.toISOString() };
 }
@@ -137,9 +271,10 @@ export async function signInWallet(
 	addressInput: string,
 	nonce: string,
 	signature: string,
-): Promise<AuthSession> {
+): Promise<{ session: AuthSession; user: UserRecord }> {
 	const address = normalizeAddress(addressInput);
-	checkRateLimit(`verify:${address.toLowerCase()}`);
+	const lowerAddr = address.toLowerCase();
+	checkRateLimit(`verify:${lowerAddr}`);
 
 	if (!/^[a-f0-9]{48}$/i.test(nonce) || !/^0x[0-9a-fA-F]{130}$/.test(signature)) {
 		throw new Error("Malformed authentication request");
@@ -149,27 +284,33 @@ export async function signInWallet(
 	if (!challenge || challenge.usedAt || challenge.expiresAt <= new Date()) {
 		throw new Error("Challenge is invalid or expired");
 	}
-	if (verifyMessage(challenge.message, signature).toLowerCase() !== address.toLowerCase()) {
+	if (verifyMessage(challenge.message, signature).toLowerCase() !== lowerAddr) {
 		throw new Error("Wallet signature does not match address");
 	}
 
-	// Mark nonce as used (one-time)
-	challenge.usedAt = new Date();
+	const now = new Date();
+	challenge.usedAt = now;
 
-	// Upsert user
-	const now  = new Date();
-	let user   = inMemoryUsers.get(address.toLowerCase());
+	let user = inMemoryUsers.get(lowerAddr);
 	if (!user) {
-		user = { walletAddress: address, createdAt: now, updatedAt: now, lastAuthenticatedAt: now };
-		inMemoryUsers.set(address.toLowerCase(), user);
+		user = {
+			id: randomUUID(),
+			walletAddress: address,
+			onboardingCompleted: false,
+			createdAt: now,
+			updatedAt: now,
+			lastAuthenticatedAt: now,
+		};
+		inMemoryUsers.set(lowerAddr, user);
 	} else {
-		user.updatedAt            = now;
-		user.lastAuthenticatedAt  = now;
+		user.updatedAt = now;
+		user.lastAuthenticatedAt = now;
 	}
 
-	// Create session
-	const token   = randomBytes(32).toString("base64url");
+	const token = randomBytes(32).toString("base64url");
 	const session: AuthSession = {
+		id: randomUUID(),
+		userId: user.id,
 		address,
 		tokenHash: hashToken(token),
 		expiresAt: new Date(Date.now() + SESSION_TTL_MS),
@@ -177,27 +318,63 @@ export async function signInWallet(
 	};
 	inMemorySessions.set(session.tokenHash, session);
 
+	void supabaseServerUpsert(
+		"profiles",
+		{
+			id: user.id,
+			username: user.username ?? null,
+			onboarding_completed: user.onboardingCompleted,
+			updated_at: now.toISOString(),
+		},
+		{ onConflict: "id" },
+	);
+
+	void supabaseServerUpsert(
+		"wallet_accounts",
+		{
+			profile_id: user.id,
+			wallet_address: lowerAddr,
+			chain_id: CHAIN_ID,
+			last_authenticated_at: now.toISOString(),
+		},
+		{ onConflict: "wallet_address" },
+	);
+
+	void supabaseServerUpsert(
+		"wallet_sessions",
+		{
+			id: session.id,
+			profile_id: user.id,
+			wallet_address: lowerAddr,
+			token_hash: session.tokenHash,
+			chain_id: CHAIN_ID,
+			expires_at: session.expiresAt.toISOString(),
+			last_active_at: now.toISOString(),
+		},
+		{ onConflict: "token_hash" },
+	);
+
 	(await cookies()).set(COOKIE_NAME, token, {
 		httpOnly: true,
 		sameSite: "lax",
-		secure:   process.env.NODE_ENV === "production",
-		expires:  session.expiresAt,
-		path:     "/",
+		secure: process.env.NODE_ENV === "production",
+		expires: session.expiresAt,
+		path: "/",
 	});
 
-	return session;
+	return { session, user };
 }
 
-export async function recordAuthenticationFailure(_address?: string): Promise<void> {
-	// No-op in pure in-memory mode — failures are not persisted
-}
+export async function recordAuthenticationFailure(_address?: string): Promise<void> {}
 
 export async function getAuthenticatedUser(expectedAddress?: string): Promise<UserRecord> {
 	const token = (await cookies()).get(COOKIE_NAME)?.value;
 	if (!token) throw new Error("Authentication required");
 
 	const session = inMemorySessions.get(hashToken(token));
-	if (!session || session.expiresAt <= new Date()) throw new Error("Authentication required");
+	if (!session || session.revokedAt || session.expiresAt <= new Date()) {
+		throw new Error("Authentication required");
+	}
 
 	if (
 		expectedAddress &&
@@ -216,27 +393,19 @@ export async function logoutWallet(): Promise<void> {
 	const cookieStore = await cookies();
 	const token = cookieStore.get(COOKIE_NAME)?.value;
 	if (token) {
-		inMemorySessions.delete(hashToken(token));
+		const hashed = hashToken(token);
+		const existing = inMemorySessions.get(hashed);
+		if (existing) {
+			existing.revokedAt = new Date();
+		}
+		inMemorySessions.delete(hashed);
 	}
 	cookieStore.delete(COOKIE_NAME);
 }
 
 export async function requireWalletAddress(expectedAddress?: string): Promise<string> {
-	const token = (await cookies()).get(COOKIE_NAME)?.value;
-	if (!token) throw new Error("Authentication required");
-
-	const session = inMemorySessions.get(hashToken(token));
-	if (!session || session.expiresAt <= new Date()) throw new Error("Authentication required");
-
-	if (
-		expectedAddress &&
-		session.address.toLowerCase() !== expectedAddress.toLowerCase()
-	) {
-		await logoutWallet();
-		throw new Error("Wallet session mismatch");
-	}
-
-	return session.address;
+	const user = await getAuthenticatedUser(expectedAddress);
+	return user.walletAddress;
 }
 
 export { COOKIE_NAME };

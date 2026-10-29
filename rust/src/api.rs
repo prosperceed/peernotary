@@ -1,7 +1,7 @@
 use axum::{
     extract::{DefaultBodyLimit, Path, State},
     http::{HeaderMap, StatusCode},
-    routing::{get, post},
+    routing::{get, post, put},
     Json, Router,
 };
 use chrono::{Duration as ChronoDuration, Utc};
@@ -25,6 +25,12 @@ use crate::{
         NextjsWebhookCompatPayload, ProofEvidenceResponse, ProofRecord, ProofSummaryResponse,
         SessionRecord, SessionState, VerifyProofRequest,
     },
+    payments_api::{
+        create_auth_challenge, create_or_register_trade, get_trade_detail, get_user_profile,
+        handle_flutterwave_webhook, init_flutterwave_checkout, process_escrow_release,
+        process_seller_payout, process_trade_refund, run_reconciliation_pass, update_username,
+        verify_flutterwave_payment, verify_wallet_signature,
+    },
     state::AppState,
 };
 
@@ -46,6 +52,39 @@ pub fn build_router(state: AppState) -> Router {
             "/api/v1/escrow/evaluate-release",
             post(evaluate_escrow_release),
         )
+        // Wallet authentication & username onboarding
+        .route("/api/v1/auth/challenge", post(create_auth_challenge))
+        .route("/api/v1/auth/verify", post(verify_wallet_signature))
+        .route("/api/v1/users/profile", get(get_user_profile))
+        .route("/api/v1/users/username", put(update_username))
+        // Authoritative Trade Lifecycle, Flutterwave Checkout, Payouts, Refunds & Escrow
+        .route("/api/v1/trades", post(create_or_register_trade))
+        .route("/api/v1/trades/:trade_id", get(get_trade_detail))
+        .route(
+            "/api/v1/trades/:trade_id/checkout",
+            post(init_flutterwave_checkout),
+        )
+        .route(
+            "/api/v1/trades/:trade_id/verify-payment",
+            post(verify_flutterwave_payment),
+        )
+        .route(
+            "/api/v1/trades/:trade_id/payout",
+            post(process_seller_payout),
+        )
+        .route(
+            "/api/v1/trades/:trade_id/refund",
+            post(process_trade_refund),
+        )
+        .route(
+            "/api/v1/trades/:trade_id/escrow",
+            post(process_escrow_release),
+        )
+        .route(
+            "/api/v1/webhooks/flutterwave",
+            post(handle_flutterwave_webhook),
+        )
+        .route("/api/v1/reconcile/run", post(run_reconciliation_pass))
         .layer(DefaultBodyLimit::max(body_limit))
         .with_state(state)
 }

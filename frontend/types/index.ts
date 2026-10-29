@@ -18,6 +18,72 @@ export type BadgeColor =
 	| "slate"
 	| "cyan";
 
+export type TradeLifecycleState =
+	| "OPEN"
+	| "AWAITING_PAYMENT"
+	| "PAYMENT_CONFIRMED"
+	| "SELLER_PAYOUT_PENDING"
+	| "SELLER_PAYOUT_CONFIRMED"
+	| "RELEASE_PENDING"
+	| "COMPLETED"
+	| "PAYOUT_ON_HOLD"
+	| "REFUND_PENDING"
+	| "RELEASE_ON_HOLD"
+	| "LATE_PAYMENT_REVIEW"
+	| "CANCELLED"
+	| "DISPUTED";
+
+export type PaymentState =
+	| "UNPAID"
+	| "CHECKOUT_CREATED"
+	| "PENDING_VERIFICATION"
+	| "CONFIRMED"
+	| "LATE_CONFIRMED"
+	| "UNDERPAID"
+	| "OVERPAID"
+	| "FAILED"
+	| "EXPIRED";
+
+export type PayoutState =
+	| "NOT_STARTED"
+	| "PENDING"
+	| "PROCESSING"
+	| "CONFIRMED"
+	| "ON_HOLD"
+	| "FAILED";
+
+export type RefundState =
+	| "NONE"
+	| "REQUESTED"
+	| "APPROVED"
+	| "PROCESSING"
+	| "COMPLETED"
+	| "FAILED"
+	| "REJECTED";
+
+export type EscrowOperationState =
+	| "CREATED"
+	| "FUNDED"
+	| "FIAT_SENT"
+	| "RELEASE_PENDING"
+	| "RELEASED"
+	| "ON_HOLD"
+	| "CANCELLED"
+	| "DISPUTED";
+
+export interface TradeAuditEventItem {
+	id: string;
+	tradeId: string;
+	actorAddress?: string;
+	actorRole: "buyer" | "seller" | "system" | "oracle" | "webhook" | "verify_api" | "admin";
+	eventType: string;
+	previousState?: string;
+	newState: string;
+	correlationId?: string;
+	metadata?: Record<string, unknown>;
+	createdAt: string;
+}
+
 export interface Transaction {
 	id: string;
 	buyer: string;
@@ -37,8 +103,25 @@ export interface UserTransaction {
 	usdcAmount: string;
 	ngnAmount: string;
 	bankName: string;
-	verificationMethod: "TLSNotary ZK" | "Open Banking" | "On-Chain Escrow";
+	sellerAccountNumber?: string;
+	verificationMethod:
+		| "Flutterwave Checkout"
+		| "TLSNotary ZK"
+		| "Open Banking"
+		| "On-Chain Escrow";
 	status: TxStatus;
+	lifecycleState?: TradeLifecycleState;
+	paymentState?: PaymentState;
+	payoutState?: PayoutState;
+	refundState?: RefundState;
+	escrowState?: EscrowOperationState;
+	paymentDeadlineAt?: string;
+	txRef?: string;
+	flwTxId?: number;
+	payoutReference?: string;
+	refundReference?: string;
+	holdReason?: string;
+	failureReason?: string;
 	txHash: string;
 	proofId?: string;
 	timestamp: string;

@@ -21,10 +21,12 @@ use crate::{
         parse_flw_verify_response, verify_flutterwave_webhook_signature, VerificationOutcome,
     },
     lifecycle::{
-        make_outbox_job, mask_account_number, redact_provider_payload, AttemptStatus,
-        EscrowOperationRecord, EscrowOperationState, PaymentAttemptRecord, PaymentState,
-        PayoutState, RefundRecord, RefundState, SellerPayoutRecord, TradeAuditEvent,
-        TradeLifecycleState, TradeRecord, WebhookInboxEvent,
+        extract_trusted_client_ip, make_outbox_job, mask_account_number, redact_provider_payload,
+        AttemptStatus, EscrowOperationRecord, EscrowOperationState, GuarantorCommitmentRecord,
+        PaymentAttemptRecord, PaymentState, PayoutState, QueueEntryRecord, QueueEntryStatus,
+        RefundRecord, RefundState, SellerListingRecord, SellerListingStatus, SellerPayoutRecord,
+        StrongerVerificationStatus, TradeAuditEvent, TradeLifecycleState, TradeRecord, TrustTier,
+        UserRiskEvent, UserTrustProfile, WebhookInboxEvent,
     },
     state::AppState,
     wallet_auth::{
@@ -326,6 +328,87 @@ pub struct CreateTradeRequest {
     pub collateral_tx_hash: Option<String>,
 }
 
+pub fn validate_buyer_eligibility(
+    state: &AppState,
+    headers: &HeaderMap,
+    buyer_addr: &str,
+    requested_usdc_units: u128,
+) -> Result<String, ApiError> {
+    let trusted_ip = extract_trusted_client_ip(headers, state.trust_proxy_headers);
+    let ip_hash = compute_sha256_hex(format!("ip_salt::{}", trusted_ip).as_bytes());
+
+    if !state.check_rate_limit(&format!("ip_order_velocity:{ip_hash}"), 25) {
+        return Err(ApiError::TooManyRequests);
+    }
+    if !state.check_rate_limit(&format!("wallet_order_velocity:{buyer_addr}"), 10) {
+        return Err(ApiError::TooManyRequests);
+    }
+
+    let now = Utc::now();
+    let profile = state.get_or_init_trust_profile(buyer_addr);
+
+    let cooldown_remaining = profile.active_cooldown_remaining_seconds(now);
+    if cooldown_remaining > 0 {
+        return Err(ApiError::VerificationFailed {
+            code: "BUYER_COOLDOWN_ACTIVE",
+            reason: format!(
+                "Buyer wallet is in a temporary cooldown for {} more seconds due to {}",
+                cooldown_remaining,
+                profile
+                    .cooldown_reason
+                    .as_deref()
+                    .unwrap_or("UNPAID_DEADLINE_EXPIRED")
+            ),
+        });
+    }
+
+    let active_unpaid = state.count_buyer_active_unpaid_obligations(buyer_addr);
+    if active_unpaid >= profile.max_concurrent_unpaid_trades {
+        return Err(ApiError::Conflict("BUYER_MAX_ACTIVE_UNPAID_TRADES_REACHED"));
+    }
+
+    let has_active_guarantor = state.guarantor_commitments.iter().any(|entry| {
+        let g = entry.value();
+        g.beneficiary_buyer_address == buyer_addr
+            && g.status == "ACTIVE"
+            && g.expires_at > now
+            && g.max_backed_usdc_units >= requested_usdc_units
+    });
+
+    let effective_limit = if has_active_guarantor {
+        state.risk_policy.high_limit_usdc_units
+    } else if profile.stronger_verification_status == StrongerVerificationStatus::Verified {
+        profile
+            .max_trade_usdc_units
+            .max(state.risk_policy.established_limit_usdc_units)
+    } else {
+        profile.max_trade_usdc_units
+    };
+
+    if requested_usdc_units > effective_limit {
+        return Err(ApiError::VerificationFailed {
+            code: "BUYER_TRUST_LIMIT_EXCEEDED",
+            reason: format!(
+                "Requested amount ({} units) exceeds current trust tier {:?} limit ({} units). Complete smaller trades or attach a verified guarantor commitment.",
+                requested_usdc_units, profile.trust_tier, effective_limit
+            ),
+        });
+    }
+
+    if requested_usdc_units >= state.risk_policy.large_trade_verification_threshold_usdc_units
+        && !matches!(profile.trust_tier, TrustTier::Established | TrustTier::HighLimit)
+        && profile.stronger_verification_status != StrongerVerificationStatus::Verified
+        && !has_active_guarantor
+    {
+        return Err(ApiError::VerificationFailed {
+            code: "LARGE_TRADE_VERIFICATION_OR_GUARANTOR_REQUIRED",
+            reason: "Large trade requests require Established/HighLimit tier, verified identity, or an active guarantor commitment".to_string(),
+        });
+    }
+
+    Ok(ip_hash)
+}
+
 pub async fn create_or_register_trade(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -346,6 +429,8 @@ pub async fn create_or_register_trade(
 
     let seller_addr = normalize_wallet_address(&req.seller_address)?;
     let buyer_addr = normalize_wallet_address(&req.buyer_address)?;
+
+    validate_buyer_eligibility(&state, &headers, &buyer_addr, req.usdc_amount_units)?;
 
     let rate_minor = req.exchange_rate_minor.unwrap_or(163_000); // 1630.00 NGN in kobo
     let currency = req
@@ -1568,6 +1653,9 @@ pub async fn process_trade_refund(
             trade.refund_state = RefundState::Completed;
             trade.escrow_state = EscrowOperationState::Cancelled;
             state.append_audit_event(audit);
+            drop(trade);
+
+            let _ = state.reconcile_seller_listing_on_trade_resolution(&trade_id, false);
 
             let mut refund = state
                 .refunds
@@ -1695,21 +1783,44 @@ pub async fn process_escrow_release(
             )?;
             trade.escrow_state = EscrowOperationState::Released;
             trade.release_tx_hash = Some(tx_hash.clone());
+            let completed_buyer = trade.buyer_address.clone();
+            let completed_usdc = trade.usdc_amount_units;
+            let trade_uuid = trade.id.clone();
+            let trade_chain_id = trade.chain_id;
+            let trade_escrow_addr = trade.escrow_contract_address.clone();
+            let trade_proof_id = trade.proof_id_bytes32.clone();
             state.append_audit_event(audit);
+            drop(trade);
+
+            if let Some(buyer_addr) = completed_buyer {
+                let mut prof = state
+                    .trust_profiles
+                    .entry(buyer_addr.clone())
+                    .or_insert_with(|| UserTrustProfile::new_for_wallet(&buyer_addr));
+                let risk_ev = prof.record_completed_trade(
+                    &trade_id,
+                    completed_usdc,
+                    &state.risk_policy,
+                );
+                drop(prof);
+                state.append_risk_event(risk_ev);
+            }
+
+            let _ = state.reconcile_seller_listing_on_trade_resolution(&trade_id, true);
 
             let mut op = state
                 .escrow_operations
                 .entry(trade_id.clone())
                 .or_insert_with(|| EscrowOperationRecord {
                     id: Uuid::new_v4().to_string(),
-                    trade_uuid: trade.id.clone(),
-                    trade_id: trade.trade_id.clone(),
+                    trade_uuid,
+                    trade_id: trade_id.clone(),
                     operation_type: "ORACLE_RELEASE".to_string(),
                     idempotency_key: format!("escrow_release:{trade_id}"),
-                    chain_id: trade.chain_id,
-                    contract_address: trade.escrow_contract_address.clone(),
+                    chain_id: trade_chain_id,
+                    contract_address: trade_escrow_addr,
                     tx_hash: Some(tx_hash.clone()),
-                    proof_id_bytes32: trade.proof_id_bytes32.clone(),
+                    proof_id_bytes32: trade_proof_id,
                     status: "CONFIRMED".to_string(),
                     block_number: req.block_number,
                     failure_reason: None,
@@ -1802,6 +1913,7 @@ pub async fn run_reconciliation_pass(
     let mut checked_trades = 0usize;
     let mut expired_cancelled_trades = Vec::new();
     let mut held_pending_verification_trades = Vec::new();
+    let mut expired_buyer_penalties: Vec<(String, String, bool)> = Vec::new();
 
     let trade_ids: Vec<String> = state.trades.iter().map(|e| e.key().clone()).collect();
 
@@ -1835,11 +1947,22 @@ pub async fn run_reconciliation_pass(
                 continue;
             }
             PaymentState::Unpaid | PaymentState::CheckoutCreated | PaymentState::Failed | PaymentState::Expired => {
-                // Check if active payment attempt is in PendingVerification
+                let mut is_provider_outage = false;
                 let has_inflight_attempt = state
                     .active_trade_checkout
                     .get(&tid)
-                    .and_then(|tx_ref| state.payment_attempts.get(tx_ref.value()).map(|a| a.status))
+                    .and_then(|tx_ref| {
+                        state.payment_attempts.get(tx_ref.value()).map(|a| {
+                            if a.failure_code
+                                .as_deref()
+                                .map(|c| c.starts_with("PROVIDER_OUTAGE"))
+                                .unwrap_or(false)
+                            {
+                                is_provider_outage = true;
+                            }
+                            a.status
+                        })
+                    })
                     .map(|st| {
                         matches!(
                             st,
@@ -1865,6 +1988,7 @@ pub async fn run_reconciliation_pass(
                 }
 
                 let ver = trade.version;
+                let buyer_opt = trade.buyer_address.clone();
                 if let Ok(audit) = trade.transition(
                     ver,
                     TradeLifecycleState::Cancelled,
@@ -1877,10 +2001,30 @@ pub async fn run_reconciliation_pass(
                     trade.payment_state = PaymentState::Expired;
                     trade.escrow_state = EscrowOperationState::Cancelled;
                     state.append_audit_event(audit);
-                    expired_cancelled_trades.push(tid);
+                    expired_cancelled_trades.push(tid.clone());
+                    if let Some(b_addr) = buyer_opt {
+                        expired_buyer_penalties.push((tid, b_addr, is_provider_outage));
+                    }
                 }
             }
         }
+    }
+
+    // Reconcile seller listings and apply progressive cooldowns for expired unpaid trades
+    for (tid, buyer_addr, is_provider_outage) in expired_buyer_penalties {
+        let _ = state.reconcile_seller_listing_on_trade_resolution(&tid, false);
+        let mut prof = state
+            .trust_profiles
+            .entry(buyer_addr.clone())
+            .or_insert_with(|| UserTrustProfile::new_for_wallet(&buyer_addr));
+        let reason = if is_provider_outage {
+            "PROVIDER_OUTAGE_DURING_PAYMENT_WINDOW"
+        } else {
+            "UNPAID_DEADLINE_EXPIRED"
+        };
+        let risk_ev = prof.apply_trade_expiration(&tid, is_provider_outage, reason, &state.risk_policy);
+        drop(prof);
+        state.append_risk_event(risk_ev);
     }
 
     // Process pending outbox jobs with bounded retries & exponential backoff
@@ -1915,6 +2059,781 @@ pub async fn run_reconciliation_pass(
         held_pending_verification_trades,
         outbox_jobs_processed,
     }))
+}
+
+// ─── SELLER-FUNDED LISTINGS, PARTIAL-ORDER FIFO QUEUE & TRUST ENDPOINTS ──────
+
+#[derive(Debug, Deserialize)]
+pub struct CreateSellerListingRequest {
+    pub listing_ref: Option<String>,
+    pub onchain_listing_id: String,
+    pub seller_address: String,
+    pub total_deposited_usdc_units: u128,
+    pub exchange_rate_minor: u128,
+    pub fiat_currency: Option<String>,
+    pub seller_bank_code: Option<String>,
+    pub seller_bank_name: String,
+    pub seller_account_number: Option<String>,
+    pub deposit_tx_hash: Option<String>,
+}
+
+pub async fn create_seller_listing(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<CreateSellerListingRequest>,
+) -> Result<(StatusCode, Json<SellerListingRecord>), ApiError> {
+    require_service_auth(&headers, &state.config)?;
+
+    if req.total_deposited_usdc_units == 0 || req.exchange_rate_minor == 0 {
+        return Err(ApiError::BadRequest(
+            "Seller listing deposit amount and exchange rate must be positive".into(),
+        ));
+    }
+
+    let seller_addr = normalize_wallet_address(&req.seller_address)?;
+    let onchain_id = req.onchain_listing_id.trim().to_string();
+    if onchain_id.is_empty() || !onchain_id.chars().all(|c| c.is_ascii_digit()) {
+        return Err(ApiError::BadRequest(
+            "onchain_listing_id must be a positive numeric string".into(),
+        ));
+    }
+
+    let listing_ref = req
+        .listing_ref
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string)
+        .unwrap_or_else(|| format!("LST-{onchain_id}"));
+
+    if let Some(existing) = state.seller_listings.get(&listing_ref) {
+        return Ok((StatusCode::OK, Json(existing.clone())));
+    }
+
+    let bank_code = req
+        .seller_bank_code
+        .clone()
+        .unwrap_or_else(|| map_bank_name_to_cbn_code(&req.seller_bank_name));
+    let raw_acct = req
+        .seller_account_number
+        .as_deref()
+        .unwrap_or("0123456789");
+    let masked_acct = mask_account_number(raw_acct);
+    let acct_hash = compute_keccak256_bytes32_hex(
+        format!("{}:{}:{}", req.seller_bank_name, raw_acct, bank_code).as_bytes(),
+    );
+    let now = Utc::now();
+
+    let listing = SellerListingRecord {
+        id: Uuid::new_v4().to_string(),
+        listing_ref: listing_ref.clone(),
+        onchain_listing_id: onchain_id,
+        seller_address: seller_addr,
+        total_deposited_usdc_units: req.total_deposited_usdc_units,
+        available_usdc_units: req.total_deposited_usdc_units,
+        allocated_usdc_units: 0,
+        reserved_queued_usdc_units: 0,
+        filled_usdc_units: 0,
+        withdrawn_usdc_units: 0,
+        fiat_currency: req
+            .fiat_currency
+            .unwrap_or_else(|| state.payment_config.flw_currency.clone())
+            .to_ascii_uppercase(),
+        exchange_rate_minor: req.exchange_rate_minor,
+        seller_bank_code: bank_code,
+        seller_bank_name: req.seller_bank_name,
+        seller_account_masked: masked_acct,
+        seller_account_hash: acct_hash,
+        status: SellerListingStatus::Active,
+        active_trade_id: None,
+        active_slot_lease_owner: None,
+        active_slot_lease_expires_at: None,
+        chain_id: state.config.expected_chain_id,
+        escrow_contract_address: state.config.expected_escrow_address.clone(),
+        deposit_tx_hash: req.deposit_tx_hash,
+        version: 1,
+        created_at: now,
+        updated_at: now,
+    };
+
+    listing.validate_conservation()?;
+    state
+        .seller_listings
+        .insert(listing_ref, listing.clone());
+
+    if let Ok(val) = serde_json::to_value(&listing) {
+        state.sync_to_supabase_table("seller_listings", &val).await;
+    }
+
+    Ok((StatusCode::CREATED, Json(listing)))
+}
+
+#[derive(Debug, Serialize)]
+pub struct ListingWithQueueSummary {
+    pub listing: SellerListingRecord,
+    pub queue_depth: usize,
+    pub estimated_wait_seconds: u64,
+    pub queue_entries: Vec<QueueEntryRecord>,
+}
+
+pub async fn list_seller_listings(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<ListingWithQueueSummary>>, ApiError> {
+    require_service_auth(&headers, &state.config)?;
+
+    let mut items = Vec::new();
+    for entry in state.seller_listings.iter() {
+        let listing = entry.value().clone();
+        let mut q_entries: Vec<QueueEntryRecord> = state
+            .queue_entries
+            .iter()
+            .filter(|q| {
+                q.value().listing_ref == listing.listing_ref
+                    && matches!(
+                        q.value().status,
+                        QueueEntryStatus::Queued
+                            | QueueEntryStatus::EligibleAwaitingConsent
+                            | QueueEntryStatus::ActiveSlot
+                    )
+            })
+            .map(|q| q.value().clone())
+            .collect();
+        q_entries.sort_by_key(|q| (q.queue_position, q.created_at));
+        let waiting_count = q_entries
+            .iter()
+            .filter(|q| q.status != QueueEntryStatus::ActiveSlot)
+            .count();
+        let has_active = listing.has_active_slot(Utc::now());
+        let estimated_wait_seconds = if has_active {
+            ((waiting_count as u64) + 1) * 600
+        } else {
+            0
+        };
+        items.push(ListingWithQueueSummary {
+            listing,
+            queue_depth: waiting_count,
+            estimated_wait_seconds,
+            queue_entries: q_entries,
+        });
+    }
+    items.sort_by_key(|i| std::cmp::Reverse(i.listing.created_at));
+    Ok(Json(items))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RequestListingOrderPayload {
+    pub buyer_address: Option<String>,
+    pub requested_usdc_units: u128,
+    pub child_trade_id: Option<String>,
+    pub initiate_tx_hash: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RequestListingOrderResponse {
+    pub execution_mode: String, // "ACTIVE_SLOT" | "QUEUED"
+    pub queue_entry: QueueEntryRecord,
+    pub trade: Option<TradeRecord>,
+    pub listing: SellerListingRecord,
+    pub estimated_wait_seconds: u64,
+}
+
+pub async fn request_listing_order(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(listing_ref): Path<String>,
+    Json(req): Json<RequestListingOrderPayload>,
+) -> Result<(StatusCode, Json<RequestListingOrderResponse>), ApiError> {
+    require_service_auth(&headers, &state.config)?;
+
+    let raw_buyer = extract_principal_address(&headers)
+        .or(req.buyer_address)
+        .ok_or(ApiError::Unauthorized("MISSING_BUYER_WALLET_ADDRESS"))?;
+    let buyer_addr = normalize_wallet_address(&raw_buyer)?;
+
+    if req.requested_usdc_units == 0 {
+        return Err(ApiError::BadRequest(
+            "Requested USDC amount must be greater than zero".into(),
+        ));
+    }
+
+    let ip_hash =
+        validate_buyer_eligibility(&state, &headers, &buyer_addr, req.requested_usdc_units)?;
+
+    let mut listing = state
+        .seller_listings
+        .get_mut(&listing_ref)
+        .ok_or(ApiError::NotFound("SELLER_LISTING_NOT_FOUND"))?;
+
+    if listing.status != SellerListingStatus::Active {
+        return Err(ApiError::Conflict("SELLER_LISTING_NOT_ACTIVE"));
+    }
+    if listing.seller_address == buyer_addr {
+        return Err(ApiError::BadRequest(
+            "Seller cannot purchase from their own listing".into(),
+        ));
+    }
+    if req.requested_usdc_units > listing.available_usdc_units {
+        return Err(ApiError::Conflict(
+            "REQUESTED_AMOUNT_EXCEEDS_AVAILABLE_SELLER_INVENTORY",
+        ));
+    }
+
+    let quoted_fiat_minor = req
+        .requested_usdc_units
+        .checked_mul(listing.exchange_rate_minor)
+        .ok_or_else(|| ApiError::BadRequest("Monetary calculation overflow".into()))?
+        / 1_000_000;
+    if quoted_fiat_minor < 100 {
+        return Err(ApiError::BadRequest(
+            "Converted fiat amount is below payment provider minimum payable threshold (100 minor units / 1.00 NGN)".into(),
+        ));
+    }
+
+    let now = Utc::now();
+    let seller_busy = listing.has_active_slot(now);
+    let queue_ref = format!("Q-{}", Uuid::new_v4().simple());
+
+    if !seller_busy {
+        // Seller slot is free -> allocate immediately to ACTIVE_SLOT and open a 20-minute trade
+        let child_tid = req
+            .child_trade_id
+            .clone()
+            .filter(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit()))
+            .unwrap_or_else(|| {
+                format!(
+                    "{}{}",
+                    listing.onchain_listing_id,
+                    (now.timestamp_subsec_micros() % 9000) + 1000
+                )
+            });
+
+        let mut trade = TradeRecord::new_awaiting_payment(
+            child_tid.clone(),
+            listing.seller_address.clone(),
+            buyer_addr.clone(),
+            req.requested_usdc_units,
+            listing.exchange_rate_minor,
+            listing.fiat_currency.clone(),
+            listing.seller_bank_code.clone(),
+            listing.seller_bank_name.clone(),
+            listing.seller_account_masked.clone(),
+            listing.seller_account_hash.clone(),
+            listing.chain_id,
+            listing.escrow_contract_address.clone(),
+            state.payment_config.trade_payment_timeout_minutes,
+        )?;
+        trade.initiate_tx_hash = req.initiate_tx_hash;
+
+        listing.available_usdc_units -= req.requested_usdc_units;
+        listing.allocated_usdc_units += req.requested_usdc_units;
+        listing.active_trade_id = Some(child_tid.clone());
+        listing.active_slot_lease_owner = Some(buyer_addr.clone());
+        listing.active_slot_lease_expires_at = trade.payment_deadline_at;
+        listing.version += 1;
+        listing.updated_at = now;
+        listing.validate_conservation()?;
+
+        let q_entry = QueueEntryRecord {
+            id: Uuid::new_v4().to_string(),
+            queue_ref: queue_ref.clone(),
+            listing_ref: listing.listing_ref.clone(),
+            buyer_address: buyer_addr.clone(),
+            requested_usdc_units: req.requested_usdc_units,
+            quoted_fiat_amount_minor: quoted_fiat_minor,
+            exchange_rate_minor: listing.exchange_rate_minor,
+            queue_position: 0,
+            status: QueueEntryStatus::ActiveSlot,
+            allocated_trade_id: Some(child_tid.clone()),
+            consent_deadline_at: None,
+            activated_at: Some(now),
+            cancelled_at: None,
+            cancel_reason: None,
+            client_ip_hash: Some(ip_hash),
+            created_at: now,
+            updated_at: now,
+        };
+
+        let listing_snapshot = listing.clone();
+        drop(listing);
+
+        state.trades.insert(child_tid, trade.clone());
+        state.queue_entries.insert(queue_ref, q_entry.clone());
+
+        Ok((
+            StatusCode::CREATED,
+            Json(RequestListingOrderResponse {
+                execution_mode: "ACTIVE_SLOT".to_string(),
+                queue_entry: q_entry,
+                trade: Some(trade),
+                listing: listing_snapshot,
+                estimated_wait_seconds: 0,
+            }),
+        ))
+    } else {
+        // Seller is currently processing another buyer -> place this buyer in deterministic FIFO queue
+        listing.available_usdc_units -= req.requested_usdc_units;
+        listing.reserved_queued_usdc_units += req.requested_usdc_units;
+        listing.version += 1;
+        listing.updated_at = now;
+        listing.validate_conservation()?;
+        let listing_snapshot = listing.clone();
+        drop(listing);
+
+        let existing_waiting = state
+            .queue_entries
+            .iter()
+            .filter(|q| {
+                q.value().listing_ref == listing_ref
+                    && matches!(
+                        q.value().status,
+                        QueueEntryStatus::Queued | QueueEntryStatus::EligibleAwaitingConsent
+                    )
+            })
+            .count() as u32;
+        let position = existing_waiting + 1;
+
+        let q_entry = QueueEntryRecord {
+            id: Uuid::new_v4().to_string(),
+            queue_ref: queue_ref.clone(),
+            listing_ref,
+            buyer_address: buyer_addr,
+            requested_usdc_units: req.requested_usdc_units,
+            quoted_fiat_amount_minor: quoted_fiat_minor,
+            exchange_rate_minor: listing_snapshot.exchange_rate_minor,
+            queue_position: position,
+            status: QueueEntryStatus::Queued,
+            allocated_trade_id: None,
+            consent_deadline_at: None,
+            activated_at: None,
+            cancelled_at: None,
+            cancel_reason: None,
+            client_ip_hash: Some(ip_hash),
+            created_at: now,
+            updated_at: now,
+        };
+
+        state.queue_entries.insert(queue_ref, q_entry.clone());
+
+        Ok((
+            StatusCode::ACCEPTED,
+            Json(RequestListingOrderResponse {
+                execution_mode: "QUEUED".to_string(),
+                queue_entry: q_entry,
+                trade: None,
+                listing: listing_snapshot,
+                estimated_wait_seconds: (position as u64) * 600,
+            }),
+        ))
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CancelQueuedOrderRequest {
+    pub buyer_address: Option<String>,
+    pub reason: Option<String>,
+}
+
+pub async fn cancel_queued_order(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(queue_ref): Path<String>,
+    Json(req): Json<CancelQueuedOrderRequest>,
+) -> Result<Json<QueueEntryRecord>, ApiError> {
+    require_service_auth(&headers, &state.config)?;
+
+    let raw_buyer = extract_principal_address(&headers)
+        .or(req.buyer_address)
+        .ok_or(ApiError::Unauthorized("MISSING_BUYER_WALLET_ADDRESS"))?;
+    let buyer_addr = normalize_wallet_address(&raw_buyer)?;
+
+    let mut q_entry = state
+        .queue_entries
+        .get_mut(&queue_ref)
+        .ok_or(ApiError::NotFound("QUEUE_ENTRY_NOT_FOUND"))?;
+
+    if q_entry.buyer_address != buyer_addr {
+        return Err(ApiError::Forbidden("NOT_QUEUE_ENTRY_OWNER"));
+    }
+
+    if !matches!(
+        q_entry.status,
+        QueueEntryStatus::Queued | QueueEntryStatus::EligibleAwaitingConsent
+    ) {
+        return Err(ApiError::Conflict(
+            "QUEUE_ENTRY_CANNOT_BE_CANCELLED_IN_CURRENT_STATE",
+        ));
+    }
+
+    let now = Utc::now();
+    let rapid_churn = (now - q_entry.created_at).num_seconds() < 60;
+    let listing_ref = q_entry.listing_ref.clone();
+    let reserved_amount = q_entry.requested_usdc_units;
+    q_entry.status = QueueEntryStatus::CancelledByBuyer;
+    q_entry.cancelled_at = Some(now);
+    q_entry.cancel_reason = Some(
+        req.reason
+            .unwrap_or_else(|| "Cancelled by buyer while waiting in queue".to_string()),
+    );
+    q_entry.updated_at = now;
+    let cancelled_snapshot = q_entry.clone();
+    drop(q_entry);
+
+    // Return reserved inventory back to seller's available pool
+    if let Some(mut listing) = state.seller_listings.get_mut(&listing_ref) {
+        if listing.reserved_queued_usdc_units >= reserved_amount {
+            listing.reserved_queued_usdc_units -= reserved_amount;
+            listing.available_usdc_units += reserved_amount;
+            if listing.status == SellerListingStatus::Depleted && listing.available_usdc_units > 0 {
+                listing.status = SellerListingStatus::Active;
+            }
+            listing.version += 1;
+            listing.updated_at = now;
+        }
+    }
+
+    // Re-number remaining waiting queue entries deterministically in FIFO order
+    let mut remaining: Vec<(u32, chrono::DateTime<Utc>, String)> = state
+        .queue_entries
+        .iter()
+        .filter(|e| {
+            let q = e.value();
+            q.listing_ref == listing_ref
+                && matches!(
+                    q.status,
+                    QueueEntryStatus::Queued | QueueEntryStatus::EligibleAwaitingConsent
+                )
+        })
+        .map(|e| (e.value().queue_position, e.value().created_at, e.key().clone()))
+        .collect();
+    remaining.sort_by_key(|(pos, created, _)| (*pos, *created));
+    for (idx, (_, _, q_key)) in remaining.into_iter().enumerate() {
+        if let Some(mut q) = state.queue_entries.get_mut(&q_key) {
+            q.queue_position = (idx + 1) as u32;
+            if idx == 0 && q.status == QueueEntryStatus::Queued {
+                let seller_busy = state
+                    .seller_listings
+                    .get(&listing_ref)
+                    .map(|l| l.has_active_slot(now))
+                    .unwrap_or(true);
+                if !seller_busy {
+                    q.status = QueueEntryStatus::EligibleAwaitingConsent;
+                    q.consent_deadline_at = Some(
+                        now + ChronoDuration::seconds(
+                            state.risk_policy.queue_consent_window_seconds,
+                        ),
+                    );
+                }
+            }
+            q.updated_at = now;
+        }
+    }
+
+    // Update buyer trust metrics (normal queue cancellation is not heavily penalized unless rapid join/cancel spam)
+    {
+        let mut prof = state
+            .trust_profiles
+            .entry(buyer_addr.clone())
+            .or_insert_with(|| UserTrustProfile::new_for_wallet(&buyer_addr));
+        prof.cancelled_queue_count += 1;
+        if rapid_churn {
+            prof.rapid_join_cancel_count += 1;
+        }
+        prof.recalculate_policy(&state.risk_policy);
+    }
+
+    Ok(Json(cancelled_snapshot))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ActivateQueueEntryRequest {
+    pub buyer_address: Option<String>,
+    pub child_trade_id: Option<String>,
+}
+
+pub async fn activate_eligible_queue_entry(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(queue_ref): Path<String>,
+    Json(req): Json<ActivateQueueEntryRequest>,
+) -> Result<Json<RequestListingOrderResponse>, ApiError> {
+    require_service_auth(&headers, &state.config)?;
+
+    let raw_buyer = extract_principal_address(&headers)
+        .or(req.buyer_address)
+        .ok_or(ApiError::Unauthorized("MISSING_BUYER_WALLET_ADDRESS"))?;
+    let buyer_addr = normalize_wallet_address(&raw_buyer)?;
+
+    let mut q_entry = state
+        .queue_entries
+        .get_mut(&queue_ref)
+        .ok_or(ApiError::NotFound("QUEUE_ENTRY_NOT_FOUND"))?;
+
+    if q_entry.buyer_address != buyer_addr {
+        return Err(ApiError::Forbidden("NOT_QUEUE_ENTRY_OWNER"));
+    }
+
+    if q_entry.status != QueueEntryStatus::EligibleAwaitingConsent
+        && !(q_entry.status == QueueEntryStatus::Queued && q_entry.queue_position == 1)
+    {
+        return Err(ApiError::Conflict(
+            "QUEUE_ENTRY_NOT_AT_FRONT_ELIGIBLE_FOR_ACTIVATION",
+        ));
+    }
+
+    let now = Utc::now();
+    let listing_ref = q_entry.listing_ref.clone();
+    let requested_units = q_entry.requested_usdc_units;
+
+    let mut listing = state
+        .seller_listings
+        .get_mut(&listing_ref)
+        .ok_or(ApiError::NotFound("SELLER_LISTING_NOT_FOUND"))?;
+
+    if listing.has_active_slot(now) {
+        return Err(ApiError::Conflict("SELLER_SLOT_STILL_BUSY"));
+    }
+    if listing.reserved_queued_usdc_units < requested_units {
+        return Err(ApiError::Conflict("INSUFFICIENT_RESERVED_QUEUE_INVENTORY"));
+    }
+
+    let child_tid = req
+        .child_trade_id
+        .clone()
+        .filter(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit()))
+        .unwrap_or_else(|| {
+            format!(
+                "{}{}",
+                listing.onchain_listing_id,
+                (now.timestamp_subsec_micros() % 9000) + 1000
+            )
+        });
+
+    let trade = TradeRecord::new_awaiting_payment(
+        child_tid.clone(),
+        listing.seller_address.clone(),
+        buyer_addr.clone(),
+        requested_units,
+        listing.exchange_rate_minor,
+        listing.fiat_currency.clone(),
+        listing.seller_bank_code.clone(),
+        listing.seller_bank_name.clone(),
+        listing.seller_account_masked.clone(),
+        listing.seller_account_hash.clone(),
+        listing.chain_id,
+        listing.escrow_contract_address.clone(),
+        state.payment_config.trade_payment_timeout_minutes,
+    )?;
+
+    listing.reserved_queued_usdc_units -= requested_units;
+    listing.allocated_usdc_units += requested_units;
+    listing.active_trade_id = Some(child_tid.clone());
+    listing.active_slot_lease_owner = Some(buyer_addr);
+    listing.active_slot_lease_expires_at = trade.payment_deadline_at;
+    listing.version += 1;
+    listing.updated_at = now;
+    listing.validate_conservation()?;
+    let listing_snapshot = listing.clone();
+    drop(listing);
+
+    q_entry.status = QueueEntryStatus::ActiveSlot;
+    q_entry.queue_position = 0;
+    q_entry.allocated_trade_id = Some(child_tid.clone());
+    q_entry.activated_at = Some(now);
+    q_entry.updated_at = now;
+    let q_snapshot = q_entry.clone();
+    drop(q_entry);
+
+    state.trades.insert(child_tid, trade.clone());
+
+    Ok(Json(RequestListingOrderResponse {
+        execution_mode: "ACTIVE_SLOT".to_string(),
+        queue_entry: q_snapshot,
+        trade: Some(trade),
+        listing: listing_snapshot,
+        estimated_wait_seconds: 0,
+    }))
+}
+
+#[derive(Debug, Serialize)]
+pub struct UserTrustDetailResponse {
+    pub profile: UserTrustProfile,
+    pub active_cooldown_remaining_seconds: u64,
+    pub active_unpaid_obligations: u32,
+    pub recent_risk_events: Vec<UserRiskEvent>,
+    pub active_guarantor_commitments: Vec<GuarantorCommitmentRecord>,
+}
+
+pub async fn get_user_trust_profile(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<UserTrustDetailResponse>, ApiError> {
+    require_service_auth(&headers, &state.config)?;
+    let caller = extract_principal_address(&headers)
+        .ok_or(ApiError::Unauthorized("MISSING_WALLET_PRINCIPAL"))?;
+    let addr = normalize_wallet_address(&caller)?;
+    let now = Utc::now();
+
+    let profile = state.get_or_init_trust_profile(&addr);
+    let cooldown_remaining = profile.active_cooldown_remaining_seconds(now);
+    let active_unpaid = state.count_buyer_active_unpaid_obligations(&addr);
+    let recent_events = state
+        .risk_events
+        .get(&addr)
+        .map(|v| v.value().clone())
+        .unwrap_or_default();
+    let guarantors: Vec<GuarantorCommitmentRecord> = state
+        .guarantor_commitments
+        .iter()
+        .filter(|g| g.value().beneficiary_buyer_address == addr && g.value().status == "ACTIVE")
+        .map(|g| g.value().clone())
+        .collect();
+
+    Ok(Json(UserTrustDetailResponse {
+        profile,
+        active_cooldown_remaining_seconds: cooldown_remaining,
+        active_unpaid_obligations: active_unpaid,
+        recent_risk_events: recent_events,
+        active_guarantor_commitments: guarantors,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateGuarantorCommitmentRequest {
+    pub guarantor_address: String,
+    pub beneficiary_buyer_address: String,
+    pub trade_id: Option<String>,
+    pub max_backed_usdc_units: u128,
+    pub locked_bond_usdc_units: Option<u128>,
+    pub message: String,
+    pub eip191_signature: String,
+    pub onchain_tx_hash: Option<String>,
+    pub ttl_hours: Option<i64>,
+}
+
+pub async fn create_guarantor_commitment(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<CreateGuarantorCommitmentRequest>,
+) -> Result<(StatusCode, Json<GuarantorCommitmentRecord>), ApiError> {
+    require_service_auth(&headers, &state.config)?;
+
+    let guarantor = normalize_wallet_address(&req.guarantor_address)?;
+    let beneficiary = normalize_wallet_address(&req.beneficiary_buyer_address)?;
+    if guarantor == beneficiary {
+        return Err(ApiError::BadRequest(
+            "Guarantor and beneficiary buyer addresses must be distinct".into(),
+        ));
+    }
+    if req.max_backed_usdc_units == 0 {
+        return Err(ApiError::BadRequest(
+            "max_backed_usdc_units must be positive".into(),
+        ));
+    }
+
+    // Verify EIP-191 signature from guarantor over the commitment message
+    let recovered = recover_eip191_signer_address(&req.message, &req.eip191_signature)?;
+    if recovered.to_ascii_lowercase() != guarantor {
+        return Err(ApiError::Unauthorized(
+            "GUARANTOR_SIGNATURE_ADDRESS_MISMATCH",
+        ));
+    }
+    if !req
+        .message
+        .to_ascii_lowercase()
+        .contains(&beneficiary.to_ascii_lowercase())
+    {
+        return Err(ApiError::BadRequest(
+            "Signed guarantor commitment message must explicitly bind the beneficiary buyer address".into(),
+        ));
+    }
+
+    let now = Utc::now();
+    let ttl_hours = req.ttl_hours.unwrap_or(24).clamp(1, 168);
+    let commitment_ref = format!("GUA-{}", Uuid::new_v4().simple());
+
+    let record = GuarantorCommitmentRecord {
+        id: Uuid::new_v4().to_string(),
+        commitment_ref: commitment_ref.clone(),
+        guarantor_address: guarantor,
+        beneficiary_buyer_address: beneficiary,
+        trade_id: req.trade_id,
+        max_backed_usdc_units: req.max_backed_usdc_units,
+        locked_bond_usdc_units: req.locked_bond_usdc_units.unwrap_or(0),
+        eip191_signature: req.eip191_signature,
+        signed_payload_json: json!({
+            "message": req.message,
+            "max_backed_usdc_units": req.max_backed_usdc_units.to_string(),
+        }),
+        onchain_tx_hash: req.onchain_tx_hash,
+        status: "ACTIVE".to_string(),
+        expires_at: now + ChronoDuration::hours(ttl_hours),
+        created_at: now,
+        updated_at: now,
+    };
+
+    state
+        .guarantor_commitments
+        .insert(commitment_ref, record.clone());
+
+    Ok((StatusCode::CREATED, Json(record)))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AdminRiskOverrideRequest {
+    pub wallet_address: String,
+    pub clear_cooldown: Option<bool>,
+    pub stronger_verification_status: Option<StrongerVerificationStatus>,
+    pub reason: String,
+}
+
+pub async fn admin_risk_override(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<AdminRiskOverrideRequest>,
+) -> Result<Json<UserTrustProfile>, ApiError> {
+    require_service_auth(&headers, &state.config)?;
+    let addr = normalize_wallet_address(&req.wallet_address)?;
+    let now = Utc::now();
+
+    let mut prof = state
+        .trust_profiles
+        .entry(addr.clone())
+        .or_insert_with(|| UserTrustProfile::new_for_wallet(&addr));
+    let prev_tier = prof.trust_tier;
+
+    if req.clear_cooldown == Some(true) {
+        prof.cooldown_until = None;
+        prof.cooldown_reason = None;
+        prof.consecutive_expiry_streak = 0;
+    }
+    if let Some(ver_status) = req.stronger_verification_status {
+        prof.stronger_verification_status = ver_status;
+    }
+    prof.recalculate_policy(&state.risk_policy);
+    let updated = prof.clone();
+    drop(prof);
+
+    state.append_risk_event(UserRiskEvent {
+        id: Uuid::new_v4().to_string(),
+        wallet_address: addr,
+        event_type: "ADMIN_OVERRIDE".to_string(),
+        trade_id: None,
+        queue_ref: None,
+        reason_code: req.reason,
+        score_delta: 0,
+        previous_tier: prev_tier,
+        new_tier: updated.trust_tier,
+        cooldown_seconds: 0,
+        client_ip_hash: None,
+        metadata: json!({
+            "clear_cooldown": req.clear_cooldown,
+            "stronger_verification_status": updated.stronger_verification_status,
+        }),
+        created_at: now,
+    });
+
+    Ok(Json(updated))
 }
 
 pub fn map_bank_name_to_cbn_code(bank_name: &str) -> String {

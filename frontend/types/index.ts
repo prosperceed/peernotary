@@ -132,7 +132,12 @@ export interface PeerTradeOffer {
 	peerHandle: string;
 	peerAddress: string;
 	side: "buy" | "sell";
+	totalDepositedUsdc?: string;
 	availableUsdc: string;
+	availableUsdcUnits?: number;
+	allocatedUsdc?: string;
+	reservedQueuedUsdc?: string;
+	filledUsdc?: string;
 	ngnAmount: string;
 	rateNgn: number;
 	minLimitUsdc: string;
@@ -143,6 +148,64 @@ export interface PeerTradeOffer {
 	completedTrades: number;
 	avgReleaseTime: string;
 	createdAt: string;
+	sellerBusy?: boolean;
+	activeSlotTradeId?: string;
+	queueDepth?: number;
+	estimatedWaitSeconds?: number;
+}
+
+export type QueueEntryStatus =
+	| "QUEUED"
+	| "ELIGIBLE_AWAITING_CONSENT"
+	| "ACTIVE_SLOT"
+	| "COMPLETED"
+	| "CANCELLED_BY_BUYER"
+	| "EXPIRED";
+
+export interface QueueEntryItem {
+	queueRef: string;
+	listingTradeId: string;
+	sellerHandle: string;
+	sellerAddress: string;
+	buyerAddress: string;
+	requestedUsdc: string;
+	requestedUsdcUnits: number;
+	ngnAmount: string;
+	rateNgn: number;
+	bankName: string;
+	queuePosition: number;
+	status: QueueEntryStatus;
+	allocatedTradeId?: string;
+	consentDeadlineAt?: string;
+	estimatedWaitSeconds: number;
+	createdAt: string;
+}
+
+export type TrustTier =
+	| "RESTRICTED"
+	| "NEW"
+	| "STANDARD"
+	| "ESTABLISHED"
+	| "HIGH_LIMIT";
+
+export interface UserTrustSummary {
+	walletAddress: string;
+	trustTier: TrustTier;
+	trustScore: number;
+	maxTradeUsdc: string;
+	maxTradeUsdcUnits: number;
+	maxConcurrentUnpaidTrades: number;
+	activeUnpaidCount: number;
+	completedTradeCount: number;
+	completedVolumeUsdc: string;
+	unexplainedExpiryCount: number;
+	consecutiveExpiryStreak: number;
+	cooldownUntil?: string;
+	cooldownRemainingSeconds: number;
+	cooldownReason?: string;
+	strongerVerificationStatus: "NONE" | "PENDING" | "VERIFIED";
+	activeGuarantorBackedUsdc?: string;
+	activeGuarantorAddress?: string;
 }
 
 export interface ChatMessage {

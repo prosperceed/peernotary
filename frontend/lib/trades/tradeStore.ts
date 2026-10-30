@@ -7,11 +7,14 @@ import type {
 	PaymentState,
 	PayoutState,
 	PeerTradeOffer,
+	QueueEntryItem,
 	RefundState,
 	TradeAuditEventItem,
 	TradeLifecycleState,
+	TrustTier,
 	TxStatus,
 	UserTransaction,
+	UserTrustSummary,
 } from "@/types";
 
 export interface PaymentAttemptInfo {
@@ -78,101 +81,39 @@ const PAYMENT_TIMEOUT_MINUTES = Number(
 	process.env.TRADE_PAYMENT_TIMEOUT_MINUTES ?? "20",
 );
 
-const initialPeerOffers: PeerTradeOffer[] = [
-	{
-		tradeId: "104",
-		peerHandle: "OluwaseunAd_Arc",
-		peerAddress: "0x8C4b1A7E290d5f1c3E4802a9B7F510293847561a",
-		side: "sell",
-		availableUsdc: "1,250.00",
-		ngnAmount: "₦2,037,500",
-		rateNgn: 1630,
-		minLimitUsdc: "50.00",
-		maxLimitUsdc: "1,250.00",
-		requiredCollateralUsdc: "50.00",
-		bankName: "GTBank",
-		completionRate: "99.4%",
-		completedTrades: 482,
-		avgReleaseTime: "4.2s",
-		createdAt: "4m ago",
-	},
-	{
-		tradeId: "103",
-		peerHandle: "kemi_liquidity",
-		peerAddress: "0x4F902c18a3D74E9b621a0987C43120bA9823dE11",
-		side: "sell",
-		availableUsdc: "480.00",
-		ngnAmount: "₦781,440",
-		rateNgn: 1628,
-		minLimitUsdc: "50.00",
-		maxLimitUsdc: "480.00",
-		requiredCollateralUsdc: "50.00",
-		bankName: "OPay",
-		completionRate: "99.8%",
-		completedTrades: 914,
-		avgReleaseTime: "3.6s",
-		createdAt: "11m ago",
-	},
-	{
-		tradeId: "102",
-		peerHandle: "tunde_fx",
-		peerAddress: "0x2E71B4A8d90C1123456789aBcDeF0123456789C2",
-		side: "sell",
-		availableUsdc: "3,000.00",
-		ngnAmount: "₦4,896,000",
-		rateNgn: 1632,
-		minLimitUsdc: "200.00",
-		maxLimitUsdc: "3,000.00",
-		requiredCollateralUsdc: "50.00",
-		bankName: "Access Bank",
-		completionRate: "98.9%",
-		completedTrades: 319,
-		avgReleaseTime: "5.1s",
-		createdAt: "19m ago",
-	},
-	{
-		tradeId: "101",
-		peerHandle: "amina_desk",
-		peerAddress: "0x9A12c34D56e78F90123456789aBCdEf01234567D",
-		side: "buy",
-		availableUsdc: "850.00",
-		ngnAmount: "₦1,382,100",
-		rateNgn: 1626,
-		minLimitUsdc: "100.00",
-		maxLimitUsdc: "850.00",
-		requiredCollateralUsdc: "50.00",
-		bankName: "Zenith Bank",
-		completionRate: "99.2%",
-		completedTrades: 267,
-		avgReleaseTime: "4.7s",
-		createdAt: "27m ago",
-	},
-	{
-		tradeId: "100",
-		peerHandle: "chinedu_arc",
-		peerAddress: "0x6D44e55F66a77B88c99D00e11F22a33B44c55D66",
-		side: "sell",
-		availableUsdc: "620.00",
-		ngnAmount: "₦1,010,600",
-		rateNgn: 1630,
-		minLimitUsdc: "50.00",
-		maxLimitUsdc: "620.00",
-		requiredCollateralUsdc: "50.00",
-		bankName: "Moniepoint",
-		completionRate: "99.6%",
-		completedTrades: 605,
-		avgReleaseTime: "3.9s",
-		createdAt: "34m ago",
-	},
-];
+const initialPeerOffers: PeerTradeOffer[] = [];
+
+interface SellerInventoryRecord {
+	listingTradeId: string;
+	sellerAddress: string;
+	totalDepositedUnits: number;
+	availableUnits: number;
+	allocatedUnits: number;
+	reservedQueuedUnits: number;
+	filledUnits: number;
+	rateNgn: number;
+	bankName: string;
+	activeSlotTradeId?: string;
+}
 
 const userLedgerStore = new Map<string, UserTransaction[]>();
 const sharedTradesMap = new Map<string, SharedTrade>();
+const sellerInventoryMap = new Map<string, SellerInventoryRecord>();
+const childTradeToParentListingMap = new Map<string, string>();
+const queueEntriesStore = new Map<string, QueueEntryItem>();
+const userTrustStore = new Map<string, UserTrustSummary>();
 const paymentAttemptsByRef = new Map<string, PaymentAttemptInfo>();
 const consumedFlwTxIds = new Map<number, string>();
 const webhookDeduplicationSet = new Set<string>();
 const tradeAuditStore = new Map<string, TradeAuditEventItem[]>();
 const activePeerOffers: PeerTradeOffer[] = [...initialPeerOffers];
+
+function formatUnitsToUsdcString(units: number): string {
+	return (units / 1_000_000).toLocaleString("en-US", {
+		minimumFractionDigits: 2,
+		maximumFractionDigits: 6,
+	});
+}
 
 function bankToCode(bankName: string): string {
 	const lower = bankName.toLowerCase();
@@ -193,6 +134,17 @@ for (const off of initialPeerOffers) {
 	const numericUsdc = parseAmountUsdc(off.availableUsdc);
 	const usdcUnits = Math.round(numericUsdc * 1_000_000);
 	const fiatMinor = Math.round(numericUsdc * off.rateNgn * 100);
+	sellerInventoryMap.set(off.tradeId, {
+		listingTradeId: off.tradeId,
+		sellerAddress: off.peerAddress.toLowerCase(),
+		totalDepositedUnits: usdcUnits,
+		availableUnits: usdcUnits,
+		allocatedUnits: 0,
+		reservedQueuedUnits: 0,
+		filledUnits: 0,
+		rateNgn: off.rateNgn,
+		bankName: off.bankName,
+	});
 	sharedTradesMap.set(off.tradeId, {
 		id: randomUUID(),
 		tradeId: off.tradeId,
@@ -207,7 +159,7 @@ for (const off of initialPeerOffers) {
 		bankName: off.bankName,
 		bankCode: bankToCode(off.bankName),
 		accountMasked: "******6789",
-		requiredCollateralUsdc: off.requiredCollateralUsdc,
+		requiredCollateralUsdc: "0.00",
 		status: "open",
 		lifecycleState: "OPEN",
 		paymentState: "UNPAID",
@@ -252,11 +204,7 @@ const LEGAL_TRANSITIONS: Record<TradeLifecycleState, TradeLifecycleState[]> = {
 		"REFUND_PENDING",
 		"DISPUTED",
 	],
-	SELLER_PAYOUT_CONFIRMED: [
-		"RELEASE_PENDING",
-		"RELEASE_ON_HOLD",
-		"DISPUTED",
-	],
+	SELLER_PAYOUT_CONFIRMED: ["RELEASE_PENDING", "RELEASE_ON_HOLD", "DISPUTED"],
 	RELEASE_PENDING: ["COMPLETED", "RELEASE_ON_HOLD", "DISPUTED"],
 	RELEASE_ON_HOLD: ["RELEASE_PENDING", "COMPLETED", "DISPUTED"],
 	LATE_PAYMENT_REVIEW: ["PAYMENT_CONFIRMED", "REFUND_PENDING", "DISPUTED"],
@@ -360,7 +308,179 @@ function syncBothUserLedgers(trade: SharedTrade) {
 	}
 }
 
+function syncOfferFromInventory(listingTradeId: string) {
+	const inv = sellerInventoryMap.get(listingTradeId);
+	if (!inv) return;
+
+	const waitingEntries = Array.from(queueEntriesStore.values())
+		.filter(
+			(q) =>
+				q.listingTradeId === listingTradeId &&
+				(q.status === "QUEUED" || q.status === "ELIGIBLE_AWAITING_CONSENT"),
+		)
+		.sort((a, b) => a.queuePosition - b.queuePosition);
+
+	const offerIdx = activePeerOffers.findIndex(
+		(o) => o.tradeId === listingTradeId,
+	);
+	if (
+		inv.availableUnits <= 0 &&
+		inv.allocatedUnits <= 0 &&
+		inv.reservedQueuedUnits <= 0
+	) {
+		if (offerIdx !== -1) activePeerOffers.splice(offerIdx, 1);
+		return;
+	}
+
+	if (offerIdx !== -1) {
+		const off = activePeerOffers[offerIdx];
+		off.availableUsdc = formatUnitsToUsdcString(inv.availableUnits);
+		off.availableUsdcUnits = inv.availableUnits;
+		off.allocatedUsdc = formatUnitsToUsdcString(inv.allocatedUnits);
+		off.reservedQueuedUsdc = formatUnitsToUsdcString(inv.reservedQueuedUnits);
+		off.filledUsdc = formatUnitsToUsdcString(inv.filledUnits);
+		off.maxLimitUsdc = off.availableUsdc;
+		off.ngnAmount = `₦${Math.round((inv.availableUnits / 1_000_000) * inv.rateNgn).toLocaleString("en-NG")}`;
+		off.sellerBusy = Boolean(inv.activeSlotTradeId);
+		off.activeSlotTradeId = inv.activeSlotTradeId;
+		off.queueDepth = waitingEntries.length;
+		off.estimatedWaitSeconds = inv.activeSlotTradeId
+			? (waitingEntries.length + 1) * 600
+			: 0;
+	}
+}
+
+function countBuyerActiveUnpaidObligations(buyerAddress: string): number {
+	const bAddr = buyerAddress.toLowerCase();
+	let count = 0;
+	for (const trade of sharedTradesMap.values()) {
+		if (
+			trade.buyerAddress?.toLowerCase() === bAddr &&
+			trade.lifecycleState === "AWAITING_PAYMENT" &&
+			(trade.paymentState === "UNPAID" ||
+				trade.paymentState === "CHECKOUT_CREATED" ||
+				trade.paymentState === "PENDING_VERIFICATION")
+		) {
+			count += 1;
+		}
+	}
+	for (const q of queueEntriesStore.values()) {
+		if (
+			q.buyerAddress.toLowerCase() === bAddr &&
+			(q.status === "QUEUED" || q.status === "ELIGIBLE_AWAITING_CONSENT")
+		) {
+			count += 1;
+		}
+	}
+	return count;
+}
+
+function recalculateTrustSummary(summary: UserTrustSummary): UserTrustSummary {
+	const nowMs = Date.now();
+	if (summary.cooldownUntil) {
+		const untilMs = new Date(summary.cooldownUntil).getTime();
+		if (untilMs > nowMs) {
+			summary.cooldownRemainingSeconds = Math.ceil((untilMs - nowMs) / 1000);
+		} else {
+			summary.cooldownRemainingSeconds = 0;
+			summary.cooldownUntil = undefined;
+			summary.cooldownReason = undefined;
+		}
+	} else {
+		summary.cooldownRemainingSeconds = 0;
+	}
+
+	const completedBonus = Math.min(summary.completedTradeCount * 12, 240);
+	const verBonus = summary.strongerVerificationStatus === "VERIFIED" ? 60 : 0;
+	const expiryPenalty =
+		summary.unexplainedExpiryCount * 25 + summary.consecutiveExpiryStreak * 20;
+	const rawScore = 50 + completedBonus + verBonus - expiryPenalty;
+	summary.trustScore = Math.max(0, Math.min(1000, rawScore));
+
+	let tier: TrustTier = "NEW";
+	let maxUnits = 150_000_000; // 150 USDC
+	let maxConcurrent = 1;
+
+	if (summary.consecutiveExpiryStreak >= 4 || summary.trustScore < 25) {
+		tier = "RESTRICTED";
+		maxUnits = 50_000_000; // 50 USDC
+		maxConcurrent = 1;
+	} else if (summary.completedTradeCount >= 20 && summary.trustScore >= 300) {
+		tier = "HIGH_LIMIT";
+		maxUnits = 10_000_000_000; // 10,000 USDC
+		maxConcurrent = 3;
+	} else if (summary.completedTradeCount >= 5 && summary.trustScore >= 140) {
+		tier = "ESTABLISHED";
+		maxUnits = 2_500_000_000; // 2,500 USDC
+		maxConcurrent = 2;
+	} else if (summary.completedTradeCount >= 1 && summary.trustScore >= 60) {
+		tier = "STANDARD";
+		maxUnits = 500_000_000; // 500 USDC
+		maxConcurrent = 1;
+	}
+
+	if (summary.strongerVerificationStatus === "VERIFIED") {
+		maxUnits = Math.max(maxUnits, 2_500_000_000);
+	}
+	if (summary.activeGuarantorBackedUsdc) {
+		const backedUnits = Math.round(
+			parseAmountUsdc(summary.activeGuarantorBackedUsdc) * 1_000_000,
+		);
+		maxUnits = Math.max(maxUnits, backedUnits);
+	}
+
+	summary.trustTier = tier;
+	summary.maxTradeUsdcUnits = maxUnits;
+	summary.maxTradeUsdc = formatUnitsToUsdcString(maxUnits);
+	summary.maxConcurrentUnpaidTrades = maxConcurrent;
+	summary.activeUnpaidCount = countBuyerActiveUnpaidObligations(
+		summary.walletAddress,
+	);
+	return summary;
+}
+
+export function getUserTrustSummary(address: string): UserTrustSummary {
+	const key = address.toLowerCase();
+	let existing = userTrustStore.get(key);
+	if (!existing) {
+		existing = {
+			walletAddress: key,
+			trustTier: "NEW",
+			trustScore: 50,
+			maxTradeUsdc: "150.00",
+			maxTradeUsdcUnits: 150_000_000,
+			maxConcurrentUnpaidTrades: 1,
+			activeUnpaidCount: 0,
+			completedTradeCount: 0,
+			completedVolumeUsdc: "0.00",
+			unexplainedExpiryCount: 0,
+			consecutiveExpiryStreak: 0,
+			cooldownRemainingSeconds: 0,
+			strongerVerificationStatus: "NONE",
+		};
+		userTrustStore.set(key, existing);
+	}
+	return recalculateTrustSummary(existing);
+}
+
+export function getUserQueueEntries(address: string): QueueEntryItem[] {
+	const key = address.toLowerCase();
+	return Array.from(queueEntriesStore.values())
+		.filter(
+			(q) =>
+				(q.buyerAddress.toLowerCase() === key ||
+					q.sellerAddress.toLowerCase() === key) &&
+				(q.status === "QUEUED" ||
+					q.status === "ELIGIBLE_AWAITING_CONSENT" ||
+					q.status === "ACTIVE_SLOT"),
+		)
+		.sort((a, b) => a.queuePosition - b.queuePosition);
+}
+
 export function getActivePeerOffers(): PeerTradeOffer[] {
+	for (const listingId of sellerInventoryMap.keys()) {
+		syncOfferFromInventory(listingId);
+	}
 	return activePeerOffers;
 }
 
@@ -398,36 +518,61 @@ export function createPeerOffer(
 	},
 ): { offer: PeerTradeOffer; transaction: UserTransaction } {
 	const sAddr = sellerAddress.toLowerCase();
-	const newTradeId = String(105 + sharedTradesMap.size);
-	const formattedUsdc = params.usdcAmount.toLocaleString("en-US", {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2,
-	});
-	const formattedNgn = `₦${Math.round(params.usdcAmount * RATE).toLocaleString("en-NG")}`;
+	const newTradeId = String(1001 + sharedTradesMap.size);
 	const usdcUnits = Math.round(params.usdcAmount * 1_000_000);
-	const fiatMinor = Math.round(params.usdcAmount * RATE * 100);
-	const rawAcct = params.accountNumber?.replace(/\D/g, "") || "0123456789";
+	if (usdcUnits <= 0) {
+		throw new Error("AMOUNT_MUST_BE_POSITIVE");
+	}
+	const fiatMinor = Math.round((usdcUnits * RATE * 100) / 1_000_000);
+	if (fiatMinor < 100) {
+		throw new Error("BELOW_PROVIDER_MINIMUM_NGN");
+	}
+
+	const formattedUsdc = formatUnitsToUsdcString(usdcUnits);
+	const formattedNgn = `₦${Math.round(params.usdcAmount * RATE).toLocaleString("en-NG")}`;
+	const rawAcct = params.accountNumber?.replace(/\D/g, "") || "";
 	const accountMasked =
-		rawAcct.length >= 4 ? `******${rawAcct.slice(-4)}` : "******6789";
+		rawAcct.length >= 4 ? `******${rawAcct.slice(-4)}` : "—";
 
 	const sellerLedger = getUserLedger(sAddr);
+
+	sellerInventoryMap.set(newTradeId, {
+		listingTradeId: newTradeId,
+		sellerAddress: sAddr,
+		totalDepositedUnits: usdcUnits,
+		availableUnits: usdcUnits,
+		allocatedUnits: 0,
+		reservedQueuedUnits: 0,
+		filledUnits: 0,
+		rateNgn: RATE,
+		bankName: params.bankName,
+	});
 
 	const offer: PeerTradeOffer = {
 		tradeId: newTradeId,
 		peerHandle: shortAddressOrUsername(sellerAddress),
 		peerAddress: sellerAddress,
 		side: params.side ?? "sell",
+		totalDepositedUsdc: formattedUsdc,
 		availableUsdc: formattedUsdc,
+		availableUsdcUnits: usdcUnits,
+		allocatedUsdc: "0.00",
+		reservedQueuedUsdc: "0.00",
+		filledUsdc: "0.00",
 		ngnAmount: formattedNgn,
 		rateNgn: RATE,
-		minLimitUsdc: "50.00",
+		minLimitUsdc: "0.01",
 		maxLimitUsdc: formattedUsdc,
-		requiredCollateralUsdc: "50.00",
+		requiredCollateralUsdc: "0.00",
 		bankName: params.bankName,
 		completionRate: "100%",
-		completedTrades: sellerLedger.filter((t) => t.status === "completed").length,
+		completedTrades: sellerLedger.filter((t) => t.status === "completed")
+			.length,
 		avgReleaseTime: "4.1s",
 		createdAt: "Just now",
+		sellerBusy: false,
+		queueDepth: 0,
+		estimatedWaitSeconds: 0,
 	};
 
 	activePeerOffers.unshift(offer);
@@ -446,7 +591,7 @@ export function createPeerOffer(
 		bankName: params.bankName,
 		bankCode: bankToCode(params.bankName),
 		accountMasked,
-		requiredCollateralUsdc: "50.00",
+		requiredCollateralUsdc: "0.00",
 		status: "open",
 		lifecycleState: "OPEN",
 		paymentState: "UNPAID",
@@ -500,125 +645,200 @@ export function takePeerOffer(
 	buyerAddress: string,
 	tradeId: string,
 	txHash?: string,
+	requestedUsdcAmount?: number,
 ): {
-	tradeTx: UserTransaction;
-	collateralTx: UserTransaction;
-	sharedTrade: SharedTrade;
+	executionMode: "ACTIVE_SLOT" | "QUEUED";
+	tradeTx?: UserTransaction;
+	sharedTrade?: SharedTrade;
+	queueEntry?: QueueEntryItem;
 } {
 	const bAddr = buyerAddress.toLowerCase();
-	const shared = sharedTradesMap.get(tradeId);
-	if (!shared) {
+	const parentShared = sharedTradesMap.get(tradeId);
+	const inv = sellerInventoryMap.get(tradeId);
+	if (!parentShared || !inv) {
 		throw new Error("OFFER_NOT_FOUND");
 	}
-	if (shared.sellerAddress.toLowerCase() === bAddr) {
+	if (parentShared.sellerAddress.toLowerCase() === bAddr) {
 		throw new Error("CANNOT_BUY_OWN_OFFER");
 	}
-	if (!canTransitionLifecycle(shared.lifecycleState, "AWAITING_PAYMENT")) {
-		throw new Error(`ILLEGAL_STATE_TRANSITION_FROM_${shared.lifecycleState}`);
+
+	const trust = getUserTrustSummary(bAddr);
+	if (trust.cooldownRemainingSeconds > 0) {
+		throw new Error(
+			`BUYER_COOLDOWN_ACTIVE: Wait ${trust.cooldownRemainingSeconds}s before opening a new trade (${trust.cooldownReason ?? "Unpaid trade expiration"}).`,
+		);
+	}
+	if (trust.activeUnpaidCount >= trust.maxConcurrentUnpaidTrades) {
+		throw new Error(
+			"ONE_ACTIVE_UNPAID_TRADE_LIMIT: Complete or cancel your current unpaid trade or queued request before starting another.",
+		);
 	}
 
-	const prevState = shared.lifecycleState;
+	const reqUnits = requestedUsdcAmount
+		? Math.round(requestedUsdcAmount * 1_000_000)
+		: inv.availableUnits;
+	if (reqUnits <= 0) {
+		throw new Error("INVALID_AMOUNT");
+	}
+	if (reqUnits > inv.availableUnits) {
+		throw new Error("REQUESTED_AMOUNT_EXCEEDS_AVAILABLE_INVENTORY");
+	}
+	if (reqUnits > trust.maxTradeUsdcUnits) {
+		throw new Error(
+			`TRUST_LIMIT_EXCEEDED: Requested ${formatUnitsToUsdcString(reqUnits)} USDC exceeds your ${trust.trustTier} tier limit of ${trust.maxTradeUsdc} USDC. Complete smaller trades or attach a guarantor commitment.`,
+		);
+	}
+
+	const fiatMinor = Math.round((reqUnits * inv.rateNgn * 100) / 1_000_000);
+	if (fiatMinor < 100) {
+		throw new Error(
+			"BELOW_PROVIDER_MINIMUM_NGN: Converted amount must be at least ₦1.00 (100 kobo).",
+		);
+	}
+
+	const formattedReqUsdc = formatUnitsToUsdcString(reqUnits);
+	const formattedReqNgn = `₦${Math.round((reqUnits / 1_000_000) * inv.rateNgn).toLocaleString("en-NG")}`;
+
+	// If seller is currently serving another active buyer slot, place this buyer in deterministic FIFO queue
+	if (inv.activeSlotTradeId) {
+		inv.availableUnits -= reqUnits;
+		inv.reservedQueuedUnits += reqUnits;
+
+		const existingWaiting = Array.from(queueEntriesStore.values()).filter(
+			(q) =>
+				q.listingTradeId === tradeId &&
+				(q.status === "QUEUED" || q.status === "ELIGIBLE_AWAITING_CONSENT"),
+		).length;
+		const position = existingWaiting + 1;
+		const queueRef = `Q-${tradeId}-${Date.now().toString().slice(-5)}`;
+
+		const qEntry: QueueEntryItem = {
+			queueRef,
+			listingTradeId: tradeId,
+			sellerHandle: shortAddressOrUsername(parentShared.sellerAddress),
+			sellerAddress: parentShared.sellerAddress,
+			buyerAddress: bAddr,
+			requestedUsdc: formattedReqUsdc,
+			requestedUsdcUnits: reqUnits,
+			ngnAmount: formattedReqNgn,
+			rateNgn: inv.rateNgn,
+			bankName: inv.bankName,
+			queuePosition: position,
+			status: "QUEUED",
+			estimatedWaitSeconds: position * 600,
+			createdAt: new Date().toISOString(),
+		};
+
+		queueEntriesStore.set(queueRef, qEntry);
+		syncOfferFromInventory(tradeId);
+
+		return {
+			executionMode: "QUEUED",
+			queueEntry: qEntry,
+		};
+	}
+
+	// Seller slot is free -> allocate partial or full order into active slot immediately
+	const isPartialFill =
+		reqUnits < inv.totalDepositedUnits ||
+		inv.filledUnits > 0 ||
+		inv.reservedQueuedUnits > 0;
+	const activeTradeId = isPartialFill
+		? `${tradeId}${Math.floor(10 + Math.random() * 89)}`
+		: tradeId;
+
+	inv.availableUnits -= reqUnits;
+	inv.allocatedUnits += reqUnits;
+	inv.activeSlotTradeId = activeTradeId;
+	childTradeToParentListingMap.set(activeTradeId, tradeId);
+
 	const deadline = new Date(
 		Date.now() + PAYMENT_TIMEOUT_MINUTES * 60 * 1_000,
 	).toISOString();
 
-	shared.buyerAddress = bAddr;
-	shared.status = "escrow";
-	shared.lifecycleState = "AWAITING_PAYMENT";
-	shared.paymentState = "UNPAID";
-	shared.payoutState = "NOT_STARTED";
-	shared.refundState = "NONE";
-	shared.escrowState = "FUNDED";
-	shared.termsLocked = true;
-	shared.paymentDeadlineAt = deadline;
-	shared.version += 1;
-	if (txHash) shared.txHash = txHash;
-
-	// Remove taken offer from open publishing list so another buyer cannot double-take
-	const offerIdx = activePeerOffers.findIndex((o) => o.tradeId === tradeId);
-	if (offerIdx !== -1) {
-		activePeerOffers.splice(offerIdx, 1);
-	}
-
-	appendAudit(
-		shared,
-		"buyer",
-		"COLLATERAL_LOCKED_AWAITING_PAYMENT",
-		prevState,
-		"AWAITING_PAYMENT",
-		buyerAddress,
-		{ paymentDeadlineAt: deadline, txHash },
-	);
-
-	const sAddr = shared.sellerAddress;
-	const sellerLedger = getUserLedger(sAddr);
-	const existingSellerTx = sellerLedger.find(
-		(t) => t.tradeId === tradeId && t.role === "seller",
-	);
-	if (existingSellerTx) {
-		existingSellerTx.status = "escrow";
-		existingSellerTx.lifecycleState = "AWAITING_PAYMENT";
-		existingSellerTx.paymentState = "UNPAID";
-		existingSellerTx.payoutState = "NOT_STARTED";
-		existingSellerTx.escrowState = "FUNDED";
-		existingSellerTx.paymentDeadlineAt = deadline;
-		existingSellerTx.counterparty = shortAddressOrUsername(buyerAddress);
-		existingSellerTx.counterpartyAddress = buyerAddress;
-		existingSellerTx.timestamp = "AWAITING PAYMENT";
-	} else {
-		sellerLedger.unshift({
-			id: `TX-${tradeId}-S`,
-			tradeId,
-			type: "sell",
-			role: "seller",
-			counterparty: shortAddressOrUsername(buyerAddress),
-			counterpartyAddress: buyerAddress,
-			usdcAmount: shared.usdcAmount,
-			ngnAmount: shared.ngnAmount,
-			bankName: shared.bankName,
-			verificationMethod: "Flutterwave Checkout",
-			status: "escrow",
-			lifecycleState: "AWAITING_PAYMENT",
-			paymentState: "UNPAID",
-			payoutState: "NOT_STARTED",
-			refundState: "NONE",
-			escrowState: "FUNDED",
-			paymentDeadlineAt: deadline,
-			txHash: txHash ?? "0x0",
-			timestamp: "AWAITING PAYMENT",
-		});
-	}
-
-	const buyerLedger = getUserLedger(bAddr);
-	const collateralTx: UserTransaction = {
-		id: `TX-${tradeId}-COL`,
-		tradeId,
-		type: "collateral",
-		role: "buyer",
-		counterparty: shortAddressOrUsername(shared.sellerAddress),
-		counterpartyAddress: shared.sellerAddress,
-		usdcAmount: shared.requiredCollateralUsdc,
-		ngnAmount: `₦${Math.round(parseFloat(shared.requiredCollateralUsdc) * shared.rateNgn).toLocaleString("en-NG")}`,
-		bankName: shared.bankName,
-		verificationMethod: "On-Chain Escrow",
+	const activeShared: SharedTrade = {
+		id: randomUUID(),
+		tradeId: activeTradeId,
+		sellerAddress: parentShared.sellerAddress,
+		buyerAddress: bAddr,
+		side: parentShared.side,
+		usdcAmount: formattedReqUsdc,
+		usdcAmountUnits: reqUnits,
+		ngnAmount: formattedReqNgn,
+		fiatAmountMinor: fiatMinor,
+		fiatCurrency: "NGN",
+		rateNgn: inv.rateNgn,
+		bankName: inv.bankName,
+		bankCode: parentShared.bankCode,
+		accountMasked: parentShared.accountMasked,
+		requiredCollateralUsdc: "0.00",
 		status: "escrow",
 		lifecycleState: "AWAITING_PAYMENT",
+		paymentState: "UNPAID",
+		payoutState: "NOT_STARTED",
+		refundState: "NONE",
+		escrowState: "FUNDED",
+		termsLocked: true,
+		paymentDeadlineAt: deadline,
+		txHash: txHash ?? parentShared.txHash,
+		version: 1,
+		createdAt: "Just now",
+	};
+
+	sharedTradesMap.set(activeTradeId, activeShared);
+	syncOfferFromInventory(tradeId);
+
+	appendAudit(
+		activeShared,
+		"buyer",
+		"SELLER_ESCROW_ALLOCATED_AWAITING_PAYMENT",
+		"OPEN",
+		"AWAITING_PAYMENT",
+		buyerAddress,
+		{
+			parentListingId: tradeId,
+			requestedUsdc: formattedReqUsdc,
+			buyerCollateralUsdc: "0.00",
+			paymentDeadlineAt: deadline,
+			txHash,
+		},
+	);
+
+	const sAddr = parentShared.sellerAddress;
+	const sellerLedger = getUserLedger(sAddr);
+	sellerLedger.unshift({
+		id: `TX-${activeTradeId}-S`,
+		tradeId: activeTradeId,
+		type: "sell",
+		role: "seller",
+		counterparty: shortAddressOrUsername(buyerAddress),
+		counterpartyAddress: buyerAddress,
+		usdcAmount: formattedReqUsdc,
+		ngnAmount: formattedReqNgn,
+		bankName: inv.bankName,
+		verificationMethod: "Flutterwave Checkout",
+		status: "escrow",
+		lifecycleState: "AWAITING_PAYMENT",
+		paymentState: "UNPAID",
+		payoutState: "NOT_STARTED",
+		refundState: "NONE",
 		escrowState: "FUNDED",
 		paymentDeadlineAt: deadline,
 		txHash: txHash ?? "0x0",
 		timestamp: "AWAITING PAYMENT",
-	};
+	});
 
+	const buyerLedger = getUserLedger(bAddr);
 	const tradeTx: UserTransaction = {
-		id: `TX-${tradeId}-B`,
-		tradeId,
-		type: shared.side === "sell" ? "buy" : "sell",
-		role: shared.side === "sell" ? "buyer" : "seller",
-		counterparty: shortAddressOrUsername(shared.sellerAddress),
-		counterpartyAddress: shared.sellerAddress,
-		usdcAmount: shared.usdcAmount,
-		ngnAmount: shared.ngnAmount,
-		bankName: shared.bankName,
+		id: `TX-${activeTradeId}-B`,
+		tradeId: activeTradeId,
+		type: parentShared.side === "sell" ? "buy" : "sell",
+		role: parentShared.side === "sell" ? "buyer" : "seller",
+		counterparty: shortAddressOrUsername(parentShared.sellerAddress),
+		counterpartyAddress: parentShared.sellerAddress,
+		usdcAmount: formattedReqUsdc,
+		ngnAmount: formattedReqNgn,
+		bankName: inv.bankName,
 		verificationMethod: "Flutterwave Checkout",
 		status: "escrow",
 		lifecycleState: "AWAITING_PAYMENT",
@@ -631,9 +851,186 @@ export function takePeerOffer(
 		timestamp: "AWAITING PAYMENT",
 	};
 
-	buyerLedger.unshift(tradeTx, collateralTx);
+	buyerLedger.unshift(tradeTx);
 
-	return { tradeTx, collateralTx, sharedTrade: shared };
+	return {
+		executionMode: "ACTIVE_SLOT",
+		tradeTx,
+		sharedTrade: activeShared,
+	};
+}
+
+export function cancelBuyerQueueEntry(
+	buyerAddress: string,
+	queueRef: string,
+	reason?: string,
+): QueueEntryItem {
+	const bAddr = buyerAddress.toLowerCase();
+	const q = queueEntriesStore.get(queueRef);
+	if (!q) throw new Error("QUEUE_ENTRY_NOT_FOUND");
+	if (q.buyerAddress.toLowerCase() !== bAddr) {
+		throw new Error("NOT_QUEUE_ENTRY_OWNER");
+	}
+	if (q.status !== "QUEUED" && q.status !== "ELIGIBLE_AWAITING_CONSENT") {
+		throw new Error("QUEUE_ENTRY_NOT_CANCELLABLE");
+	}
+
+	q.status = "CANCELLED_BY_BUYER";
+	const inv = sellerInventoryMap.get(q.listingTradeId);
+	if (inv && inv.reservedQueuedUnits >= q.requestedUsdcUnits) {
+		inv.reservedQueuedUnits -= q.requestedUsdcUnits;
+		inv.availableUnits += q.requestedUsdcUnits;
+	}
+
+	// Re-number remaining waiting entries in FIFO order
+	const remaining = Array.from(queueEntriesStore.values())
+		.filter(
+			(item) =>
+				item.listingTradeId === q.listingTradeId &&
+				(item.status === "QUEUED" ||
+					item.status === "ELIGIBLE_AWAITING_CONSENT"),
+		)
+		.sort(
+			(a, b) =>
+				new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+		);
+
+	remaining.forEach((item, index) => {
+		item.queuePosition = index + 1;
+		item.estimatedWaitSeconds = (index + 1) * 600;
+		if (index === 0 && inv && !inv.activeSlotTradeId) {
+			item.status = "ELIGIBLE_AWAITING_CONSENT";
+		}
+	});
+
+	syncOfferFromInventory(q.listingTradeId);
+	void reason;
+	return q;
+}
+
+export function activateBuyerQueueEntry(
+	buyerAddress: string,
+	queueRef: string,
+): {
+	tradeTx: UserTransaction;
+	sharedTrade: SharedTrade;
+	queueEntry: QueueEntryItem;
+} {
+	const bAddr = buyerAddress.toLowerCase();
+	const q = queueEntriesStore.get(queueRef);
+	if (!q) throw new Error("QUEUE_ENTRY_NOT_FOUND");
+	if (q.buyerAddress.toLowerCase() !== bAddr) {
+		throw new Error("NOT_QUEUE_ENTRY_OWNER");
+	}
+	if (
+		q.status !== "ELIGIBLE_AWAITING_CONSENT" &&
+		!(q.status === "QUEUED" && q.queuePosition === 1)
+	) {
+		throw new Error("QUEUE_ENTRY_NOT_AT_FRONT");
+	}
+
+	const inv = sellerInventoryMap.get(q.listingTradeId);
+	const parentShared = sharedTradesMap.get(q.listingTradeId);
+	if (!inv || !parentShared) throw new Error("SELLER_LISTING_NOT_FOUND");
+	if (inv.activeSlotTradeId) {
+		throw new Error("SELLER_SLOT_STILL_BUSY");
+	}
+
+	inv.reservedQueuedUnits = Math.max(
+		0,
+		inv.reservedQueuedUnits - q.requestedUsdcUnits,
+	);
+	inv.availableUnits += q.requestedUsdcUnits;
+
+	q.status = "ACTIVE_SLOT";
+	const activated = takePeerOffer(
+		buyerAddress,
+		q.listingTradeId,
+		undefined,
+		q.requestedUsdcUnits / 1_000_000,
+	);
+	if (!activated.sharedTrade || !activated.tradeTx) {
+		throw new Error("FAILED_TO_ACTIVATE_QUEUED_ORDER");
+	}
+	q.allocatedTradeId = activated.sharedTrade.tradeId;
+	q.queuePosition = 0;
+	q.estimatedWaitSeconds = 0;
+
+	return {
+		tradeTx: activated.tradeTx,
+		sharedTrade: activated.sharedTrade,
+		queueEntry: q,
+	};
+}
+
+export function submitGuarantorCommitment(
+	buyerAddress: string,
+	guarantorAddress: string,
+	maxBackedUsdc: number,
+): UserTrustSummary {
+	const bAddr = buyerAddress.toLowerCase();
+	const gAddr = guarantorAddress.toLowerCase();
+	if (bAddr === gAddr) {
+		throw new Error("GUARANTOR_MUST_BE_DISTINCT_WALLET");
+	}
+	const summary = getUserTrustSummary(bAddr);
+	summary.activeGuarantorAddress = guarantorAddress;
+	summary.activeGuarantorBackedUsdc = maxBackedUsdc.toLocaleString("en-US", {
+		minimumFractionDigits: 2,
+		maximumFractionDigits: 2,
+	});
+	return recalculateTrustSummary(summary);
+}
+
+export function verifyStrongerIdentity(
+	walletAddress: string,
+): UserTrustSummary {
+	const summary = getUserTrustSummary(walletAddress);
+	summary.strongerVerificationStatus = "VERIFIED";
+	return recalculateTrustSummary(summary);
+}
+
+function releaseSellerSlotAndAdvanceQueue(tradeId: string, completed: boolean) {
+	const parentListingId = childTradeToParentListingMap.get(tradeId) ?? tradeId;
+	const inv = sellerInventoryMap.get(parentListingId);
+	const trade = sharedTradesMap.get(tradeId);
+	if (!inv || !trade) return;
+
+	const units = trade.usdcAmountUnits;
+	if (inv.allocatedUnits >= units) {
+		inv.allocatedUnits -= units;
+		if (completed) {
+			inv.filledUnits += units;
+		} else {
+			inv.availableUnits += units;
+		}
+	}
+	if (inv.activeSlotTradeId === tradeId) {
+		inv.activeSlotTradeId = undefined;
+	}
+
+	for (const q of queueEntriesStore.values()) {
+		if (q.allocatedTradeId === tradeId && q.status === "ACTIVE_SLOT") {
+			q.status = completed ? "COMPLETED" : "EXPIRED";
+		}
+	}
+
+	// Mark next FIFO queued buyer as ELIGIBLE_AWAITING_CONSENT
+	const waiting = Array.from(queueEntriesStore.values())
+		.filter(
+			(q) => q.listingTradeId === parentListingId && q.status === "QUEUED",
+		)
+		.sort((a, b) => a.queuePosition - b.queuePosition);
+
+	if (waiting.length > 0) {
+		waiting[0].status = "ELIGIBLE_AWAITING_CONSENT";
+		waiting[0].queuePosition = 1;
+		waiting[0].consentDeadlineAt = new Date(
+			Date.now() + 5 * 60 * 1_000,
+		).toISOString();
+	}
+
+	syncOfferFromInventory(parentListingId);
 }
 
 export function createOrReuseCheckoutAttempt(
@@ -665,7 +1062,7 @@ export function createOrReuseCheckoutAttempt(
 			bankName: "GTBank",
 			bankCode: "058",
 			accountMasked: "******6789",
-			requiredCollateralUsdc: "50.00",
+			requiredCollateralUsdc: "0.00",
 			status: "escrow",
 			lifecycleState: "AWAITING_PAYMENT",
 			paymentState: "UNPAID",
@@ -821,7 +1218,9 @@ export function recordVerifiedFlutterwavePayment(params: {
 		return { trade, attempt, deduplicated: true };
 	}
 
-	if (params.currency.toUpperCase() !== attempt.expectedCurrency.toUpperCase()) {
+	if (
+		params.currency.toUpperCase() !== attempt.expectedCurrency.toUpperCase()
+	) {
 		attempt.status = "MISMATCH_HOLD";
 		attempt.failureReason = `Currency mismatch: expected ${attempt.expectedCurrency}, got ${params.currency}`;
 		trade.paymentState = "FAILED";
@@ -948,7 +1347,9 @@ export function transitionSellerPayoutState(
 
 	const prev = trade.lifecycleState;
 	if (action === "initiate") {
-		if (!canTransitionLifecycle(trade.lifecycleState, "SELLER_PAYOUT_PENDING")) {
+		if (
+			!canTransitionLifecycle(trade.lifecycleState, "SELLER_PAYOUT_PENDING")
+		) {
 			throw new Error(`ILLEGAL_TRANSITION_FROM_${trade.lifecycleState}`);
 		}
 		trade.lifecycleState = "SELLER_PAYOUT_PENDING";
@@ -1059,6 +1460,7 @@ export function transitionTradeRefundState(
 		trade.status = "disputed";
 		trade.failureReason = "Buyer refund settled and escrow cancelled.";
 		trade.version += 1;
+		releaseSellerSlotAndAdvanceQueue(tradeId, false);
 		appendAudit(
 			trade,
 			"system",
@@ -1087,7 +1489,10 @@ export function transitionEscrowReleaseState(
 
 	const prev = trade.lifecycleState;
 	if (action === "request_release") {
-		if (trade.paymentState !== "CONFIRMED" || trade.payoutState !== "CONFIRMED") {
+		if (
+			trade.paymentState !== "CONFIRMED" ||
+			trade.payoutState !== "CONFIRMED"
+		) {
 			throw new Error(
 				"ESCROW_RELEASE_GATED: Both buyer payment and seller fiat payout must be CONFIRMED before releasing USDC.",
 			);
@@ -1116,9 +1521,7 @@ export function transitionEscrowReleaseState(
 			trade.lifecycleState !== "RELEASE_ON_HOLD" &&
 			trade.lifecycleState !== "SELLER_PAYOUT_CONFIRMED"
 		) {
-			throw new Error(
-				`CANNOT_COMPLETE_TRADE_FROM_${trade.lifecycleState}`,
-			);
+			throw new Error(`CANNOT_COMPLETE_TRADE_FROM_${trade.lifecycleState}`);
 		}
 		if (trade.lifecycleState === "SELLER_PAYOUT_CONFIRMED") {
 			trade.lifecycleState = "RELEASE_PENDING";
@@ -1150,6 +1553,8 @@ export function transitionEscrowReleaseState(
 	return trade;
 }
 
+const COOLDOWN_STEPS_SECONDS = [300, 900, 3600, 21600, 86400];
+
 export function reconcileExpiredTrades(): {
 	expiredCancelled: string[];
 	heldPending: string[];
@@ -1159,7 +1564,10 @@ export function reconcileExpiredTrades(): {
 	const heldPending: string[] = [];
 
 	for (const [tid, trade] of sharedTradesMap.entries()) {
-		if (trade.lifecycleState !== "AWAITING_PAYMENT" || !trade.paymentDeadlineAt) {
+		if (
+			trade.lifecycleState !== "AWAITING_PAYMENT" ||
+			!trade.paymentDeadlineAt
+		) {
 			continue;
 		}
 		if (now <= new Date(trade.paymentDeadlineAt)) {
@@ -1191,6 +1599,24 @@ export function reconcileExpiredTrades(): {
 			if (att) att.status = "EXPIRED";
 		}
 
+		releaseSellerSlotAndAdvanceQueue(tid, false);
+
+		if (trade.buyerAddress) {
+			const trust = getUserTrustSummary(trade.buyerAddress);
+			trust.unexplainedExpiryCount += 1;
+			trust.consecutiveExpiryStreak += 1;
+			const stepIdx = Math.min(
+				trust.consecutiveExpiryStreak - 1,
+				COOLDOWN_STEPS_SECONDS.length - 1,
+			);
+			const cooldownSecs = COOLDOWN_STEPS_SECONDS[stepIdx];
+			trust.cooldownUntil = new Date(
+				Date.now() + cooldownSecs * 1_000,
+			).toISOString();
+			trust.cooldownReason = "Unpaid 20-minute trade deadline expired";
+			recalculateTrustSummary(trust);
+		}
+
 		appendAudit(
 			trade,
 			"system",
@@ -1211,11 +1637,6 @@ export function completePeerTrade(
 	tradeId: string,
 	params?: { proofId?: string; txHash?: string },
 ): void {
-	const offerIdx = activePeerOffers.findIndex((o) => o.tradeId === tradeId);
-	if (offerIdx !== -1) {
-		activePeerOffers.splice(offerIdx, 1);
-	}
-
 	const shared = sharedTradesMap.get(tradeId);
 	if (shared) {
 		const prev = shared.lifecycleState;
@@ -1228,6 +1649,21 @@ export function completePeerTrade(
 		shared.version += 1;
 		if (params?.proofId) shared.proofId = params.proofId;
 		if (params?.txHash) shared.txHash = params.txHash;
+
+		releaseSellerSlotAndAdvanceQueue(tradeId, true);
+
+		if (shared.buyerAddress) {
+			const trust = getUserTrustSummary(shared.buyerAddress);
+			trust.completedTradeCount += 1;
+			trust.consecutiveExpiryStreak = 0;
+			const prevVol = parseAmountUsdc(trust.completedVolumeUsdc);
+			const addedVol = shared.usdcAmountUnits / 1_000_000;
+			trust.completedVolumeUsdc = (prevVol + addedVol).toLocaleString("en-US", {
+				minimumFractionDigits: 2,
+				maximumFractionDigits: 2,
+			});
+			recalculateTrustSummary(trust);
+		}
 
 		appendAudit(
 			shared,

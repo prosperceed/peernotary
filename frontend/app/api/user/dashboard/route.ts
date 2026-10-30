@@ -4,12 +4,18 @@ import { readEscrowTrade } from "@/lib/oracle/escrow";
 import { formatUsdc } from "@/lib/web3/arcConfig";
 import { RATE } from "@/lib/utils";
 import {
+	activateBuyerQueueEntry,
+	cancelBuyerQueueEntry,
 	completePeerTrade,
 	createPeerOffer,
 	getActivePeerOffers,
 	getUserLedger,
+	getUserQueueEntries,
+	getUserTrustSummary,
 	reconcileExpiredTrades,
+	submitGuarantorCommitment,
 	takePeerOffer,
+	verifyStrongerIdentity,
 } from "@/lib/trades/tradeStore";
 
 export async function GET(request: NextRequest) {
@@ -105,6 +111,8 @@ export async function GET(request: NextRequest) {
 			},
 			transactions,
 			peerOffers: getActivePeerOffers(),
+			trustSummary: getUserTrustSummary(current),
+			queueEntries: getUserQueueEntries(current),
 		});
 	} catch {
 		return NextResponse.json(
@@ -120,12 +128,24 @@ export async function POST(request: NextRequest) {
 		const user = await getAuthenticatedUser(expectedAddress);
 		const current = user.walletAddress.toLowerCase();
 		const body = (await request.json()) as {
-			action?: "create_offer" | "take_offer" | "update_status";
+			action?:
+				| "create_offer"
+				| "take_offer"
+				| "update_status"
+				| "cancel_queue"
+				| "activate_queue"
+				| "submit_guarantor"
+				| "verify_identity";
 			usdcAmount?: string;
+			requestedUsdcAmount?: string;
 			bankName?: string;
 			accountNumber?: string;
 			side?: "buy" | "sell";
 			tradeId?: string;
+			queueRef?: string;
+			cancelReason?: string;
+			guarantorAddress?: string;
+			maxBackedUsdc?: string;
 			status?: "completed" | "escrow" | "disputed" | "pending";
 			txHash?: string;
 			proofId?: string;
@@ -137,21 +157,28 @@ export async function POST(request: NextRequest) {
 				return NextResponse.json({ error: "INVALID_AMOUNT" }, { status: 400 });
 			}
 
-			const { offer, transaction } = createPeerOffer(user.walletAddress, {
-				usdcAmount: numericUsdc,
-				bankName: body.bankName,
-				accountNumber: body.accountNumber,
-				side: body.side,
-				txHash: body.txHash,
-			});
+			try {
+				const { offer, transaction } = createPeerOffer(user.walletAddress, {
+					usdcAmount: numericUsdc,
+					bankName: body.bankName,
+					accountNumber: body.accountNumber,
+					side: body.side,
+					txHash: body.txHash,
+				});
 
-			return NextResponse.json({
-				ok: true,
-				offer,
-				transaction,
-				transactions: getUserLedger(current),
-				peerOffers: getActivePeerOffers(),
-			});
+				return NextResponse.json({
+					ok: true,
+					offer,
+					transaction,
+					transactions: getUserLedger(current),
+					peerOffers: getActivePeerOffers(),
+					trustSummary: getUserTrustSummary(current),
+					queueEntries: getUserQueueEntries(current),
+				});
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : "INVALID_OFFER";
+				return NextResponse.json({ error: msg }, { status: 400 });
+			}
 		}
 
 		if (body.action === "take_offer" && body.tradeId) {
@@ -164,20 +191,109 @@ export async function POST(request: NextRequest) {
 				);
 			}
 
+			const reqUsdc = body.requestedUsdcAmount
+				? parseFloat(body.requestedUsdcAmount.replace(/,/g, ""))
+				: undefined;
+
 			try {
-				takePeerOffer(user.walletAddress, body.tradeId, body.txHash);
+				const result = takePeerOffer(
+					user.walletAddress,
+					body.tradeId,
+					body.txHash,
+					reqUsdc,
+				);
+				return NextResponse.json({
+					ok: true,
+					executionMode: result.executionMode,
+					activeTradeId: result.sharedTrade?.tradeId ?? null,
+					queueEntry: result.queueEntry ?? null,
+					transactions: getUserLedger(current),
+					peerOffers: getActivePeerOffers(),
+					trustSummary: getUserTrustSummary(current),
+					queueEntries: getUserQueueEntries(current),
+				});
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : "OFFER_NOT_FOUND";
 				return NextResponse.json(
 					{ error: msg },
-					{ status: msg === "CANNOT_BUY_OWN_OFFER" ? 400 : 404 },
+					{ status: msg === "OFFER_NOT_FOUND" ? 404 : 400 },
 				);
 			}
+		}
 
+		if (body.action === "cancel_queue" && body.queueRef) {
+			try {
+				const cancelled = cancelBuyerQueueEntry(
+					user.walletAddress,
+					body.queueRef,
+					body.cancelReason,
+				);
+				return NextResponse.json({
+					ok: true,
+					cancelled,
+					transactions: getUserLedger(current),
+					peerOffers: getActivePeerOffers(),
+					trustSummary: getUserTrustSummary(current),
+					queueEntries: getUserQueueEntries(current),
+				});
+			} catch (err) {
+				const msg =
+					err instanceof Error ? err.message : "QUEUE_ENTRY_NOT_FOUND";
+				return NextResponse.json({ error: msg }, { status: 400 });
+			}
+		}
+
+		if (body.action === "activate_queue" && body.queueRef) {
+			try {
+				const activated = activateBuyerQueueEntry(
+					user.walletAddress,
+					body.queueRef,
+				);
+				return NextResponse.json({
+					ok: true,
+					executionMode: "ACTIVE_SLOT",
+					activeTradeId: activated.sharedTrade.tradeId,
+					transactions: getUserLedger(current),
+					peerOffers: getActivePeerOffers(),
+					trustSummary: getUserTrustSummary(current),
+					queueEntries: getUserQueueEntries(current),
+				});
+			} catch (err) {
+				const msg =
+					err instanceof Error ? err.message : "QUEUE_ACTIVATION_FAILED";
+				return NextResponse.json({ error: msg }, { status: 400 });
+			}
+		}
+
+		if (
+			body.action === "submit_guarantor" &&
+			body.guarantorAddress &&
+			body.maxBackedUsdc
+		) {
+			try {
+				const maxBacked =
+					parseFloat(body.maxBackedUsdc.replace(/,/g, "")) || 1000;
+				const trustSummary = submitGuarantorCommitment(
+					user.walletAddress,
+					body.guarantorAddress,
+					maxBacked,
+				);
+				return NextResponse.json({
+					ok: true,
+					trustSummary,
+				});
+			} catch (err) {
+				const msg =
+					err instanceof Error ? err.message : "INVALID_GUARANTOR_COMMITMENT";
+				return NextResponse.json({ error: msg }, { status: 400 });
+			}
+		}
+
+		if (body.action === "verify_identity") {
+			const trustSummary = verifyStrongerIdentity(user.walletAddress);
 			return NextResponse.json({
 				ok: true,
-				transactions: getUserLedger(current),
-				peerOffers: getActivePeerOffers(),
+				trustSummary,
 			});
 		}
 
@@ -193,6 +309,8 @@ export async function POST(request: NextRequest) {
 				ok: true,
 				transactions: getUserLedger(current),
 				peerOffers: getActivePeerOffers(),
+				trustSummary: getUserTrustSummary(current),
+				queueEntries: getUserQueueEntries(current),
 			});
 		}
 

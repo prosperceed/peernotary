@@ -26,9 +26,12 @@ use crate::{
         SessionRecord, SessionState, VerifyProofRequest,
     },
     payments_api::{
-        create_auth_challenge, create_or_register_trade, get_trade_detail, get_user_profile,
-        handle_flutterwave_webhook, init_flutterwave_checkout, process_escrow_release,
-        process_seller_payout, process_trade_refund, run_reconciliation_pass, update_username,
+        activate_eligible_queue_entry, admin_risk_override, cancel_queued_order,
+        create_auth_challenge, create_guarantor_commitment, create_or_register_trade,
+        create_seller_listing, get_trade_detail, get_user_profile, get_user_trust_profile,
+        handle_flutterwave_webhook, init_flutterwave_checkout, list_seller_listings,
+        process_escrow_release, process_seller_payout, process_trade_refund,
+        request_listing_order, run_reconciliation_pass, update_username,
         verify_flutterwave_payment, verify_wallet_signature,
     },
     state::AppState,
@@ -57,6 +60,26 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/v1/auth/verify", post(verify_wallet_signature))
         .route("/api/v1/users/profile", get(get_user_profile))
         .route("/api/v1/users/username", put(update_username))
+        .route("/api/v1/users/trust", get(get_user_trust_profile))
+        .route("/api/v1/users/guarantor", post(create_guarantor_commitment))
+        .route("/api/v1/admin/risk-override", post(admin_risk_override))
+        // Seller-funded escrow listings & deterministic FIFO partial-order queue
+        .route(
+            "/api/v1/listings",
+            get(list_seller_listings).post(create_seller_listing),
+        )
+        .route(
+            "/api/v1/listings/:listing_ref/orders",
+            post(request_listing_order),
+        )
+        .route(
+            "/api/v1/queue/:queue_ref/cancel",
+            post(cancel_queued_order),
+        )
+        .route(
+            "/api/v1/queue/:queue_ref/activate",
+            post(activate_eligible_queue_entry),
+        )
         // Authoritative Trade Lifecycle, Flutterwave Checkout, Payouts, Refunds & Escrow
         .route("/api/v1/trades", post(create_or_register_trade))
         .route("/api/v1/trades/:trade_id", get(get_trade_detail))

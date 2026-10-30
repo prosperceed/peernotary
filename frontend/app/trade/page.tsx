@@ -73,20 +73,12 @@ export default function TradePage() {
 			const offers = data.peerOffers ?? [];
 			setPeerOffers(offers);
 			setTransactions(data.transactions ?? []);
-
-			if (!selectedOffer && offers.length > 0) {
-				const firstEligible =
-					offers.find(
-						(o) => !address || o.peerAddress.toLowerCase() !== address.toLowerCase(),
-					) ?? offers[0];
-				setSelectedOffer(firstEligible);
-			}
 		} catch {
 			// Ignore transient network errors
 		} finally {
 			setLoading(false);
 		}
-	}, [address, selectedOffer]);
+	}, [address]);
 
 	useEffect(() => {
 		void fetchPortalData();
@@ -252,10 +244,18 @@ export default function TradePage() {
 														<span className="px-2 py-0.5 rounded text-[10px] font-medium bg-[#f0f7f3] text-[#1a9e5c] border border-[#d1e8dc]">
 															{offer.bankName}
 														</span>
+														<span className="px-2 py-0.5 rounded text-[10px] font-mono bg-[#fbfdfc] text-[#3d6b55] border border-[#d1e8dc]">
+															0 USDC Buyer Bond
+														</span>
+														{offer.sellerBusy && (
+															<span className="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-50 text-amber-800 border border-amber-200">
+																Active Slot Busy · Queue: {offer.queueDepth ?? 0}
+															</span>
+														)}
 													</div>
 													<div className="text-[11px] text-[#7aaa92]">
 														{offer.completionRate} completion · {offer.completedTrades} settled ·{" "}
-														{offer.avgReleaseTime} avg release
+														{offer.avgReleaseTime} avg release · Partial fills enabled
 													</div>
 												</div>
 
@@ -355,10 +355,10 @@ export default function TradePage() {
 							<div className="p-3.5 rounded-lg border border-[#d1e8dc] bg-white">
 								<div className="flex items-center gap-2 text-xs font-semibold text-[#0d2b1e]">
 									<Lock size={14} className="text-[#1a9e5c]" />
-									<span>Locked Principal</span>
+									<span>Seller-Funded Escrow</span>
 								</div>
 								<p className="text-[11px] text-[#7aaa92] mt-1 leading-relaxed">
-									Seller USDC and buyer collateral remain locked in ArcP2PEscrowService until verified settlement.
+									Sellers lock 100% of available USDC inventory on Arc before listing. Buyers require 0 USDC collateral deposit.
 								</p>
 							</div>
 

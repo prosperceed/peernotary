@@ -113,7 +113,7 @@ function ZKProofPanel({
 		setError(null);
 		setStage(0);
 		try {
-			const cleanNgn = Number(amountNgn.replace(/[^0-9]/g, "")) || 160000;
+			const cleanNgn = Number(amountNgn.replace(/[^0-9]/g, "")) || 0;
 			const createRes = await fetch(`/api/tlsn/trades/${tradeId}/verify`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
@@ -124,7 +124,7 @@ function ZKProofPanel({
 					expectedAmountNgn: cleanNgn,
 					currency: "NGN",
 					expectedCurrency: "NGN",
-					expectedAccountNo: accountNo || "0123456789",
+					expectedAccountNo: accountNo || "",
 					cryptoAmountUsdc: usdcAmount,
 				}),
 			});
@@ -156,7 +156,7 @@ function ZKProofPanel({
 					sessionId: activeSessionId,
 					bankName,
 					amountNgn: cleanNgn,
-					recipientAccount: accountNo || "0123456789",
+					recipientAccount: accountNo || "",
 					paymentReference: `NIP-${bankName.replace(/\s+/g, "").toUpperCase()}-${tradeId}`,
 					paymentStatus: "completed",
 					cryptoAmountUsdc: usdcAmount,
@@ -305,8 +305,14 @@ export default function TradingWidget({
 	const [bankLinked, setBankLinked] = useState(false);
 	const [verifiedProof, setVerifiedProof] = useState<VerifiedProofMeta | null>(null);
 
-	const [ngnInput, setNgnInput] = useState("400,000");
+	const [ngnInput, setNgnInput] = useState("");
 	const [creatingOrder, setCreatingOrder] = useState(false);
+	const [queuedOrderInfo, setQueuedOrderInfo] = useState<{
+		queueRef: string;
+		queuePosition: number;
+		estimatedWaitSeconds: number;
+		requestedUsdc: string;
+	} | null>(null);
 	const [actionBusy, setActionBusy] = useState<string | null>(null);
 	const [feedback, setFeedback] = useState<{
 		type: "success" | "error";
@@ -348,23 +354,30 @@ export default function TradingWidget({
 			setSelectedBank(selectedOffer.bankName);
 			setNgnInput(selectedOffer.ngnAmount.replace(/[^0-9,]/g, ""));
 			setFeedback(null);
+			void fetchTradeLifecycle(selectedOffer.tradeId);
+		} else {
+			setActiveOffer(null);
+			setLifecycleTrade(null);
+			setNgnInput("");
 		}
-	}, [selectedOffer]);
+	}, [selectedOffer, fetchTradeLifecycle]);
 
-	const activeTradeId = activeOffer?.tradeId ?? lifecycleTrade?.tradeId ?? "8801";
+	const activeTradeId = activeOffer?.tradeId ?? lifecycleTrade?.tradeId ?? "";
 	const activeRate = activeOffer?.rateNgn ?? lifecycleTrade?.rateNgn ?? RATE;
+	const maxOfferUsdc = parseFloat(
+		(activeOffer?.availableUsdc ?? lifecycleTrade?.usdcAmount ?? "0").replace(/,/g, ""),
+	) || 0;
 	const rawNgn = parseFloat(ngnInput.replace(/[^0-9.]/g, "")) || 0;
-	const usdcAmount =
-		activeOffer?.availableUsdc ??
-		lifecycleTrade?.usdcAmount ??
-		(rawNgn / activeRate).toFixed(2);
+	const computedUsdc = activeRate > 0 ? Math.min(maxOfferUsdc, rawNgn / activeRate) : 0;
+	const usdcAmount = computedUsdc > 0 ? computedUsdc.toFixed(2) : "0.00";
 	const collateralUsdc =
 		activeOffer?.requiredCollateralUsdc ??
 		lifecycleTrade?.requiredCollateralUsdc ??
-		"50.00";
+		"0.00";
 	const platformFee = (parseFloat(usdcAmount.replace(/,/g, "") || "0") * 0.005).toFixed(2);
 
 	const fetchTradeLifecycle = useCallback(async (tid: string) => {
+		if (!tid) return;
 		try {
 			const res = await fetch(`/api/trades/${encodeURIComponent(tid)}/lifecycle`, {
 				cache: "no-store",
@@ -403,16 +416,11 @@ export default function TradingWidget({
 			const offers = data.peerOffers ?? [];
 			setPeerOffers(offers);
 
-			if (!activeOffer && offers.length > 0) {
-				const firstEligible =
-					offers.find(
-						(o) => !address || o.peerAddress.toLowerCase() !== address.toLowerCase(),
-					) ?? offers[0];
-				setActiveOffer(firstEligible);
-				setSelectedBank(firstEligible.bankName);
-				setNgnInput(firstEligible.ngnAmount.replace(/[^0-9,]/g, ""));
-				void fetchTradeLifecycle(firstEligible.tradeId);
-			} else if (activeOffer) {
+			if (activeOffer) {
+				const currentInOffers = offers.find((o) => o.tradeId === activeOffer.tradeId);
+				if (currentInOffers) {
+					setActiveOffer(currentInOffers);
+				}
 				void fetchTradeLifecycle(activeOffer.tradeId);
 			}
 		} catch {
@@ -513,6 +521,14 @@ export default function TradingWidget({
 			return;
 		}
 
+		if (computedUsdc <= 0 || rawNgn < 1) {
+			setFeedback({
+				type: "error",
+				text: "Enter a positive USDC/NGN amount (minimum ₦1.00 for bank checkout).",
+			});
+			return;
+		}
+
 		setCreatingOrder(true);
 		try {
 			let txHash: `0x${string}` | undefined;
@@ -537,25 +553,54 @@ export default function TradingWidget({
 				body: JSON.stringify({
 					action: "take_offer",
 					tradeId: activeTradeId,
+					requestedUsdcAmount: usdcAmount,
 					txHash,
 				}),
 			});
 
-			if (res.ok) {
-				await fetchTradeLifecycle(activeTradeId);
+			const data = (await res.json()) as {
+				error?: string;
+				executionMode?: "ACTIVE_SLOT" | "QUEUED";
+				allocatedTradeId?: string;
+				queueRef?: string;
+				queuePosition?: number;
+				estimatedWaitSeconds?: number;
+			};
+
+			if (!res.ok) {
+				throw new Error(data.error || "Could not initialize order.");
+			}
+
+			if (data.executionMode === "QUEUED") {
+				setQueuedOrderInfo({
+					queueRef: data.queueRef || `Q-${activeTradeId}`,
+					queuePosition: data.queuePosition ?? 1,
+					estimatedWaitSeconds: data.estimatedWaitSeconds ?? 420,
+					requestedUsdc: usdcAmount,
+				});
 				onTradeUpdated?.();
 				setFeedback({
 					type: "success",
-					text: `Trade #${activeTradeId} locked in AWAITING_PAYMENT. Complete payment within 20 minutes.`,
+					text: `Seller is currently settling an active buyer slot. Reserved ${usdcAmount} USDC at Queue #${data.queuePosition ?? 1}.`,
 				});
+				return;
 			}
+
+			const targetTradeId = data.allocatedTradeId || activeTradeId;
+			setQueuedOrderInfo(null);
+			await fetchTradeLifecycle(targetTradeId);
+			onTradeUpdated?.();
+			setFeedback({
+				type: "success",
+				text: `Trade #${targetTradeId} allocated (${usdcAmount} USDC) in AWAITING_PAYMENT. Complete payment within 20 minutes.`,
+			});
 			setStep(1);
 		} catch (err) {
 			setFeedback({
 				type: "error",
 				text: formatUserFriendlyWalletError(
 					err,
-					"Could not lock collateral or initialize order. Please try again.",
+					"Could not reserve seller inventory or initialize order. Please try again.",
 				),
 			});
 		} finally {
@@ -563,10 +608,87 @@ export default function TradingWidget({
 		}
 	};
 
+	const handleCancelQueueInWidget = async (queueRef: string) => {
+		setActionBusy("cancel_queue");
+		setFeedback(null);
+		try {
+			const res = await fetch("/api/user/dashboard", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					...(address ? { "x-wallet-address": address } : {}),
+				},
+				body: JSON.stringify({
+					action: "cancel_queue",
+					queueRef,
+				}),
+			});
+			const data = (await res.json()) as { error?: string };
+			if (!res.ok) {
+				throw new Error(data.error || "Failed to cancel queued request.");
+			}
+			setQueuedOrderInfo(null);
+			void loadLiveMarket();
+			onTradeUpdated?.();
+			setFeedback({
+				type: "success",
+				text: `Cancelled queue reservation ${queueRef} with zero cooldown penalty.`,
+			});
+		} catch (err) {
+			setFeedback({
+				type: "error",
+				text: err instanceof Error ? err.message : "Could not cancel queue entry.",
+			});
+		} finally {
+			setActionBusy(null);
+		}
+	};
+
+	const handleActivateQueueInWidget = async (queueRef: string) => {
+		setActionBusy("activate_queue");
+		setFeedback(null);
+		try {
+			const res = await fetch("/api/user/dashboard", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					...(address ? { "x-wallet-address": address } : {}),
+				},
+				body: JSON.stringify({
+					action: "activate_queue",
+					queueRef,
+				}),
+			});
+			const data = (await res.json()) as {
+				error?: string;
+				allocatedTradeId?: string;
+			};
+			if (!res.ok) {
+				throw new Error(data.error || "Seller slot is still busy.");
+			}
+			const tid = data.allocatedTradeId || activeTradeId;
+			setQueuedOrderInfo(null);
+			await fetchTradeLifecycle(tid);
+			onTradeUpdated?.();
+			setFeedback({
+				type: "success",
+				text: `Activated Trade #${tid}. Complete fiat payment within 20 minutes.`,
+			});
+			setStep(1);
+		} catch (err) {
+			setFeedback({
+				type: "error",
+				text: err instanceof Error ? err.message : "Could not activate queue entry.",
+			});
+		} finally {
+			setActionBusy(null);
+		}
+	};
+
 	const handleFlutterwaveCheckout = async () => {
 		setRedirectingBank(true);
 		setFeedback(null);
-		const cleanNgn = String(Math.round(rawNgn || 160000));
+		const cleanNgn = String(Math.round(rawNgn));
 
 		try {
 			const res = await fetch("/api/payments/flutterwave/checkout", {
@@ -598,7 +720,7 @@ export default function TradingWidget({
 			bank: selectedBank,
 			amountNgn: cleanNgn,
 			amountUsdc: usdcAmount,
-			accountNo: lifecycleTrade?.sellerAccountNumber || "0123456789",
+			accountNo: lifecycleTrade?.sellerAccountNumber || "",
 			returnTo: "/trade",
 		});
 		router.push(`/bank-checkout?${qs.toString()}`);
@@ -664,7 +786,7 @@ export default function TradingWidget({
 						</span>
 					</div>
 					<div className="text-[11px] text-[#7aaa92] mt-0.5">
-						Arc Testnet (#5042002) · Trade #{activeTradeId}
+						Arc Testnet (#5042002) {activeTradeId ? `· Trade #${activeTradeId}` : "· Standby"}
 					</div>
 				</div>
 
@@ -689,9 +811,6 @@ export default function TradingWidget({
 				</div>
 			</div>
 
-			{/* Non-Overlapping Stepper */}
-			<StepBar current={step} steps={[...steps]} />
-
 			{/* Feedback Banner */}
 			{feedback && (
 				<div
@@ -713,8 +832,33 @@ export default function TradingWidget({
 				</div>
 			)}
 
-			{/* ── STEP 0: Order Terms ── */}
-			{step === 0 && (
+			{!activeOffer && !lifecycleTrade ? (
+				<div className="py-12 px-4 text-center space-y-3">
+					<div className="w-10 h-10 mx-auto rounded-full bg-[#f0f7f3] border border-[#d1e8dc] flex items-center justify-center text-[#1a9e5c]">
+						<Lock size={18} />
+					</div>
+					<div className="space-y-1">
+						<h3 className="text-sm font-semibold text-[#0d2b1e]">No Order Selected</h3>
+						<p className="text-xs text-[#7aaa92] max-w-sm mx-auto">
+							Select an offer from the open peer liquidity list or publish an offer from your dashboard to initiate escrow settlement.
+						</p>
+					</div>
+					<div className="pt-2 flex flex-wrap justify-center gap-2">
+						<Link
+							href="/dashboard"
+							className="px-3 py-1.5 rounded-lg bg-[#1a9e5c] hover:bg-[#15854c] text-white text-xs font-semibold"
+						>
+							Publish Offer in Dashboard
+						</Link>
+					</div>
+				</div>
+			) : (
+				<>
+					{/* Non-Overlapping Stepper */}
+					<StepBar current={step} steps={[...steps]} />
+
+					{/* ── STEP 0: Order Terms ── */}
+					{step === 0 && (
 				<div className="space-y-4">
 					{/* Offer Selector if multiple peer offers exist */}
 					{peerOffers.length > 0 && (
@@ -751,7 +895,41 @@ export default function TradingWidget({
 						<div className="p-3 rounded-lg border border-[#d1e8dc] bg-white">
 							<div className="flex items-center justify-between text-[11px] text-[#7aaa92] mb-1">
 								<span>You Pay (Fiat)</span>
-								<span className="font-mono">NGN</span>
+								<div className="flex items-center gap-1 font-mono">
+									<button
+										type="button"
+										onClick={() =>
+											setNgnInput(
+												Math.round(maxOfferUsdc * 0.25 * activeRate).toLocaleString("en-NG"),
+											)
+										}
+										className="px-1.5 py-0.5 rounded border border-[#d1e8dc] text-[10px] hover:bg-[#f0f7f3] text-[#3d6b55]"
+									>
+										25%
+									</button>
+									<button
+										type="button"
+										onClick={() =>
+											setNgnInput(
+												Math.round(maxOfferUsdc * 0.5 * activeRate).toLocaleString("en-NG"),
+											)
+										}
+										className="px-1.5 py-0.5 rounded border border-[#d1e8dc] text-[10px] hover:bg-[#f0f7f3] text-[#3d6b55]"
+									>
+										50%
+									</button>
+									<button
+										type="button"
+										onClick={() =>
+											setNgnInput(
+												Math.round(maxOfferUsdc * activeRate).toLocaleString("en-NG"),
+											)
+										}
+										className="px-1.5 py-0.5 rounded border border-[#1a9e5c] text-[10px] hover:bg-[#f0f7f3] text-[#1a9e5c] font-semibold"
+									>
+										MAX
+									</button>
+								</div>
 							</div>
 							<div className="flex items-center gap-1.5">
 								<span className="text-sm font-mono text-[#3d6b55]">₦</span>
@@ -766,8 +944,10 @@ export default function TradingWidget({
 
 						<div className="p-3 rounded-lg border border-[#d1e8dc] bg-[#fbfdfc]">
 							<div className="flex items-center justify-between text-[11px] text-[#7aaa92] mb-1">
-								<span>You Receive (Escrow Locked)</span>
-								<span className="font-mono">USDC</span>
+								<span>You Receive (Seller Escrowed)</span>
+								<span className="font-mono">
+									Max {activeOffer?.availableUsdc ?? maxOfferUsdc.toFixed(2)} USDC
+								</span>
 							</div>
 							<div className="font-mono text-base font-semibold text-[#1a9e5c] truncate">
 								{usdcAmount} USDC
@@ -799,20 +979,58 @@ export default function TradingWidget({
 						</div>
 
 						<div className="p-2.5 rounded-lg border border-[#d1e8dc] bg-[#fbfdfc]">
-							<div className="text-[11px] text-[#7aaa92]">Required Buyer Bond</div>
-							<div className="font-mono font-medium text-amber-700 mt-0.5">
-								{collateralUsdc} USDC
+							<div className="text-[11px] text-[#7aaa92]">Buyer Collateral Required</div>
+							<div className="font-mono font-medium text-[#1a9e5c] mt-0.5">
+								0.00 USDC (Seller-Funded)
 							</div>
 						</div>
 					</div>
 
 					{/* Fee & Deadline Notice */}
-					<div className="p-3 rounded-lg bg-[#f0f7f3] border border-[#d1e8dc] flex items-center justify-between gap-2 text-xs text-[#3d6b55]">
-						<span>Protocol Fee (0.5%)</span>
+					<div className="p-3 rounded-lg bg-[#f0f7f3] border border-[#d1e8dc] flex flex-wrap items-center justify-between gap-2 text-xs text-[#3d6b55]">
+						<span>Protocol Fee (0.5%) + Est. Arc Gas (~0.0031 USDC)</span>
 						<span className="font-mono font-semibold text-[#0d2b1e]">
 							{platformFee} USDC · 20-min Payment Window
 						</span>
 					</div>
+
+					{queuedOrderInfo && (
+						<div className="p-3.5 rounded-lg border border-amber-300 bg-amber-50/70 space-y-2.5 text-xs">
+							<div className="flex items-center justify-between">
+								<span className="font-semibold text-[#0d2b1e]">
+									FIFO Queue Position #{queuedOrderInfo.queuePosition} ({queuedOrderInfo.queueRef})
+								</span>
+								<span className="font-mono text-[11px] text-amber-800">
+									Est. wait ~{Math.max(1, Math.ceil(queuedOrderInfo.estimatedWaitSeconds / 60))}m
+								</span>
+							</div>
+							<p className="text-[11px] text-[#3d6b55]">
+								Reserved {queuedOrderInfo.requestedUsdc} USDC of seller inventory. Only one active buyer slot can pay a seller at a time. You may cancel while queued with zero penalty.
+							</p>
+							<div className="flex flex-wrap gap-2">
+								{queuedOrderInfo.queuePosition === 1 && (
+									<button
+										type="button"
+										disabled={actionBusy !== null}
+										onClick={() => void handleActivateQueueInWidget(queuedOrderInfo.queueRef)}
+										className="px-3 py-1.5 rounded-lg bg-[#1a9e5c] hover:bg-[#15854c] text-white font-semibold text-xs"
+									>
+										{actionBusy === "activate_queue"
+											? "Activating..."
+											: "Activate Order & Proceed to Payment"}
+									</button>
+								)}
+								<button
+									type="button"
+									disabled={actionBusy !== null}
+									onClick={() => void handleCancelQueueInWidget(queuedOrderInfo.queueRef)}
+									className="px-3 py-1.5 rounded-lg border border-red-200 bg-white hover:bg-red-50 text-red-700 font-medium text-xs"
+								>
+									{actionBusy === "cancel_queue" ? "Cancelling..." : "Cancel Queued Request"}
+								</button>
+							</div>
+						</div>
+					)}
 
 					<button
 						type="button"
@@ -822,8 +1040,8 @@ export default function TradingWidget({
 					>
 						<span>
 							{creatingOrder
-								? "Locking Collateral & Initializing Trade..."
-								: `Lock ${collateralUsdc} USDC Bond & Proceed to Payment`}
+								? "Reserving Seller Escrow Inventory..."
+								: `Reserve ${usdcAmount} USDC & Proceed to Payment (0 USDC Bond)`}
 						</span>
 						<ArrowRight size={14} />
 					</button>
@@ -936,7 +1154,7 @@ export default function TradingWidget({
 									)}&bank=${encodeURIComponent(
 										lifecycleTrade?.bankName ?? selectedBank,
 									)}&amountNgn=${encodeURIComponent(
-										String(Math.round(rawNgn || 160000)),
+										String(Math.round(rawNgn)),
 									)}&amountUsdc=${encodeURIComponent(
 										usdcAmount,
 									)}&returnTo=/trade`}
@@ -953,7 +1171,7 @@ export default function TradingWidget({
 							tradeId={activeTradeId}
 							amountNgn={ngnInput}
 							bankName={lifecycleTrade?.bankName ?? selectedBank}
-							accountNo={lifecycleTrade?.sellerAccountNumber || "0123456789"}
+							accountNo={lifecycleTrade?.sellerAccountNumber || ""}
 							usdcAmount={usdcAmount}
 							onComplete={handleZkComplete}
 						/>
@@ -1015,9 +1233,9 @@ export default function TradingWidget({
 						</div>
 
 						<div className="flex items-center justify-between">
-							<span className="text-[#7aaa92]">Buyer Anti-Fraud Bond</span>
-							<span className="font-mono font-medium text-amber-700">
-								{collateralUsdc} USDC
+							<span className="text-[#7aaa92]">Buyer Collateral Required</span>
+							<span className="font-mono font-medium text-[#1a9e5c]">
+								0.00 USDC (Seller-Funded)
 							</span>
 						</div>
 
@@ -1157,6 +1375,8 @@ export default function TradingWidget({
 						</button>
 					</div>
 				</div>
+			)}
+				</>
 			)}
 		</div>
 	);

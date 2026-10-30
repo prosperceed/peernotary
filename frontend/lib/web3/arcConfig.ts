@@ -86,14 +86,31 @@ export const ARCSCAN_ADDR = (address: string) =>
 export function formatUsdc(microUsdc: bigint, decimals = 2): string {
 	const whole = microUsdc / 1_000_000n;
 	const frac = microUsdc % 1_000_000n;
-	return `${whole}.${String(frac).padStart(6, "0").slice(0, decimals)}`;
+	const fracStr = String(frac).padStart(6, "0");
+	if (decimals < 6 && frac % BigInt(10 ** (6 - decimals)) !== 0n) {
+		return `${whole}.${fracStr.replace(/0+$/, "")}`;
+	}
+	return `${whole}.${fracStr.slice(0, decimals)}`;
 }
 
-/** Convert human string → micro-USDC BigInt: "1.50" → 1_500_000n */
+/**
+ * Strict integer-only parser converting a human USDC string into micro-USDC (6 decimals).
+ * Rejects zero, negative, malformed, or >6 decimal precision inputs.
+ */
 export function parseUsdc(humanAmount: string): bigint {
-	const [whole, frac = ""] = humanAmount.split(".");
+	const cleaned = humanAmount.replace(/,/g, "").trim();
+	if (!/^\d+(\.\d{1,6})?$/.test(cleaned)) {
+		throw new Error(
+			"Invalid USDC amount. Enter a positive number with at most 6 decimal places.",
+		);
+	}
+	const [whole, frac = ""] = cleaned.split(".");
 	const fracPadded = frac.padEnd(6, "0").slice(0, 6);
-	return BigInt(whole) * 1_000_000n + BigInt(fracPadded);
+	const units = BigInt(whole) * 1_000_000n + BigInt(fracPadded);
+	if (units <= 0n) {
+		throw new Error("USDC amount must be greater than zero.");
+	}
+	return units;
 }
 
 /**
@@ -137,6 +154,27 @@ export const ESCROW_ABI = [
 		inputs: [
 			{ name: "_tradeId", type: "uint256" },
 			{ name: "_collateral", type: "uint256" },
+		],
+		outputs: [],
+	},
+	{
+		name: "allocatePartialOrder",
+		type: "function",
+		stateMutability: "nonpayable",
+		inputs: [
+			{ name: "_parentListingId", type: "uint256" },
+			{ name: "_requestedAmount", type: "uint256" },
+			{ name: "_buyer", type: "address" },
+		],
+		outputs: [{ name: "childTradeId", type: "uint256" }],
+	},
+	{
+		name: "withdrawAvailableInventory",
+		type: "function",
+		stateMutability: "nonpayable",
+		inputs: [
+			{ name: "_listingId", type: "uint256" },
+			{ name: "_amount", type: "uint256" },
 		],
 		outputs: [],
 	},
@@ -309,8 +347,11 @@ export const TradeStatusEnum = {
 export type OnChainTradeStatus = keyof typeof TradeStatusEnum;
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
-/** Minimum buyer collateral: 50 USDC (matches SLASH_AMOUNT in contract) */
-export const MIN_COLLATERAL_USDC = 50_000_000n; // 50 USDC in micro-USDC
+/** Mandatory 50 USDC buyer collateral removed (seller-funded escrow model) */
+export const MIN_COLLATERAL_USDC = 0n;
+
+/** Estimated Arc Network transaction gas fee in micro-USDC (0.0031 USDC) */
+export const ESTIMATED_ARC_GAS_USDC = 3_100n;
 
 /** Default platform fee: 1% (100 bps) */
 export const DEFAULT_FEE_BPS = 100;

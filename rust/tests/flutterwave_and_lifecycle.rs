@@ -822,3 +822,443 @@ async fn test_underpayment_late_payment_recovery_and_refund_flow() {
         RefundState::Completed
     );
 }
+
+#[tokio::test]
+async fn test_seller_funded_partial_fills_fifo_queue_cancellation_and_trust_progression() {
+    let state = test_state();
+    let auth_header = format!("Bearer {}", state.config.service_api_key);
+    let app = build_router(state.clone());
+
+    let seller = "0x1000000000000000000000000000000000000001";
+    let buyer_a = "0x200000000000000000000000000000000000000a";
+    let buyer_b = "0x200000000000000000000000000000000000000b";
+    let buyer_c = "0x200000000000000000000000000000000000000c";
+
+    // 1. Seller locks 500 USDC (500_000_000 units) in escrow listing LST-900
+    let list_res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/listings")
+                .header("authorization", &auth_header)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "listing_ref": "LST-900",
+                        "onchain_listing_id": "900",
+                        "seller_address": seller,
+                        "total_deposited_usdc_units": 500_000_000u128,
+                        "exchange_rate_minor": 163_000u128,
+                        "fiat_currency": "NGN",
+                        "seller_bank_name": "GTBank",
+                        "seller_account_number": "0123456789"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(list_res.status(), StatusCode::CREATED);
+
+    // 2. Buyer A requests partial fill of 120 USDC -> acquires ACTIVE_SLOT immediately with 0 buyer collateral
+    let order_a_res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/listings/LST-900/orders")
+                .header("authorization", &auth_header)
+                .header("x-wallet-address", buyer_a)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "requested_usdc_units": 120_000_000u128,
+                        "child_trade_id": "9001"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(order_a_res.status(), StatusCode::CREATED);
+    let order_a_body: Value = serde_json::from_slice(
+        &order_a_res.into_body().collect().await.unwrap().to_bytes(),
+    )
+    .unwrap();
+    assert_eq!(order_a_body["execution_mode"], "ACTIVE_SLOT");
+    assert_eq!(order_a_body["trade"]["buyer_collateral_usdc_units"], 0u64);
+    assert_eq!(order_a_body["listing"]["available_usdc_units"], 380_000_000u64);
+    assert_eq!(order_a_body["listing"]["allocated_usdc_units"], 120_000_000u64);
+
+    // 3. New Buyer A attempting a second concurrent unpaid order is rejected with 409 CONFLICT
+    let dup_a_res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/listings/LST-900/orders")
+                .header("authorization", &auth_header)
+                .header("x-wallet-address", buyer_a)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "requested_usdc_units": 10_000_000u128
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(dup_a_res.status(), StatusCode::CONFLICT);
+
+    // 4. Buyer B requests 100 USDC while Seller is serving Buyer A -> placed in FIFO QUEUED at position 1
+    let order_b_res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/listings/LST-900/orders")
+                .header("authorization", &auth_header)
+                .header("x-wallet-address", buyer_b)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "requested_usdc_units": 100_000_000u128
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(order_b_res.status(), StatusCode::ACCEPTED);
+    let order_b_body: Value = serde_json::from_slice(
+        &order_b_res.into_body().collect().await.unwrap().to_bytes(),
+    )
+    .unwrap();
+    assert_eq!(order_b_body["execution_mode"], "QUEUED");
+    assert_eq!(order_b_body["queue_entry"]["queue_position"], 1);
+    let q_ref_b = order_b_body["queue_entry"]["queue_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // 5. Buyer C requests 80 USDC -> placed in FIFO QUEUED at position 2
+    let order_c_res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/listings/LST-900/orders")
+                .header("authorization", &auth_header)
+                .header("x-wallet-address", buyer_c)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "requested_usdc_units": 80_000_000u128
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(order_c_res.status(), StatusCode::ACCEPTED);
+    let order_c_body: Value = serde_json::from_slice(
+        &order_c_res.into_body().collect().await.unwrap().to_bytes(),
+    )
+    .unwrap();
+    assert_eq!(order_c_body["queue_entry"]["queue_position"], 2);
+    let q_ref_c = order_c_body["queue_entry"]["queue_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // 6. Buyer B cancels while waiting in queue -> 100 USDC returned to available, Buyer C advances to position 1
+    let cancel_b_res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(&format!("/api/v1/queue/{q_ref_b}/cancel"))
+                .header("authorization", &auth_header)
+                .header("x-wallet-address", buyer_b)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({ "reason": "Seller taking too long" }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(cancel_b_res.status(), StatusCode::OK);
+    assert_eq!(
+        state
+            .seller_listings
+            .get("LST-900")
+            .unwrap()
+            .available_usdc_units,
+        300_000_000u128
+    );
+    assert_eq!(
+        state.queue_entries.get(&q_ref_c).unwrap().queue_position,
+        1
+    );
+
+    // 7. Complete Buyer A's trade #9001 -> Seller slot frees, Buyer A upgrades to STANDARD tier (500 USDC limit),
+    // and Buyer C becomes ELIGIBLE_AWAITING_CONSENT and activates trade #9002
+    {
+        let mut t = state.trades.get_mut("9001").unwrap();
+        t.payment_state = tlsn_service::lifecycle::PaymentState::Confirmed;
+        t.payout_state = PayoutState::Confirmed;
+        t.lifecycle_state = TradeLifecycleState::ReleasePending;
+    }
+    let rel_confirm = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/trades/9001/escrow")
+                .header("authorization", &auth_header)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "action": "confirm_on_chain",
+                        "tx_hash": "0xaaaa567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+                        "block_number": 200100u64
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rel_confirm.status(), StatusCode::OK);
+
+    let listing_after = state.seller_listings.get("LST-900").unwrap().clone();
+    assert_eq!(listing_after.filled_usdc_units, 120_000_000u128);
+    assert_eq!(listing_after.allocated_usdc_units, 0);
+    assert_eq!(listing_after.reserved_queued_usdc_units, 80_000_000u128);
+    assert_eq!(listing_after.available_usdc_units, 300_000_000u128);
+    assert!(listing_after.validate_conservation().is_ok());
+
+    let prof_a = state.get_or_init_trust_profile(buyer_a);
+    assert_eq!(prof_a.completed_trade_count, 1);
+    assert_eq!(prof_a.max_trade_usdc_units, 500_000_000u128);
+
+    // Buyer C activates their front-of-queue reservation
+    let act_c_res = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(&format!("/api/v1/queue/{q_ref_c}/activate"))
+                .header("authorization", &auth_header)
+                .header("x-wallet-address", buyer_c)
+                .header("content-type", "application/json")
+                .body(Body::from(json!({ "child_trade_id": "9002" }).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(act_c_res.status(), StatusCode::OK);
+    let act_c_body: Value = serde_json::from_slice(
+        &act_c_res.into_body().collect().await.unwrap().to_bytes(),
+    )
+    .unwrap();
+    assert_eq!(act_c_body["execution_mode"], "ACTIVE_SLOT");
+    assert_eq!(act_c_body["trade"]["trade_id"], "9002");
+}
+
+#[tokio::test]
+async fn test_progressive_cooldown_on_unexplained_expiry_and_guarantor_commitment() {
+    let state = test_state();
+    let auth_header = format!("Bearer {}", state.config.service_api_key);
+    let app = build_router(state.clone());
+
+    let seller = "0x3000000000000000000000000000000000000001";
+    let buyer_d = "0x400000000000000000000000000000000000000d";
+
+    // 1. Create a micro-trade of 0.10 USDC (100_000 micro-USDC @ 1630 NGN = 163.00 NGN = 16300 kobo)
+    let create_res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/trades")
+                .header("authorization", &auth_header)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "trade_id": "950",
+                        "seller_address": seller,
+                        "buyer_address": buyer_d,
+                        "usdc_amount_units": 100_000u128,
+                        "exchange_rate_minor": 163_000u128,
+                        "fiat_currency": "NGN",
+                        "seller_bank_name": "Access Bank"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(create_res.status(), StatusCode::CREATED);
+
+    // 2. Simulate unexplained 20-minute payment deadline expiration and run reconciliation
+    if let Some(mut t) = state.trades.get_mut("950") {
+        t.payment_deadline_at = Some(Utc::now() - ChronoDuration::minutes(2));
+    }
+    let rec_res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/reconcile/run")
+                .header("authorization", &auth_header)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rec_res.status(), StatusCode::OK);
+
+    // 3. Buyer D now has an active progressive cooldown and is blocked from opening another trade
+    let blocked_res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/trades")
+                .header("authorization", &auth_header)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "trade_id": "951",
+                        "seller_address": seller,
+                        "buyer_address": buyer_d,
+                        "usdc_amount_units": 10_000_000u128,
+                        "exchange_rate_minor": 163_000u128,
+                        "fiat_currency": "NGN",
+                        "seller_bank_name": "Access Bank"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(blocked_res.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    // 4. Admin override clears cooldown; now test Guarantor Commitment enabling a 600 USDC trade for a New buyer
+    let _ = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/admin/risk-override")
+                .header("authorization", &auth_header)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "wallet_address": buyer_d,
+                        "clear_cooldown": true,
+                        "reason": "Verified bank USSD maintenance window"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Without guarantor, 600 USDC exceeds New buyer's 150 USDC limit
+    let over_limit_res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/trades")
+                .header("authorization", &auth_header)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "trade_id": "952",
+                        "seller_address": seller,
+                        "buyer_address": buyer_d,
+                        "usdc_amount_units": 600_000_000u128,
+                        "exchange_rate_minor": 163_000u128,
+                        "fiat_currency": "NGN",
+                        "seller_bank_name": "Access Bank"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(over_limit_res.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    // Guarantor signs EIP-191 commitment backing Buyer D up to 1,000 USDC
+    let guarantor_key = [0x77u8; 32];
+    let msg = format!(
+        "PeerNotary Guarantor Commitment: I back buyer {} up to 1000 USDC",
+        buyer_d
+    );
+    let (guarantor_addr, guarantor_sig) = sign_eip191_message(&guarantor_key, &msg);
+
+    let gua_res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/users/guarantor")
+                .header("authorization", &auth_header)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "guarantor_address": guarantor_addr,
+                        "beneficiary_buyer_address": buyer_d,
+                        "max_backed_usdc_units": 1_000_000_000u128,
+                        "locked_bond_usdc_units": 100_000_000u128,
+                        "message": msg,
+                        "eip191_signature": guarantor_sig
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(gua_res.status(), StatusCode::CREATED);
+
+    // Now Buyer D's 600 USDC trade succeeds!
+    let backed_trade_res = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/trades")
+                .header("authorization", &auth_header)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "trade_id": "952",
+                        "seller_address": seller,
+                        "buyer_address": buyer_d,
+                        "usdc_amount_units": 600_000_000u128,
+                        "exchange_rate_minor": 163_000u128,
+                        "fiat_currency": "NGN",
+                        "seller_bank_name": "Access Bank"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(backed_trade_res.status(), StatusCode::CREATED);
+}

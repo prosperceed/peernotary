@@ -231,22 +231,45 @@ export function useEscrow(): EscrowHookReturn {
 	const fundBuyerCollateral = useCallback(
 		async ({
 			tradeId,
-			collateralUsdc = "50.00",
+			collateralUsdc = "0.00",
 		}: FundCollateralParams): Promise<`0x${string}`> => {
 			reset();
 			try {
-				const collateral = parseUsdc(collateralUsdc);
+				const cleaned = collateralUsdc.replace(/,/g, "").trim();
+				const collateral =
+					!cleaned || /^0+(\.0+)?$/.test(cleaned) ? 0n : parseUsdc(cleaned);
 				const amount =
 					collateral > MIN_COLLATERAL_USDC ? collateral : MIN_COLLATERAL_USDC;
 
-				const hash = await approveAndWrite(amount, () =>
-					writeEscrow({
+				let hash: `0x${string}`;
+				if (amount === 0n) {
+					setTxState("writing");
+					hash = await writeEscrow({
 						address: ESCROW_ADDRESS,
 						abi: ESCROW_ABI,
 						functionName: "fundBuyerCollateral",
-						args: [tradeId, amount],
-					}),
-				);
+						args: [tradeId, 0n],
+					});
+					setTxState("waiting-confirmation");
+					setTxHash(hash);
+					if (publicClient) {
+						const receipt = await publicClient.waitForTransactionReceipt({
+							hash,
+						});
+						if (receipt.status === "reverted") {
+							throw new Error("Escrow acceptance transaction reverted on-chain.");
+						}
+					}
+				} else {
+					hash = await approveAndWrite(amount, () =>
+						writeEscrow({
+							address: ESCROW_ADDRESS,
+							abi: ESCROW_ABI,
+							functionName: "fundBuyerCollateral",
+							args: [tradeId, amount],
+						}),
+					);
+				}
 
 				setTxHash(hash);
 				setTxState("confirmed");
@@ -256,7 +279,7 @@ export function useEscrow(): EscrowHookReturn {
 				throw e;
 			}
 		},
-		[reset, approveAndWrite, writeEscrow],
+		[reset, approveAndWrite, publicClient, writeEscrow],
 	);
 
 	// ── markFiatSent ──────────────────────────────────────────────────────────

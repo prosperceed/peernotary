@@ -3,42 +3,25 @@ pragma solidity ^0.8.20;
 
 /**
  * @title  ArcP2PEscrowService
- * @notice Production-ready P2P NGN/USDC escrow on Arc Chain Testnet.
- *
- * ─── ARCHITECTURE ────────────────────────────────────────────────────────────
- *  State machine per trade:
- *    Created → Funded → FiatSent → Completed
- *                    ↘ Disputed → Resolved
- *
- * ─── ECONOMIC PARAMETERS (Arc Chain) ─────────────────────────────────────────
- *  • Native gas token  : USDC  (6 decimals, not 18)
- *  • Chain ID          : 5042002
- *  • All amounts in    : micro-USDC (1 USDC = 1_000_000 units)
- *
- * ─── SECURITY MODEL ──────────────────────────────────────────────────────────
- *  1. Platform fee    : 100 bps (1 %) deducted from seller release amount
- *  2. Buyer collateral: mandatory anti-fraud lockup (forwarded to seller on slash)
- *  3. Bank details    : stored as keccak256 hash — never plain text on-chain
- *  4. Oracle gate     : only the designated oracle may trigger automated releases
+ * @notice Seller-funded P2P NGN/USDC escrow on Arc Chain Testnet with partial-fill
+ *         inventory accounting and oracle-gated settlement.
  */
 
-// ─── MINIMAL IERC20 (avoids OpenZeppelin import for portability) ──────────────
 interface IERC20 {
     function transfer(address to, uint256 amount) external returns (bool);
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
     function balanceOf(address account) external view returns (uint256);
 }
 
-// ─── ERRORS ──────────────────────────────────────────────────────────────────
 error Unauthorized();
 error InvalidAmount();
+error InsufficientInventory(uint256 requested, uint256 available);
 error InvalidState(TradeStatus current, TradeStatus required);
 error ZeroAddress();
 error SlashWindowExpired();
 error FeeTooHigh();
 error TransferFailed();
 
-// ─── ENUMS ───────────────────────────────────────────────────────────────────
 enum TradeStatus {
     Created,
     Funded,
@@ -48,39 +31,40 @@ enum TradeStatus {
     Resolved
 }
 
-// ─── STRUCTS ─────────────────────────────────────────────────────────────────
 struct Trade {
-    // Parties
     address seller;
     address buyer;
-    // Amounts (micro-USDC, 6 decimals)
-    uint256 cryptoAmount;        // USDC the seller is selling
-    uint256 buyerCollateral;     // anti-fraud lockup paid by buyer
-    // Privacy
-    bytes32 privacyHashedBankDetails; // keccak256(bankName + accountNo + sortCode)
-    // State
+    uint256 cryptoAmount;
+    uint256 buyerCollateral;
+    bytes32 privacyHashedBankDetails;
     TradeStatus status;
     uint64  createdAt;
     uint64  fundedAt;
     uint64  fiatSentAt;
-    // Oracle proof reference (TLSNotary / Reclaim proof ID stored off-chain)
     bytes32 proofId;
 }
 
-// ─── CONTRACT ────────────────────────────────────────────────────────────────
+struct SellerListingInventory {
+    uint256 listingTradeId;
+    address seller;
+    uint256 totalDeposited;
+    uint256 availableAmount;
+    uint256 allocatedAmount;
+    uint256 activeChildTradeId;
+    bytes32 privacyHashedBankDetails;
+    bool    active;
+}
+
 contract ArcP2PEscrowService {
 
-    // ── Constants ────────────────────────────────────────────────────────────
-    uint16  public constant MAX_FEE_BPS          = 500;   // hard cap: 5 %
-    uint16  public constant DEFAULT_FEE_BPS      = 100;   // 1 %
-    uint256 public constant SLASH_AMOUNT         = 50 * 1e6;  // 50 USDC
-    uint64  public constant DISPUTE_WINDOW       = 15 minutes;
-    uint64  public constant RELEASE_TIMEOUT      = 30 minutes; // seller must release within 30m
+    uint16  public constant MAX_FEE_BPS     = 500;
+    uint16  public constant DEFAULT_FEE_BPS = 100;
+    uint256 public constant SLASH_AMOUNT    = 0; // Mandatory 50 USDC buyer deposit removed; seller-funded escrow
+    uint64  public constant DISPUTE_WINDOW  = 15 minutes;
+    uint64  public constant RELEASE_TIMEOUT = 20 minutes;
 
-    // ── Immutables ───────────────────────────────────────────────────────────
     IERC20  public immutable usdc;
 
-    // ── Storage ──────────────────────────────────────────────────────────────
     address public owner;
     address public treasuryWallet;
     address public oracleAddress;
@@ -89,16 +73,28 @@ contract ArcP2PEscrowService {
     uint256 public nextTradeId;
 
     mapping(uint256 => Trade) public trades;
-
-    // Track oracle-authorised proof submissions to prevent replay
+    mapping(uint256 => SellerListingInventory) public listingInventories;
+    mapping(uint256 => uint256) public childToParentListing;
     mapping(bytes32 => bool) public usedProofIds;
 
-    // ── Events ───────────────────────────────────────────────────────────────
     event TradeInitiated(
         uint256 indexed tradeId,
         address indexed seller,
         uint256 cryptoAmount,
         bytes32 hashedBankDetails
+    );
+    event PartialOrderAllocated(
+        uint256 indexed parentListingId,
+        uint256 indexed childTradeId,
+        address indexed buyer,
+        uint256 allocatedAmount,
+        uint256 remainingAvailable
+    );
+    event ListingInventoryWithdrawn(
+        uint256 indexed listingId,
+        address indexed seller,
+        uint256 withdrawnAmount,
+        uint256 remainingAvailable
     );
     event TradeFunded(
         uint256 indexed tradeId,
@@ -123,17 +119,11 @@ contract ArcP2PEscrowService {
     event OracleUpdated(address newOracle);
     event FeeUpdated(uint16 newBps);
 
-    // ── Modifiers ────────────────────────────────────────────────────────────
-
     modifier onlyOwner() {
         if (msg.sender != owner) revert Unauthorized();
         _;
     }
 
-    /**
-     * @dev Allows the designated oracle (open banking webhook relay or
-     *      TLSNotary/Reclaim proof verifier) to call gated functions.
-     */
     modifier onlyOracle() {
         if (msg.sender != oracleAddress) revert Unauthorized();
         _;
@@ -155,8 +145,6 @@ contract ArcP2PEscrowService {
         _;
     }
 
-    // ── Constructor ──────────────────────────────────────────────────────────
-
     constructor(address _usdc, address _treasury, address _oracle) {
         if (_usdc == address(0) || _treasury == address(0) || _oracle == address(0))
             revert ZeroAddress();
@@ -165,22 +153,12 @@ contract ArcP2PEscrowService {
         owner          = msg.sender;
         treasuryWallet = _treasury;
         oracleAddress  = _oracle;
-        nextTradeId    = 1; // start from 1; 0 reserved as null sentinel
+        nextTradeId    = 1;
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    //  CORE TRADE LIFECYCLE
-    // ═══════════════════════════════════════════════════════════════════════════
-
     /**
-     * @notice  Seller initiates an order and locks their USDC into escrow.
-     * @param   _cryptoAmount        Amount of USDC to sell (micro-USDC, 6 dec).
-     * @param   _hashedBankDetails   keccak256 hash of the seller's bank routing
-     *                               details (bank name + account number + sort code).
-     *                               Bank details are NEVER stored in plain text.
-     * @return  tradeId              The new trade ID.
-     *
-     * @dev  Emits {TradeInitiated}. Pulls `_cryptoAmount` USDC from msg.sender.
+     * @notice Seller locks USDC inventory into escrow to back a listing.
+     *         Any positive micro-USDC amount is accepted (no arbitrary minimum).
      */
     function initiateTrade(
         uint256 _cryptoAmount,
@@ -192,19 +170,29 @@ contract ArcP2PEscrowService {
         tradeId = nextTradeId++;
 
         trades[tradeId] = Trade({
-            seller               : msg.sender,
-            buyer                : address(0),
-            cryptoAmount         : _cryptoAmount,
-            buyerCollateral      : 0,
+            seller                   : msg.sender,
+            buyer                    : address(0),
+            cryptoAmount             : _cryptoAmount,
+            buyerCollateral          : 0,
             privacyHashedBankDetails : _hashedBankDetails,
-            status               : TradeStatus.Created,
-            createdAt            : uint64(block.timestamp),
-            fundedAt             : 0,
-            fiatSentAt           : 0,
-            proofId              : bytes32(0)
+            status                   : TradeStatus.Created,
+            createdAt                : uint64(block.timestamp),
+            fundedAt                 : 0,
+            fiatSentAt               : 0,
+            proofId                  : bytes32(0)
         });
 
-        // Pull USDC from seller into escrow contract
+        listingInventories[tradeId] = SellerListingInventory({
+            listingTradeId           : tradeId,
+            seller                   : msg.sender,
+            totalDeposited           : _cryptoAmount,
+            availableAmount          : _cryptoAmount,
+            allocatedAmount          : 0,
+            activeChildTradeId       : 0,
+            privacyHashedBankDetails : _hashedBankDetails,
+            active                   : true
+        });
+
         if (!usdc.transferFrom(msg.sender, address(this), _cryptoAmount))
             revert TransferFailed();
 
@@ -212,95 +200,158 @@ contract ArcP2PEscrowService {
     }
 
     /**
-     * @notice  Buyer locks their anti-fraud collateral to accept a trade.
-     * @param   _tradeId     The trade to accept.
-     * @param   _collateral  Collateral amount in micro-USDC. Must be >= SLASH_AMOUNT
-     *                       so the contract can always execute a full slash if needed.
-     *
-     * @dev  Emits {TradeFunded}. Buyer must pre-approve this contract for `_collateral`.
-     *       State transitions: Created → Funded.
+     * @notice Buyer accepts a seller-funded trade (full amount) without mandatory 50 USDC collateral.
+     *         Retains optional `_collateral` parameter (may be 0) for ABI compatibility.
      */
     function fundBuyerCollateral(
         uint256 _tradeId,
         uint256 _collateral
     ) external inState(_tradeId, TradeStatus.Created) {
-        if (_collateral < SLASH_AMOUNT) revert InvalidAmount(); // must cover max slash
         Trade storage t = trades[_tradeId];
-        if (t.seller == msg.sender) revert Unauthorized(); // seller cannot be buyer
+        if (t.seller == msg.sender) revert Unauthorized();
+
+        SellerListingInventory storage inv = listingInventories[_tradeId];
+        if (inv.active) {
+            if (inv.activeChildTradeId != 0) revert Unauthorized();
+            if (inv.availableAmount < t.cryptoAmount)
+                revert InsufficientInventory(t.cryptoAmount, inv.availableAmount);
+            inv.availableAmount -= t.cryptoAmount;
+            inv.allocatedAmount += t.cryptoAmount;
+            inv.activeChildTradeId = _tradeId;
+        }
 
         t.buyer           = msg.sender;
         t.buyerCollateral = _collateral;
         t.status          = TradeStatus.Funded;
         t.fundedAt        = uint64(block.timestamp);
 
-        if (!usdc.transferFrom(msg.sender, address(this), _collateral))
-            revert TransferFailed();
+        if (_collateral > 0) {
+            if (!usdc.transferFrom(msg.sender, address(this), _collateral))
+                revert TransferFailed();
+        }
 
         emit TradeFunded(_tradeId, msg.sender, _collateral);
     }
 
     /**
-     * @notice  Buyer marks that they have completed the Naira bank transfer.
-     * @dev     Only the registered buyer may call this. State: Funded → FiatSent.
+     * @notice Allocates a partial or full buyer order against a seller's funded listing.
+     *         Enforces that at most one active order occupies the seller listing's active slot
+     *         and that `availableAmount >= _requestedAmount`. No buyer collateral is required.
      */
+    function allocatePartialOrder(
+        uint256 _parentListingId,
+        uint256 _requestedAmount,
+        address _buyer
+    ) external returns (uint256 childTradeId) {
+        if (_requestedAmount == 0) revert InvalidAmount();
+        address effectiveBuyer = (msg.sender == oracleAddress && _buyer != address(0))
+            ? _buyer
+            : msg.sender;
+        if (effectiveBuyer == address(0)) revert ZeroAddress();
+
+        SellerListingInventory storage inv = listingInventories[_parentListingId];
+        if (!inv.active) revert Unauthorized();
+        if (inv.seller == effectiveBuyer) revert Unauthorized();
+        if (inv.activeChildTradeId != 0) revert Unauthorized();
+        if (_requestedAmount > inv.availableAmount)
+            revert InsufficientInventory(_requestedAmount, inv.availableAmount);
+
+        inv.availableAmount -= _requestedAmount;
+        inv.allocatedAmount += _requestedAmount;
+
+        childTradeId = nextTradeId++;
+        inv.activeChildTradeId = childTradeId;
+        childToParentListing[childTradeId] = _parentListingId;
+
+        trades[childTradeId] = Trade({
+            seller                   : inv.seller,
+            buyer                    : effectiveBuyer,
+            cryptoAmount             : _requestedAmount,
+            buyerCollateral          : 0,
+            privacyHashedBankDetails : inv.privacyHashedBankDetails,
+            status                   : TradeStatus.Funded,
+            createdAt                : uint64(block.timestamp),
+            fundedAt                 : uint64(block.timestamp),
+            fiatSentAt               : 0,
+            proofId                  : bytes32(0)
+        });
+
+        if (inv.availableAmount == 0) {
+            trades[_parentListingId].status = TradeStatus.Funded;
+        }
+
+        emit PartialOrderAllocated(
+            _parentListingId,
+            childTradeId,
+            effectiveBuyer,
+            _requestedAmount,
+            inv.availableAmount
+        );
+        emit TradeFunded(childTradeId, effectiveBuyer, 0);
+    }
+
+    /**
+     * @notice Seller may withdraw unallocated available USDC inventory from their listing.
+     *         Allocated USDC backing an active buyer order cannot be withdrawn.
+     */
+    function withdrawAvailableInventory(
+        uint256 _listingId,
+        uint256 _amount
+    ) external {
+        SellerListingInventory storage inv = listingInventories[_listingId];
+        if (!inv.active || inv.seller != msg.sender) revert Unauthorized();
+        if (_amount == 0 || _amount > inv.availableAmount)
+            revert InsufficientInventory(_amount, inv.availableAmount);
+
+        inv.availableAmount -= _amount;
+        Trade storage parentTrade = trades[_listingId];
+        if (parentTrade.cryptoAmount >= _amount) {
+            parentTrade.cryptoAmount -= _amount;
+        }
+        if (inv.availableAmount == 0 && inv.allocatedAmount == 0) {
+            inv.active = false;
+            parentTrade.status = TradeStatus.Resolved;
+        }
+
+        if (!usdc.transfer(msg.sender, _amount)) revert TransferFailed();
+
+        emit ListingInventoryWithdrawn(_listingId, msg.sender, _amount, inv.availableAmount);
+    }
+
     function markFiatSent(
         uint256 _tradeId
     ) external inState(_tradeId, TradeStatus.Funded) onlyBuyer(_tradeId) {
         Trade storage t = trades[_tradeId];
-        t.status    = TradeStatus.FiatSent;
+        t.status     = TradeStatus.FiatSent;
         t.fiatSentAt = uint64(block.timestamp);
 
         emit FiatSentMarked(_tradeId, msg.sender);
     }
 
-    /**
-     * @notice  Seller confirms fiat receipt and releases USDC to the buyer.
-     * @dev     Applies platform fee (feeBps) from the crypto release amount.
-     *          Returns buyer collateral in full (no fraud detected).
-     *          State: FiatSent → Completed.
-     *
-     *          Fee formula:
-     *            fee             = cryptoAmount * feeBps / 10_000
-     *            buyerReceives   = cryptoAmount - fee
-     *            fee → treasury
-     */
     function releaseFunds(
         uint256 _tradeId
     ) external inState(_tradeId, TradeStatus.FiatSent) onlySeller(_tradeId) {
         _completeTrade(_tradeId);
     }
 
-    /**
-     * @notice  Oracle-triggered release — called automatically by open banking
-     *          webhook relay or TLSNotary/Reclaim proof verifier once fiat
-     *          credit is cryptographically confirmed.
-     * @param   _tradeId   Trade to release.
-     * @param   _proofId   Unique proof identifier (Reclaim claim ID or TLSNotary
-     *                     session hash) — stored to prevent replay attacks.
-     *
-     * @dev  Works from either Funded or FiatSent state (oracle may confirm before
-     *       buyer manually marks fiatSent).
-     */
     function oracleRelease(
         uint256 _tradeId,
         bytes32 _proofId
     ) external onlyOracle {
         Trade storage t = trades[_tradeId];
 
-        // Accept from Funded or FiatSent
         if (t.status != TradeStatus.Funded && t.status != TradeStatus.FiatSent)
             revert InvalidState(t.status, TradeStatus.Funded);
 
-        if (usedProofIds[_proofId]) revert Unauthorized(); // replay protection
+        if (usedProofIds[_proofId]) revert Unauthorized();
         usedProofIds[_proofId] = true;
-        t.proofId  = _proofId;
-        t.status   = TradeStatus.FiatSent; // normalise state
+        t.proofId = _proofId;
+        t.status  = TradeStatus.FiatSent;
 
         emit OracleProofSubmitted(_tradeId, _proofId);
         _completeTrade(_tradeId);
     }
 
-    // ── Internal release logic ────────────────────────────────────────────────
     function _completeTrade(uint256 _tradeId) internal {
         Trade storage t = trades[_tradeId];
         t.status = TradeStatus.Completed;
@@ -309,17 +360,31 @@ contract ArcP2PEscrowService {
         uint256 fee       = (crypto * feeBps) / 10_000;
         uint256 buyerGets = crypto - fee;
 
-        // Return buyer collateral (no fraud)
         uint256 collateral = t.buyerCollateral;
         t.buyerCollateral  = 0;
 
-        // Release USDC to buyer
+        uint256 parentId = childToParentListing[_tradeId];
+        if (parentId == 0 && listingInventories[_tradeId].active) {
+            parentId = _tradeId;
+        }
+        if (parentId != 0) {
+            SellerListingInventory storage inv = listingInventories[parentId];
+            if (inv.allocatedAmount >= crypto) {
+                inv.allocatedAmount -= crypto;
+            }
+            if (inv.activeChildTradeId == _tradeId) {
+                inv.activeChildTradeId = 0;
+            }
+            if (inv.availableAmount == 0 && inv.allocatedAmount == 0) {
+                inv.active = false;
+                trades[parentId].status = TradeStatus.Completed;
+            }
+        }
+
         if (!usdc.transfer(t.buyer, buyerGets)) revert TransferFailed();
-        // Fee to treasury
         if (fee > 0) {
             if (!usdc.transfer(treasuryWallet, fee)) revert TransferFailed();
         }
-        // Collateral back to buyer
         if (collateral > 0) {
             if (!usdc.transfer(t.buyer, collateral)) revert TransferFailed();
         }
@@ -327,21 +392,11 @@ contract ArcP2PEscrowService {
         emit TradeCompleted(_tradeId, t.buyer, buyerGets, fee);
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    //  DISPUTE & ANTI-FRAUD SLASH SYSTEM
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    /**
-     * @notice  Either party may raise a dispute within the DISPUTE_WINDOW after
-     *          the buyer marks fiat sent.
-     */
     function raiseDispute(
         uint256 _tradeId
     ) external inState(_tradeId, TradeStatus.FiatSent) {
         Trade storage t = trades[_tradeId];
         if (msg.sender != t.seller && msg.sender != t.buyer) revert Unauthorized();
-
-        // Enforce dispute window
         if (block.timestamp > t.fiatSentAt + DISPUTE_WINDOW)
             revert SlashWindowExpired();
 
@@ -349,18 +404,6 @@ contract ArcP2PEscrowService {
         emit TradeDisputed(_tradeId, msg.sender);
     }
 
-    /**
-     * @notice  Oracle resolves a dispute after arbitration.
-     * @param   _tradeId      Disputed trade.
-     * @param   _favourBuyer  true  → buyer wins (fiat confirmed), seller releases USDC.
-     *                        false → seller wins (fake receipt), buyer is SLASHED.
-     * @param   _proofId      ZK or oracle proof reference.
-     *
-     * @dev  Anti-fraud slash mechanics when _favourBuyer = false:
-     *         • SLASH_AMOUNT (50 USDC) deducted from buyer collateral → seller
-     *         • Remaining collateral refunded to buyer
-     *         • Seller's escrowed USDC returned in full
-     */
     function oracleResolveDispute(
         uint256 _tradeId,
         bool    _favourBuyer,
@@ -376,51 +419,92 @@ contract ArcP2PEscrowService {
         emit OracleProofSubmitted(_tradeId, _proofId);
 
         if (_favourBuyer) {
-            // ── Buyer wins: fiat was genuinely sent → complete the trade ──
             _completeTrade(_tradeId);
             emit TradeResolved(_tradeId, t.buyer, false);
         } else {
-            // ── Seller wins: fake receipt fraud detected ──
             uint256 crypto     = t.cryptoAmount;
             uint256 collateral = t.buyerCollateral;
             t.buyerCollateral  = 0;
 
-            // Slash SLASH_AMOUNT from buyer's collateral → seller (fraud compensation)
-            uint256 slashAmt   = collateral >= SLASH_AMOUNT ? SLASH_AMOUNT : collateral;
-            uint256 remainder  = collateral - slashAmt;
-
-            // Return seller's USDC in full
-            if (!usdc.transfer(t.seller, crypto)) revert TransferFailed();
-            // Slash to seller
-            if (slashAmt > 0) {
-                if (!usdc.transfer(t.seller, slashAmt)) revert TransferFailed();
+            uint256 parentId = childToParentListing[_tradeId];
+            if (parentId != 0 && listingInventories[parentId].active) {
+                SellerListingInventory storage inv = listingInventories[parentId];
+                if (inv.allocatedAmount >= crypto) {
+                    inv.allocatedAmount -= crypto;
+                }
+                inv.availableAmount += crypto;
+                if (inv.activeChildTradeId == _tradeId) {
+                    inv.activeChildTradeId = 0;
+                }
+            } else {
+                if (!usdc.transfer(t.seller, crypto)) revert TransferFailed();
             }
-            // Refund remainder to buyer
-            if (remainder > 0) {
-                if (!usdc.transfer(t.buyer, remainder)) revert TransferFailed();
+
+            if (collateral > 0) {
+                if (!usdc.transfer(t.buyer, collateral)) revert TransferFailed();
             }
 
-            emit TradeResolved(_tradeId, t.seller, true);
+            emit TradeResolved(_tradeId, t.seller, false);
         }
     }
 
     /**
-     * @notice  Seller may reclaim their USDC if the buyer never locks collateral
-     *          within RELEASE_TIMEOUT after trade creation.
+     * @notice Reclaims an expired unallocated trade or releases an expired unpaid child allocation
+     *         back to the parent listing's available inventory after `RELEASE_TIMEOUT`.
      */
     function reclaimExpiredTrade(
         uint256 _tradeId
-    ) external onlySeller(_tradeId) inState(_tradeId, TradeStatus.Created) {
+    ) external {
         Trade storage t = trades[_tradeId];
-        if (block.timestamp < t.createdAt + RELEASE_TIMEOUT) revert Unauthorized();
+        if (msg.sender != t.seller && msg.sender != oracleAddress) revert Unauthorized();
 
-        t.status = TradeStatus.Resolved;
-        if (!usdc.transfer(t.seller, t.cryptoAmount)) revert TransferFailed();
+        if (t.status == TradeStatus.Created) {
+            if (block.timestamp < t.createdAt + RELEASE_TIMEOUT) revert Unauthorized();
+            SellerListingInventory storage inv = listingInventories[_tradeId];
+            if (inv.active && inv.allocatedAmount > 0) revert Unauthorized();
+            uint256 refundAmt = inv.active ? inv.availableAmount : t.cryptoAmount;
+            if (inv.active) {
+                inv.availableAmount = 0;
+                inv.active = false;
+            }
+            t.status = TradeStatus.Resolved;
+            if (refundAmt > 0) {
+                if (!usdc.transfer(t.seller, refundAmt)) revert TransferFailed();
+            }
+        } else if (t.status == TradeStatus.Funded) {
+            if (block.timestamp < t.fundedAt + RELEASE_TIMEOUT) revert Unauthorized();
+            t.status = TradeStatus.Resolved;
+            uint256 parentId = childToParentListing[_tradeId];
+            if (parentId != 0 && listingInventories[parentId].active) {
+                SellerListingInventory storage inv = listingInventories[parentId];
+                if (inv.allocatedAmount >= t.cryptoAmount) {
+                    inv.allocatedAmount -= t.cryptoAmount;
+                }
+                inv.availableAmount += t.cryptoAmount;
+                if (inv.activeChildTradeId == _tradeId) {
+                    inv.activeChildTradeId = 0;
+                }
+            } else if (listingInventories[_tradeId].active) {
+                SellerListingInventory storage inv = listingInventories[_tradeId];
+                if (inv.allocatedAmount >= t.cryptoAmount) {
+                    inv.allocatedAmount -= t.cryptoAmount;
+                }
+                inv.availableAmount += t.cryptoAmount;
+                inv.activeChildTradeId = 0;
+                t.buyer = address(0);
+                t.status = TradeStatus.Created;
+            } else {
+                if (!usdc.transfer(t.seller, t.cryptoAmount)) revert TransferFailed();
+            }
+            if (t.buyerCollateral > 0) {
+                uint256 c = t.buyerCollateral;
+                t.buyerCollateral = 0;
+                if (!usdc.transfer(t.buyer, c)) revert TransferFailed();
+            }
+        } else {
+            revert InvalidState(t.status, TradeStatus.Created);
+        }
     }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    //  ADMIN
-    // ═══════════════════════════════════════════════════════════════════════════
 
     function setFee(uint16 _bps) external onlyOwner {
         if (_bps > MAX_FEE_BPS) revert FeeTooHigh();
@@ -445,23 +529,19 @@ contract ArcP2PEscrowService {
         owner = _newOwner;
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    //  VIEW HELPERS
-    // ═══════════════════════════════════════════════════════════════════════════
-
     function getTrade(uint256 _tradeId) external view returns (Trade memory) {
         return trades[_tradeId];
     }
 
-    /**
-     * @notice Returns the net USDC the buyer receives after the platform fee.
-     */
-    function calculateNetRelease(uint256 _tradeId) external view returns (
-        uint256 buyerReceives,
-        uint256 platformFee
-    ) {
-        uint256 crypto   = trades[_tradeId].cryptoAmount;
-        platformFee      = (crypto * feeBps) / 10_000;
-        buyerReceives    = crypto - platformFee;
+    function getListingInventory(uint256 _listingId) external view returns (SellerListingInventory memory) {
+        return listingInventories[_listingId];
+    }
+
+    function calculateNetRelease(
+        uint256 _tradeId
+    ) external view returns (uint256 buyerReceives, uint256 platformFee) {
+        uint256 crypto = trades[_tradeId].cryptoAmount;
+        platformFee    = (crypto * feeBps) / 10_000;
+        buyerReceives  = crypto - platformFee;
     }
 }

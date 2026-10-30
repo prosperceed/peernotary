@@ -367,9 +367,9 @@ impl TradeRecord {
             .ok_or_else(|| ApiError::BadRequest("Monetary calculation overflow".into()))?
             / 1_000_000;
 
-        if fiat_amount_minor == 0 {
+        if fiat_amount_minor < 100 {
             return Err(ApiError::BadRequest(
-                "Calculated fiat amount in minor units must be greater than zero".into(),
+                "Converted fiat amount is below payment provider minimum payable threshold (100 minor units / 1.00 NGN)".into(),
             ));
         }
 
@@ -385,7 +385,7 @@ impl TradeRecord {
             buyer_address: Some(buyer),
             side: "sell".to_string(),
             usdc_amount_units,
-            buyer_collateral_usdc_units: 50_000_000, // 50 USDC
+            buyer_collateral_usdc_units: 0,
             platform_fee_bps,
             platform_fee_usdc_units,
             fiat_currency: fiat_currency.to_ascii_uppercase(),
@@ -562,4 +562,424 @@ pub fn redact_provider_payload(raw: &Value) -> Value {
         }
     }
     cloned
+}
+
+// ─── SELLER-FUNDED INVENTORY, FIFO QUEUE, TRUST SCORING & ABUSE PREVENTION ───
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum SellerListingStatus {
+    Active,
+    Paused,
+    Depleted,
+    Closed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SellerListingRecord {
+    pub id: String,
+    pub listing_ref: String,
+    pub onchain_listing_id: String,
+    pub seller_address: String,
+    pub total_deposited_usdc_units: u128,
+    pub available_usdc_units: u128,
+    pub allocated_usdc_units: u128,
+    pub reserved_queued_usdc_units: u128,
+    pub filled_usdc_units: u128,
+    pub withdrawn_usdc_units: u128,
+    pub fiat_currency: String,
+    pub exchange_rate_minor: u128,
+    pub seller_bank_code: String,
+    pub seller_bank_name: String,
+    pub seller_account_masked: String,
+    pub seller_account_hash: String,
+    pub status: SellerListingStatus,
+    pub active_trade_id: Option<String>,
+    pub active_slot_lease_owner: Option<String>,
+    pub active_slot_lease_expires_at: Option<DateTime<Utc>>,
+    pub chain_id: u64,
+    pub escrow_contract_address: String,
+    pub deposit_tx_hash: Option<String>,
+    pub version: u32,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl SellerListingRecord {
+    pub fn validate_conservation(&self) -> Result<(), ApiError> {
+        let sum = self
+            .available_usdc_units
+            .checked_add(self.allocated_usdc_units)
+            .and_then(|s| s.checked_add(self.reserved_queued_usdc_units))
+            .and_then(|s| s.checked_add(self.filled_usdc_units))
+            .and_then(|s| s.checked_add(self.withdrawn_usdc_units))
+            .ok_or_else(|| ApiError::BadRequest("Seller inventory overflow".into()))?;
+        if sum != self.total_deposited_usdc_units {
+            return Err(ApiError::Conflict("SELLER_INVENTORY_CONSERVATION_MISMATCH"));
+        }
+        Ok(())
+    }
+
+    pub fn has_active_slot(&self, now: DateTime<Utc>) -> bool {
+        if self.active_trade_id.is_some() {
+            return true;
+        }
+        if let Some(exp) = self.active_slot_lease_expires_at {
+            return exp > now;
+        }
+        false
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum QueueEntryStatus {
+    Queued,
+    EligibleAwaitingConsent,
+    ActiveSlot,
+    Completed,
+    CancelledByBuyer,
+    Expired,
+    Rejected,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueueEntryRecord {
+    pub id: String,
+    pub queue_ref: String,
+    pub listing_ref: String,
+    pub buyer_address: String,
+    pub requested_usdc_units: u128,
+    pub quoted_fiat_amount_minor: u128,
+    pub exchange_rate_minor: u128,
+    pub queue_position: u32,
+    pub status: QueueEntryStatus,
+    pub allocated_trade_id: Option<String>,
+    pub consent_deadline_at: Option<DateTime<Utc>>,
+    pub activated_at: Option<DateTime<Utc>>,
+    pub cancelled_at: Option<DateTime<Utc>>,
+    pub cancel_reason: Option<String>,
+    pub client_ip_hash: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum TrustTier {
+    Restricted,
+    New,
+    Standard,
+    Established,
+    HighLimit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum StrongerVerificationStatus {
+    None,
+    Pending,
+    Verified,
+    Rejected,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RiskPolicyConfig {
+    pub new_buyer_limit_usdc_units: u128,
+    pub standard_limit_usdc_units: u128,
+    pub established_limit_usdc_units: u128,
+    pub high_limit_usdc_units: u128,
+    pub restricted_limit_usdc_units: u128,
+    pub large_trade_verification_threshold_usdc_units: u128,
+    pub cooldown_steps_seconds: [u64; 5],
+    pub active_slot_lease_seconds: i64,
+    pub queue_consent_window_seconds: i64,
+}
+
+impl Default for RiskPolicyConfig {
+    fn default() -> Self {
+        Self {
+            new_buyer_limit_usdc_units: 150_000_000,                  // 150 USDC
+            standard_limit_usdc_units: 500_000_000,                   // 500 USDC
+            established_limit_usdc_units: 2_500_000_000,              // 2,500 USDC
+            high_limit_usdc_units: 10_000_000_000,                    // 10,000 USDC
+            restricted_limit_usdc_units: 50_000_000,                  // 50 USDC
+            large_trade_verification_threshold_usdc_units: 1_000_000_000, // 1,000 USDC
+            cooldown_steps_seconds: [300, 900, 3600, 21600, 86400],
+            active_slot_lease_seconds: 1200, // 20-minute payment window
+            queue_consent_window_seconds: 300, // 5-minute activation window when reaching front of queue
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserTrustProfile {
+    pub wallet_address: String,
+    pub trust_tier: TrustTier,
+    pub trust_score: u32,
+    pub max_trade_usdc_units: u128,
+    pub max_concurrent_unpaid_trades: u32,
+    pub completed_trade_count: u32,
+    pub completed_volume_usdc_units: u128,
+    pub on_time_payment_count: u32,
+    pub unexplained_expiry_count: u32,
+    pub consecutive_expiry_streak: u32,
+    pub cancelled_queue_count: u32,
+    pub rapid_join_cancel_count: u32,
+    pub dispute_loss_count: u32,
+    pub cooldown_until: Option<DateTime<Utc>>,
+    pub cooldown_reason: Option<String>,
+    pub stronger_verification_status: StrongerVerificationStatus,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserRiskEvent {
+    pub id: String,
+    pub wallet_address: String,
+    pub event_type: String,
+    pub trade_id: Option<String>,
+    pub queue_ref: Option<String>,
+    pub reason_code: String,
+    pub score_delta: i32,
+    pub previous_tier: TrustTier,
+    pub new_tier: TrustTier,
+    pub cooldown_seconds: u64,
+    pub client_ip_hash: Option<String>,
+    pub metadata: Value,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GuarantorCommitmentRecord {
+    pub id: String,
+    pub commitment_ref: String,
+    pub guarantor_address: String,
+    pub beneficiary_buyer_address: String,
+    pub trade_id: Option<String>,
+    pub max_backed_usdc_units: u128,
+    pub locked_bond_usdc_units: u128,
+    pub eip191_signature: String,
+    pub signed_payload_json: Value,
+    pub onchain_tx_hash: Option<String>,
+    pub status: String,
+    pub expires_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl UserTrustProfile {
+    pub fn new_for_wallet(wallet_address: &str) -> Self {
+        let cfg = RiskPolicyConfig::default();
+        Self {
+            wallet_address: wallet_address.trim().to_ascii_lowercase(),
+            trust_tier: TrustTier::New,
+            trust_score: 50,
+            max_trade_usdc_units: cfg.new_buyer_limit_usdc_units,
+            max_concurrent_unpaid_trades: 1,
+            completed_trade_count: 0,
+            completed_volume_usdc_units: 0,
+            on_time_payment_count: 0,
+            unexplained_expiry_count: 0,
+            consecutive_expiry_streak: 0,
+            cancelled_queue_count: 0,
+            rapid_join_cancel_count: 0,
+            dispute_loss_count: 0,
+            cooldown_until: None,
+            cooldown_reason: None,
+            stronger_verification_status: StrongerVerificationStatus::None,
+            updated_at: Utc::now(),
+        }
+    }
+
+    pub fn active_cooldown_remaining_seconds(&self, now: DateTime<Utc>) -> u64 {
+        if let Some(until) = self.cooldown_until {
+            if until > now {
+                return (until - now).num_seconds().max(1) as u64;
+            }
+        }
+        0
+    }
+
+    pub fn recalculate_policy(&mut self, cfg: &RiskPolicyConfig) {
+        let base: i32 = 50;
+        let completed_bonus = ((self.completed_trade_count as i32) * 12).min(240);
+        let volume_steps = (self.completed_volume_usdc_units / 50_000_000) as i32;
+        let volume_bonus = (volume_steps * 5).min(150);
+        let verification_bonus = if self.stronger_verification_status == StrongerVerificationStatus::Verified {
+            60
+        } else {
+            0
+        };
+
+        let expiry_penalty = (self.unexplained_expiry_count as i32) * 25
+            + (self.consecutive_expiry_streak as i32) * 20;
+        let dispute_penalty = (self.dispute_loss_count as i32) * 120;
+        let churn_penalty = (self.rapid_join_cancel_count as i32) * 15
+            + (self.cancelled_queue_count as i32) * 2;
+
+        let raw_score = base + completed_bonus + volume_bonus + verification_bonus
+            - expiry_penalty
+            - dispute_penalty
+            - churn_penalty;
+        self.trust_score = raw_score.clamp(0, 1000) as u32;
+
+        if self.dispute_loss_count >= 2
+            || self.consecutive_expiry_streak >= 4
+            || self.trust_score < 25
+        {
+            self.trust_tier = TrustTier::Restricted;
+            self.max_trade_usdc_units = cfg.restricted_limit_usdc_units;
+            self.max_concurrent_unpaid_trades = 1;
+        } else if self.completed_trade_count >= 20
+            && self.completed_volume_usdc_units >= 5_000_000_000
+            && self.trust_score >= 300
+        {
+            self.trust_tier = TrustTier::HighLimit;
+            self.max_trade_usdc_units = cfg.high_limit_usdc_units;
+            self.max_concurrent_unpaid_trades = 3;
+        } else if self.completed_trade_count >= 5
+            && self.completed_volume_usdc_units >= 500_000_000
+            && self.trust_score >= 140
+        {
+            self.trust_tier = TrustTier::Established;
+            self.max_trade_usdc_units = cfg.established_limit_usdc_units;
+            self.max_concurrent_unpaid_trades = 2;
+        } else if self.completed_trade_count >= 1 && self.trust_score >= 60 {
+            self.trust_tier = TrustTier::Standard;
+            self.max_trade_usdc_units = cfg.standard_limit_usdc_units;
+            self.max_concurrent_unpaid_trades = 1;
+        } else {
+            self.trust_tier = TrustTier::New;
+            self.max_trade_usdc_units = cfg.new_buyer_limit_usdc_units;
+            self.max_concurrent_unpaid_trades = 1;
+        }
+        self.updated_at = Utc::now();
+    }
+
+    pub fn apply_trade_expiration(
+        &mut self,
+        trade_id: &str,
+        is_provider_outage: bool,
+        reason_code: &str,
+        cfg: &RiskPolicyConfig,
+    ) -> UserRiskEvent {
+        let now = Utc::now();
+        let prev_tier = self.trust_tier;
+
+        if is_provider_outage {
+            return UserRiskEvent {
+                id: Uuid::new_v4().to_string(),
+                wallet_address: self.wallet_address.clone(),
+                event_type: "PROVIDER_OUTAGE_EXEMPTION".to_string(),
+                trade_id: Some(trade_id.to_string()),
+                queue_ref: None,
+                reason_code: reason_code.to_string(),
+                score_delta: 0,
+                previous_tier: prev_tier,
+                new_tier: self.trust_tier,
+                cooldown_seconds: 0,
+                client_ip_hash: None,
+                metadata: json!({ "exempt_from_penalty": true }),
+                created_at: now,
+            };
+        }
+
+        let prev_score = self.trust_score as i32;
+        self.unexplained_expiry_count += 1;
+        self.consecutive_expiry_streak += 1;
+
+        let idx = (self.consecutive_expiry_streak.saturating_sub(1) as usize)
+            .min(cfg.cooldown_steps_seconds.len() - 1);
+        let cooldown_secs = cfg.cooldown_steps_seconds[idx];
+        let until = now + ChronoDuration::seconds(cooldown_secs as i64);
+
+        self.cooldown_until = Some(until);
+        self.cooldown_reason = Some(reason_code.to_string());
+        self.recalculate_policy(cfg);
+        let delta = (self.trust_score as i32) - prev_score;
+
+        UserRiskEvent {
+            id: Uuid::new_v4().to_string(),
+            wallet_address: self.wallet_address.clone(),
+            event_type: "COOLDOWN_APPLIED".to_string(),
+            trade_id: Some(trade_id.to_string()),
+            queue_ref: None,
+            reason_code: reason_code.to_string(),
+            score_delta: delta,
+            previous_tier: prev_tier,
+            new_tier: self.trust_tier,
+            cooldown_seconds: cooldown_secs,
+            client_ip_hash: None,
+            metadata: json!({
+                "consecutive_expiry_streak": self.consecutive_expiry_streak,
+                "cooldown_until": until.to_rfc3339()
+            }),
+            created_at: now,
+        }
+    }
+
+    pub fn record_completed_trade(
+        &mut self,
+        trade_id: &str,
+        usdc_amount_units: u128,
+        cfg: &RiskPolicyConfig,
+    ) -> UserRiskEvent {
+        let now = Utc::now();
+        let prev_tier = self.trust_tier;
+        let prev_score = self.trust_score as i32;
+
+        self.completed_trade_count += 1;
+        self.completed_volume_usdc_units = self
+            .completed_volume_usdc_units
+            .saturating_add(usdc_amount_units);
+        self.on_time_payment_count += 1;
+        self.consecutive_expiry_streak = 0;
+        self.recalculate_policy(cfg);
+
+        let delta = (self.trust_score as i32) - prev_score;
+        UserRiskEvent {
+            id: Uuid::new_v4().to_string(),
+            wallet_address: self.wallet_address.clone(),
+            event_type: "TRADE_COMPLETED_POSITIVE".to_string(),
+            trade_id: Some(trade_id.to_string()),
+            queue_ref: None,
+            reason_code: "COMPLETED_TRADE_SETTLEMENT".to_string(),
+            score_delta: delta,
+            previous_tier: prev_tier,
+            new_tier: self.trust_tier,
+            cooldown_seconds: 0,
+            client_ip_hash: None,
+            metadata: json!({
+                "completed_trade_count": self.completed_trade_count,
+                "completed_volume_usdc_units": self.completed_volume_usdc_units.to_string(),
+                "max_trade_usdc_units": self.max_trade_usdc_units.to_string()
+            }),
+            created_at: now,
+        }
+    }
+}
+
+/// Trusted-proxy aware client IP extractor.
+/// Never trusts raw `X-Forwarded-For` or `X-Real-IP` unless `trust_proxy_headers` is explicitly enabled,
+/// preventing attackers from spoofing `X-Forwarded-For` to bypass rate limits or frame other users.
+pub fn extract_trusted_client_ip(
+    headers: &axum::http::HeaderMap,
+    trust_proxy_headers: bool,
+) -> String {
+    if trust_proxy_headers {
+        if let Some(val) = headers
+            .get("x-peernotary-trusted-client-ip")
+            .or_else(|| headers.get("x-forwarded-for"))
+            .and_then(|v| v.to_str().ok())
+        {
+            if let Some(first_hop) = val.split(',').next() {
+                let trimmed = first_hop.trim();
+                if !trimmed.is_empty() && trimmed.len() <= 64 {
+                    return trimmed.to_ascii_lowercase();
+                }
+            }
+        }
+    }
+    "direct_peer_socket".to_string()
 }

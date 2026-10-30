@@ -50,9 +50,11 @@ import {
 import { cn, RATE } from "@/lib/utils";
 import type {
 	PeerTradeOffer,
+	QueueEntryItem,
 	TxCategory,
 	TxStatus,
 	UserTransaction,
+	UserTrustSummary,
 } from "@/types";
 
 type DashboardTab = "overview" | "escrows" | "transactions" | "peers" | "create";
@@ -94,6 +96,17 @@ export default function UserDashboard() {
 
 	const [transactions, setTransactions] = useState<UserTransaction[]>([]);
 	const [peerOffers, setPeerOffers] = useState<PeerTradeOffer[]>([]);
+	const [trustSummary, setTrustSummary] = useState<UserTrustSummary | null>(
+		null,
+	);
+	const [queueEntries, setQueueEntries] = useState<QueueEntryItem[]>([]);
+	const [partialAmountsByOffer, setPartialAmountsByOffer] = useState<
+		Record<string, string>
+	>({});
+	const [queueBusyRef, setQueueBusyRef] = useState<string | null>(null);
+	const [guarantorAddressInput, setGuarantorAddressInput] = useState("");
+	const [guarantorBackedInput, setGuarantorBackedInput] = useState("1000");
+	const [guarantorBusy, setGuarantorBusy] = useState(false);
 	const [loadingData, setLoadingData] = useState(false);
 	const [actionFeedback, setActionFeedback] = useState<{
 		type: "success" | "error";
@@ -111,6 +124,8 @@ export default function UserDashboard() {
 			setOnboardingCompleted(true);
 			setTransactions([]);
 			setPeerOffers([]);
+			setTrustSummary(null);
+			setQueueEntries([]);
 			setActionFeedback(null);
 			setAuthError(null);
 			void supabaseWalletSignOut();
@@ -193,6 +208,8 @@ export default function UserDashboard() {
 				};
 				transactions?: UserTransaction[];
 				peerOffers?: PeerTradeOffer[];
+				trustSummary?: UserTrustSummary;
+				queueEntries?: QueueEntryItem[];
 			};
 
 			if (
@@ -204,11 +221,15 @@ export default function UserDashboard() {
 				setOnboardingCompleted(Boolean(data.user?.onboardingCompleted || data.user?.username));
 				setTransactions(data.transactions ?? []);
 				setPeerOffers(data.peerOffers ?? []);
+				if (data.trustSummary) setTrustSummary(data.trustSummary);
+				setQueueEntries(data.queueEntries ?? []);
 			} else {
 				setAuthenticated(false);
 				setUsername(null);
 				setTransactions([]);
 				setPeerOffers(data.peerOffers ?? []);
+				setTrustSummary(null);
+				setQueueEntries([]);
 			}
 		} catch {
 			setAuthenticated(false);
@@ -407,7 +428,6 @@ export default function UserDashboard() {
 		};
 	}, [transactions, walletUsdc]);
 
-	// Join peer trade with real collateral locking
 	const handleTakePeerOffer = async (offer: PeerTradeOffer) => {
 		if (address && offer.peerAddress.toLowerCase() === address.toLowerCase()) {
 			setActionFeedback({
@@ -417,20 +437,52 @@ export default function UserDashboard() {
 			return;
 		}
 
+		const customInput = partialAmountsByOffer[offer.tradeId]?.trim();
+		const maxAvailable = parseNumericUsdc(offer.availableUsdc);
+		const requestedNumeric = customInput
+			? parseNumericUsdc(customInput)
+			: maxAvailable;
+
+		if (requestedNumeric <= 0) {
+			setActionFeedback({
+				type: "error",
+				text: "Requested USDC amount must be greater than zero.",
+			});
+			return;
+		}
+		if (requestedNumeric > maxAvailable) {
+			setActionFeedback({
+				type: "error",
+				text: `Requested amount exceeds seller's available ${offer.availableUsdc} USDC.`,
+			});
+			return;
+		}
+		if (requestedNumeric * offer.rateNgn < 1) {
+			setActionFeedback({
+				type: "error",
+				text: "Converted fiat amount must be at least ₦1.00 (Flutterwave minimum).",
+			});
+			return;
+		}
+
 		setJoiningTradeId(offer.tradeId);
 		setActionFeedback(null);
 		try {
 			let txHash: `0x${string}` | undefined;
 
-			// If escrow contract is configured, execute on-chain transaction
-			if (ESCROW_ADDRESS !== "0x0000000000000000000000000000000000000000" && /^\d+$/.test(offer.tradeId)) {
+			// Seller-funded escrow: buyer pays 0 USDC collateral; only submits on-chain join when slot is free and full offer is taken
+			if (
+				!offer.sellerBusy &&
+				requestedNumeric === maxAvailable &&
+				ESCROW_ADDRESS !== "0x0000000000000000000000000000000000000000" &&
+				/^\d+$/.test(offer.tradeId)
+			) {
 				txHash = await escrow.fundBuyerCollateral({
 					tradeId: BigInt(offer.tradeId),
-					collateralUsdc: offer.requiredCollateralUsdc,
+					collateralUsdc: "0.00",
 				});
 			}
 
-			// Record state only after successful transaction confirmation
 			const res = await fetch("/api/user/dashboard", {
 				method: "POST",
 				headers: {
@@ -440,22 +492,41 @@ export default function UserDashboard() {
 				body: JSON.stringify({
 					action: "take_offer",
 					tradeId: offer.tradeId,
+					requestedUsdcAmount: requestedNumeric.toFixed(6),
 					txHash,
 				}),
 			});
 
-			if (!res.ok) throw new Error("Failed to record trade joining on server.");
 			const data = (await res.json()) as {
+				error?: string;
+				executionMode?: "ACTIVE_SLOT" | "QUEUED";
+				activeTradeId?: string | null;
+				queueEntry?: QueueEntryItem | null;
 				transactions?: UserTransaction[];
 				peerOffers?: PeerTradeOffer[];
+				trustSummary?: UserTrustSummary;
+				queueEntries?: QueueEntryItem[];
 			};
+			if (!res.ok) {
+				throw new Error(data.error || "Failed to request peer order.");
+			}
+
 			if (data.transactions) setTransactions(data.transactions);
 			if (data.peerOffers) setPeerOffers(data.peerOffers);
+			if (data.trustSummary) setTrustSummary(data.trustSummary);
+			if (data.queueEntries) setQueueEntries(data.queueEntries);
 
-			setActionFeedback({
-				type: "success",
-				text: `Locked ${offer.requiredCollateralUsdc} USDC collateral for Trade #${offer.tradeId}.`,
-			});
+			if (data.executionMode === "QUEUED" && data.queueEntry) {
+				setActionFeedback({
+					type: "success",
+					text: `Seller is currently completing another trade. Your request for ${data.queueEntry.requestedUsdc} USDC is queued at Position #${data.queueEntry.queuePosition} (no buyer deposit required).`,
+				});
+			} else {
+				setActionFeedback({
+					type: "success",
+					text: `Order #${data.activeTradeId ?? offer.tradeId} activated for ${requestedNumeric.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 6 })} USDC (0 USDC buyer collateral). Complete payment within 20 minutes.`,
+				});
+			}
 			setActiveTab("escrows");
 			await refetchNative();
 			await refetchErc20();
@@ -470,12 +541,151 @@ export default function UserDashboard() {
 		}
 	};
 
-	// Post trade offer on-chain
+	const handleCancelQueueEntry = async (queueRef: string) => {
+		setQueueBusyRef(queueRef);
+		setActionFeedback(null);
+		try {
+			const res = await fetch("/api/user/dashboard", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					...(address ? { "x-wallet-address": address } : {}),
+				},
+				body: JSON.stringify({
+					action: "cancel_queue",
+					queueRef,
+					cancelReason: "Cancelled by buyer while waiting in queue",
+				}),
+			});
+			const data = (await res.json()) as {
+				error?: string;
+				transactions?: UserTransaction[];
+				peerOffers?: PeerTradeOffer[];
+				trustSummary?: UserTrustSummary;
+				queueEntries?: QueueEntryItem[];
+			};
+			if (!res.ok) {
+				throw new Error(data.error || "Could not cancel queued request.");
+			}
+			if (data.transactions) setTransactions(data.transactions);
+			if (data.peerOffers) setPeerOffers(data.peerOffers);
+			if (data.trustSummary) setTrustSummary(data.trustSummary);
+			if (data.queueEntries) setQueueEntries(data.queueEntries);
+			setActionFeedback({
+				type: "success",
+				text: `Queued request ${queueRef} cancelled and reserved USDC returned to seller inventory.`,
+			});
+		} catch (err) {
+			setActionFeedback({
+				type: "error",
+				text: err instanceof Error ? err.message : "Could not cancel queued request.",
+			});
+		} finally {
+			setQueueBusyRef(null);
+		}
+	};
+
+	const handleActivateQueueEntry = async (queueRef: string) => {
+		setQueueBusyRef(queueRef);
+		setActionFeedback(null);
+		try {
+			const res = await fetch("/api/user/dashboard", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					...(address ? { "x-wallet-address": address } : {}),
+				},
+				body: JSON.stringify({
+					action: "activate_queue",
+					queueRef,
+				}),
+			});
+			const data = (await res.json()) as {
+				error?: string;
+				activeTradeId?: string;
+				transactions?: UserTransaction[];
+				peerOffers?: PeerTradeOffer[];
+				trustSummary?: UserTrustSummary;
+				queueEntries?: QueueEntryItem[];
+			};
+			if (!res.ok) {
+				throw new Error(data.error || "Could not activate queued order.");
+			}
+			if (data.transactions) setTransactions(data.transactions);
+			if (data.peerOffers) setPeerOffers(data.peerOffers);
+			if (data.trustSummary) setTrustSummary(data.trustSummary);
+			if (data.queueEntries) setQueueEntries(data.queueEntries);
+			setActionFeedback({
+				type: "success",
+				text: `Front-of-queue order activated as Trade #${data.activeTradeId}. Your 20-minute payment window is now open.`,
+			});
+		} catch (err) {
+			setActionFeedback({
+				type: "error",
+				text: err instanceof Error ? err.message : "Could not activate queued order.",
+			});
+		} finally {
+			setQueueBusyRef(null);
+		}
+	};
+
+	const handleSubmitGuarantor = async (e: React.FormEvent) => {
+		e.preventDefault();
+		if (!guarantorAddressInput.trim()) return;
+		setGuarantorBusy(true);
+		setActionFeedback(null);
+		try {
+			const res = await fetch("/api/user/dashboard", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					...(address ? { "x-wallet-address": address } : {}),
+				},
+				body: JSON.stringify({
+					action: "submit_guarantor",
+					guarantorAddress: guarantorAddressInput.trim(),
+					maxBackedUsdc: guarantorBackedInput,
+				}),
+			});
+			const data = (await res.json()) as {
+				error?: string;
+				trustSummary?: UserTrustSummary;
+			};
+			if (!res.ok) {
+				throw new Error(data.error || "Failed to register guarantor commitment.");
+			}
+			if (data.trustSummary) setTrustSummary(data.trustSummary);
+			setGuarantorAddressInput("");
+			setActionFeedback({
+				type: "success",
+				text: `Guarantor commitment active. Your effective trade limit is now ${data.trustSummary?.maxTradeUsdc} USDC.`,
+			});
+		} catch (err) {
+			setActionFeedback({
+				type: "error",
+				text: err instanceof Error ? err.message : "Failed to register guarantor commitment.",
+			});
+		} finally {
+			setGuarantorBusy(false);
+		}
+	};
+
+	// Post seller-funded trade offer on-chain (no application-defined minimum USDC)
 	const handleCreateOffer = async (e: React.FormEvent) => {
 		e.preventDefault();
 		const numeric = parseNumericUsdc(offerUsdc);
-		if (numeric < 10) {
-			setActionFeedback({ type: "error", text: "Minimum offer size is 10.00 USDC." });
+		if (numeric <= 0) {
+			setActionFeedback({
+				type: "error",
+				text: "Enter a positive USDC amount.",
+			});
+			return;
+		}
+		if (numeric * RATE < 1) {
+			setActionFeedback({
+				type: "error",
+				text: "Converted NGN amount must be at least ₦1.00 (Flutterwave minimum).",
+			});
 			return;
 		}
 		if (offerAccountNo.trim().length < 10) {
@@ -490,7 +700,7 @@ export default function UserDashboard() {
 
 			if (ESCROW_ADDRESS !== "0x0000000000000000000000000000000000000000") {
 				txHash = await escrow.initiateTrade({
-					cryptoAmountUsdc: numeric.toFixed(2),
+					cryptoAmountUsdc: numeric.toString(),
 					bankName: offerBank,
 					accountNo: offerAccountNo.trim(),
 				});
@@ -505,27 +715,30 @@ export default function UserDashboard() {
 				body: JSON.stringify({
 					action: "create_offer",
 					side: offerSide,
-					usdcAmount: numeric.toFixed(2),
+					usdcAmount: numeric.toString(),
 					bankName: offerBank,
 					accountNumber: offerAccountNo.trim(),
 					txHash,
 				}),
 			});
 
-			if (!res.ok) throw new Error("Failed to publish peer trade offer.");
 			const data = (await res.json()) as {
+				error?: string;
 				offer?: PeerTradeOffer;
 				transactions?: UserTransaction[];
 				peerOffers?: PeerTradeOffer[];
+				trustSummary?: UserTrustSummary;
 			};
+			if (!res.ok) throw new Error(data.error || "Failed to publish peer trade offer.");
 
 			if (data.transactions) setTransactions(data.transactions);
 			if (data.peerOffers) setPeerOffers(data.peerOffers);
+			if (data.trustSummary) setTrustSummary(data.trustSummary);
 
 			setOfferAccountNo("");
 			setActionFeedback({
 				type: "success",
-				text: `Published ${numeric.toFixed(2)} USDC ${offerSide} offer on Arc Escrow.`,
+				text: `Locked ${numeric.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 6 })} USDC in Seller-Funded Arc Escrow (0 USDC buyer collateral required).`,
 			});
 			setActiveTab("peers");
 			await refetchNative();
@@ -560,7 +773,7 @@ export default function UserDashboard() {
 					expectedAmountNgn: cleanNgn,
 					currency: "NGN",
 					expectedCurrency: "NGN",
-					expectedAccountNo: "0123456789",
+					expectedAccountNo: trade.sellerAccountNumber || "",
 					cryptoAmountUsdc: trade.usdcAmount,
 				}),
 			});
@@ -583,7 +796,7 @@ export default function UserDashboard() {
 					sessionId: activeSessionId,
 					bankName: trade.bankName,
 					amountNgn: cleanNgn,
-					recipientAccount: "0123456789",
+					recipientAccount: trade.sellerAccountNumber || "",
 					paymentReference: `NIP-${trade.bankName.replace(/\s+/g, "").toUpperCase()}-${tradeId}`,
 					paymentStatus: "completed",
 					cryptoAmountUsdc: trade.usdcAmount,
@@ -1095,7 +1308,7 @@ export default function UserDashboard() {
 											)}&amountUsdc=${encodeURIComponent(
 												attTrade.usdcAmount,
 											)}&accountNo=${encodeURIComponent(
-												attTrade.sellerAccountNumber || "0123456789",
+												attTrade.sellerAccountNumber || "",
 											)}&returnTo=/dashboard`}
 											className="px-3 py-1.5 rounded-lg bg-amber-700 text-white text-xs font-medium hover:bg-amber-800 shrink-0 text-center"
 										>
@@ -1103,6 +1316,106 @@ export default function UserDashboard() {
 										</Link>
 									</div>
 								))}
+							</div>
+						</div>
+					)}
+
+					{/* Active Cooldown Banner */}
+					{trustSummary && trustSummary.cooldownRemainingSeconds > 0 && (
+						<div className="p-4 rounded-lg border border-red-200 bg-red-50 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-red-800">
+							<div className="flex items-center gap-2">
+								<AlertCircle size={14} className="text-red-600 shrink-0" />
+								<span>
+									<strong>Temporary Cooldown Active:</strong>{" "}
+									{trustSummary.cooldownReason ?? "Unpaid trade deadline expired"}. You can request a new trade in{" "}
+									<span className="font-mono font-semibold">
+										{Math.ceil(trustSummary.cooldownRemainingSeconds / 60)}m (
+										{trustSummary.cooldownRemainingSeconds}s)
+									</span>
+									.
+								</span>
+							</div>
+							<span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-red-100 text-red-900">
+								Streak: {trustSummary.consecutiveExpiryStreak}
+							</span>
+						</div>
+					)}
+
+					{/* Active Seller Queue Reservations Banner */}
+					{queueEntries.length > 0 && (
+						<div className="p-4 rounded-lg border border-[#1a9e5c]/40 bg-[#f0f7f3] space-y-2.5">
+							<div className="flex items-center justify-between">
+								<div className="text-xs font-semibold text-[#0d2b1e]">
+									Seller Queue Reservations ({queueEntries.length})
+								</div>
+								<span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-white border border-[#d1e8dc] text-[#1a9e5c]">
+									Deterministic FIFO Queue · 0 USDC Locked by Buyer
+								</span>
+							</div>
+							<div className="divide-y divide-[#d1e8dc]">
+								{queueEntries.map((q) => {
+									const isBuyer =
+										address && q.buyerAddress.toLowerCase() === address.toLowerCase();
+									const canActivate =
+										isBuyer &&
+										(q.status === "ELIGIBLE_AWAITING_CONSENT" ||
+											q.queuePosition === 1);
+									return (
+										<div
+											key={q.queueRef}
+											className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+										>
+											<div>
+												<div className="flex flex-wrap items-center gap-2">
+													<span className="font-mono font-semibold text-[#0d2b1e]">
+														Offer #{q.listingTradeId} ({q.sellerHandle})
+													</span>
+													<span className="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-white border border-[#d1e8dc] text-[#1a9e5c]">
+														{q.status === "ELIGIBLE_AWAITING_CONSENT"
+															? "FRONT OF QUEUE · READY TO ACTIVATE"
+															: `QUEUE POSITION #${q.queuePosition}`}
+													</span>
+													<span className="font-mono text-[#0d2b1e]">
+														{q.requestedUsdc} USDC ({q.ngnAmount})
+													</span>
+												</div>
+												<div className="text-[11px] text-[#3d6b55] mt-0.5">
+													{q.status === "ELIGIBLE_AWAITING_CONSENT"
+														? "Seller slot is now free. Activate your order to start your 20-minute payment window."
+														: `Seller is currently completing another transaction · Est. wait ~${Math.max(1, Math.round(q.estimatedWaitSeconds / 60))}m`}
+												</div>
+											</div>
+
+											{isBuyer && (
+												<div className="flex items-center gap-2 shrink-0">
+													{canActivate && (
+														<button
+															onClick={() => void handleActivateQueueEntry(q.queueRef)}
+															disabled={queueBusyRef === q.queueRef}
+															className="px-3 py-1.5 rounded-lg bg-[#1a9e5c] text-white text-xs font-semibold hover:bg-[#15854c] disabled:opacity-60"
+														>
+															{queueBusyRef === q.queueRef
+																? "Activating..."
+																: "Activate Order & Pay Now"}
+														</button>
+													)}
+													{(q.status === "QUEUED" ||
+														q.status === "ELIGIBLE_AWAITING_CONSENT") && (
+														<button
+															onClick={() => void handleCancelQueueEntry(q.queueRef)}
+															disabled={queueBusyRef === q.queueRef}
+															className="px-3 py-1.5 rounded-lg border border-red-200 bg-white text-red-700 hover:bg-red-50 text-xs font-medium disabled:opacity-60"
+														>
+															{queueBusyRef === q.queueRef
+																? "Cancelling..."
+																: "Cancel Queued Request"}
+														</button>
+													)}
+												</div>
+											)}
+										</div>
+									);
+								})}
 							</div>
 						</div>
 					)}
@@ -1118,26 +1431,35 @@ export default function UserDashboard() {
 										{stats.walletUsdc.toFixed(2)} USDC
 									</div>
 									<div className="text-[11px] text-[#7aaa92] font-mono mt-0.5">
-										≈ ₦{stats.walletNgn.toLocaleString("en-NG")}
+										≈ ₦{stats.walletNgn.toLocaleString("en-NG")} · Est. gas ~0.0031 USDC
 									</div>
 								</div>
 
 								<div className="p-4 rounded-lg border border-[#d1e8dc] bg-[#fbfdfc]">
-									<div className="text-[11px] font-medium text-[#7aaa92]">Locked in Escrow</div>
+									<div className="text-[11px] font-medium text-[#7aaa92]">Seller-Funded Escrow</div>
 									<div className="mt-1 font-mono text-xl font-semibold text-[#0d2b1e]">
 										{stats.lockedEscrowUsdc.toFixed(2)} USDC
 									</div>
 									<div className="text-[11px] text-[#7aaa92] mt-0.5">
-										{activeEscrows.length} active trade{activeEscrows.length === 1 ? "" : "s"}
+										{activeEscrows.length} active trade{activeEscrows.length === 1 ? "" : "s"} · 0 USDC buyer deposit
 									</div>
 								</div>
 
 								<div className="p-4 rounded-lg border border-[#d1e8dc] bg-[#fbfdfc]">
-									<div className="text-[11px] font-medium text-[#7aaa92]">Bonded Collateral</div>
-									<div className="mt-1 font-mono text-xl font-semibold text-[#0d2b1e]">
-										{stats.lockedCollateralUsdc.toFixed(2)} USDC
+									<div className="flex items-center justify-between">
+										<span className="text-[11px] font-medium text-[#7aaa92]">Trust Tier & Trade Limit</span>
+										<span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-[#f0f7f3] text-[#1a9e5c] border border-[#d1e8dc]">
+											{trustSummary?.trustTier ?? "NEW"}
+										</span>
 									</div>
-									<div className="text-[11px] text-[#7aaa92] mt-0.5">Anti-fraud guarantee</div>
+									<div className="mt-1 font-mono text-xl font-semibold text-[#0d2b1e]">
+										{trustSummary?.maxTradeUsdc ?? "150.00"} USDC
+									</div>
+									<div className="text-[11px] text-[#7aaa92] mt-0.5">
+										Unpaid slot: {trustSummary?.activeUnpaidCount ?? 0}/
+										{trustSummary?.maxConcurrentUnpaidTrades ?? 1} · Score{" "}
+										{trustSummary?.trustScore ?? 50}
+									</div>
 								</div>
 
 								<div className="p-4 rounded-lg border border-[#d1e8dc] bg-[#fbfdfc]">
@@ -1149,6 +1471,44 @@ export default function UserDashboard() {
 										{stats.completedCount} completed trade{stats.completedCount === 1 ? "" : "s"}
 									</div>
 								</div>
+							</div>
+
+							{/* Large-Trade Guarantor Commitment / Limit Progression Bar */}
+							<div className="p-4 rounded-lg border border-[#d1e8dc] bg-white flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+								<div className="space-y-0.5">
+									<div className="text-xs font-semibold text-[#0d2b1e]">
+										Adaptive Trade Limits & Guarantor Backing
+									</div>
+									<p className="text-[11px] text-[#7aaa92]">
+										New buyers start at 150.00 USDC with 1 active unpaid trade at a time. Complete trades on time or attach a distinct guarantor wallet commitment to unlock larger single-trade limits.
+									</p>
+								</div>
+								<form
+									onSubmit={(e) => void handleSubmitGuarantor(e)}
+									className="flex flex-wrap items-center gap-2 shrink-0"
+								>
+									<input
+										type="text"
+										value={guarantorAddressInput}
+										onChange={(e) => setGuarantorAddressInput(e.target.value)}
+										placeholder="Guarantor 0x wallet..."
+										className="px-2.5 py-1.5 rounded-lg border border-[#d1e8dc] text-xs font-mono text-[#0d2b1e] w-44 focus:outline-none focus:border-[#1a9e5c]"
+									/>
+									<input
+										type="text"
+										value={guarantorBackedInput}
+										onChange={(e) => setGuarantorBackedInput(e.target.value)}
+										placeholder="1000 USDC"
+										className="px-2.5 py-1.5 rounded-lg border border-[#d1e8dc] text-xs font-mono text-[#0d2b1e] w-24 focus:outline-none focus:border-[#1a9e5c]"
+									/>
+									<button
+										type="submit"
+										disabled={guarantorBusy || !guarantorAddressInput.trim()}
+										className="px-3 py-1.5 rounded-lg bg-[#1a9e5c] text-white text-xs font-medium hover:bg-[#15854c] disabled:opacity-50"
+									>
+										{guarantorBusy ? "Linking..." : "Attach Guarantor"}
+									</button>
+								</form>
 							</div>
 
 							{/* Active Escrow Section */}
@@ -1212,7 +1572,7 @@ export default function UserDashboard() {
 														)}&amountUsdc=${encodeURIComponent(
 															trade.usdcAmount,
 														)}&accountNo=${encodeURIComponent(
-															trade.sellerAccountNumber || "0123456789",
+															trade.sellerAccountNumber || "",
 														)}&returnTo=/dashboard`}
 														className="px-3 py-1.5 rounded-lg text-xs font-medium border border-[#1a9e5c] text-[#1a9e5c] hover:bg-[#f0f7f3] transition-colors"
 													>
@@ -1354,7 +1714,7 @@ export default function UserDashboard() {
 													)}&amountUsdc=${encodeURIComponent(
 														trade.usdcAmount,
 													)}&accountNo=${encodeURIComponent(
-														trade.sellerAccountNumber || "0123456789",
+														trade.sellerAccountNumber || "",
 													)}&returnTo=/dashboard`}
 													className="px-3 py-1.5 rounded-lg text-xs font-medium border border-[#1a9e5c] text-[#1a9e5c] hover:bg-[#f0f7f3] transition-colors"
 												>
@@ -1531,78 +1891,148 @@ export default function UserDashboard() {
 							</div>
 
 							<div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-								{filteredPeerOffers.map((offer) => (
-									<div
-										key={offer.tradeId}
-										className="p-4 rounded-lg border border-[#d1e8dc] bg-white flex flex-col justify-between gap-3 text-xs"
-									>
-										<div className="flex items-start justify-between">
-											<div>
-												<div className="flex items-center gap-2">
-													<span className="font-semibold text-[#0d2b1e]">{offer.peerHandle}</span>
-													<span
-														className={cn(
-															"px-1.5 py-0.5 rounded text-[10px] font-medium",
-															offer.side === "sell"
-																? "bg-green-50 text-green-700"
-																: "bg-blue-50 text-blue-700",
+								{filteredPeerOffers.map((offer) => {
+									const maxAvail = parseNumericUsdc(offer.availableUsdc);
+									const customStr =
+										partialAmountsByOffer[offer.tradeId] ?? offer.availableUsdc;
+									const customNumeric = parseNumericUsdc(customStr);
+									const isOwner =
+										address &&
+										offer.peerAddress.toLowerCase() === address.toLowerCase();
+
+									return (
+										<div
+											key={offer.tradeId}
+											className="p-4 rounded-lg border border-[#d1e8dc] bg-white flex flex-col justify-between gap-3 text-xs"
+										>
+											<div className="flex items-start justify-between">
+												<div>
+													<div className="flex flex-wrap items-center gap-2">
+														<span className="font-semibold text-[#0d2b1e]">
+															{offer.peerHandle}
+														</span>
+														<span
+															className={cn(
+																"px-1.5 py-0.5 rounded text-[10px] font-medium",
+																offer.side === "sell"
+																	? "bg-green-50 text-green-700"
+																	: "bg-blue-50 text-blue-700",
+															)}
+														>
+															{offer.side === "sell" ? "Selling USDC" : "Buying USDC"}
+														</span>
+														{offer.sellerBusy && (
+															<span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-amber-50 text-amber-800 border border-amber-200">
+																Active Slot Busy · Queue #{(offer.queueDepth ?? 0) + 1}
+															</span>
 														)}
-													>
-														{offer.side === "sell" ? "Selling USDC" : "Buying USDC"}
-													</span>
+													</div>
+													<div className="text-[11px] text-[#7aaa92] mt-0.5">
+														{offer.bankName} · {offer.completionRate} completion
+													</div>
 												</div>
-												<div className="text-[11px] text-[#7aaa92] mt-0.5">
-													{offer.bankName} · {offer.completionRate} completion
+
+												<div className="text-right">
+													<div className="text-[11px] text-[#7aaa92]">Rate</div>
+													<div className="font-mono font-semibold text-[#0d2b1e]">
+														₦{offer.rateNgn.toLocaleString("en-NG")}
+													</div>
 												</div>
 											</div>
 
-											<div className="text-right">
-												<div className="text-[11px] text-[#7aaa92]">Rate</div>
-												<div className="font-mono font-semibold text-[#0d2b1e]">
-													₦{offer.rateNgn.toLocaleString("en-NG")}
+											<div className="p-2.5 rounded bg-[#fbfdfc] border border-[#d1e8dc] flex items-center justify-between text-xs">
+												<div>
+													<div className="text-[10px] text-[#7aaa92]">
+														Available Inventory
+													</div>
+													<div className="font-mono font-semibold text-[#0d2b1e]">
+														{offer.availableUsdc} USDC
+													</div>
+												</div>
+												<div className="text-right">
+													<div className="text-[10px] text-[#7aaa92]">
+														Buyer Deposit
+													</div>
+													<div className="font-mono font-semibold text-[#1a9e5c]">
+														0.00 USDC (Seller-Funded)
+													</div>
 												</div>
 											</div>
-										</div>
 
-										<div className="p-2.5 rounded bg-[#fbfdfc] border border-[#d1e8dc] flex items-center justify-between text-xs">
-											<div>
-												<div className="text-[10px] text-[#7aaa92]">Available</div>
-												<div className="font-mono font-semibold text-[#0d2b1e]">
-													{offer.availableUsdc} USDC
+											{!isOwner && (
+												<div className="space-y-1.5">
+													<div className="flex items-center justify-between text-[10px] text-[#7aaa92]">
+														<span>Request Partial or Full Amount (USDC)</span>
+														<div className="flex items-center gap-1">
+															{[0.25, 0.5, 1].map((pct) => (
+																<button
+																	key={pct}
+																	type="button"
+																	onClick={() =>
+																		setPartialAmountsByOffer((prev) => ({
+																			...prev,
+																			[offer.tradeId]: (
+																				Math.round(maxAvail * pct * 100) / 100
+																			).toFixed(2),
+																		}))
+																	}
+																	className="px-1.5 py-0.5 rounded border border-[#d1e8dc] bg-[#f8fcfa] text-[#3d6b55] hover:border-[#1a9e5c] font-mono"
+																>
+																	{pct === 1 ? "MAX" : `${pct * 100}%`}
+																</button>
+															))}
+														</div>
+													</div>
+													<div className="relative">
+														<input
+															type="text"
+															value={customStr}
+															onChange={(e) =>
+																setPartialAmountsByOffer((prev) => ({
+																	...prev,
+																	[offer.tradeId]: e.target.value,
+																}))
+															}
+															className="w-full px-2.5 py-1.5 rounded border border-[#d1e8dc] text-xs font-mono text-[#0d2b1e] focus:outline-none focus:border-[#1a9e5c]"
+															placeholder={offer.availableUsdc}
+														/>
+														<span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-mono text-[#7aaa92]">
+															≈ ₦
+															{Math.round(
+																customNumeric * offer.rateNgn,
+															).toLocaleString("en-NG")}
+														</span>
+													</div>
 												</div>
-											</div>
-											<div className="text-right">
-												<div className="text-[10px] text-[#7aaa92]">Collateral Bond</div>
-												<div className="font-mono font-medium text-amber-700">
-													{offer.requiredCollateralUsdc} USDC
-												</div>
-											</div>
-										</div>
-
-										<div className="flex items-center justify-between pt-1">
-											<span className="text-[11px] font-mono text-[#7aaa92]">
-												Offer #{offer.tradeId}
-											</span>
-											{address && offer.peerAddress.toLowerCase() === address.toLowerCase() ? (
-												<span className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-[#f0f7f3] text-[#1a9e5c] border border-[#d1e8dc]">
-													Your Published {offer.side === "sell" ? "Sale" : "Offer"}
-												</span>
-											) : (
-												<button
-													onClick={() => void handleTakePeerOffer(offer)}
-													disabled={joiningTradeId === offer.tradeId}
-													className="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-[#1a9e5c] hover:bg-[#15854c] transition-colors disabled:opacity-60"
-												>
-													{joiningTradeId === offer.tradeId
-														? "Locking Collateral..."
-														: offer.side === "sell"
-														? "Lock Collateral & Buy"
-														: "Take Offer"}
-												</button>
 											)}
+
+											<div className="flex items-center justify-between pt-1">
+												<span className="text-[11px] font-mono text-[#7aaa92]">
+													Offer #{offer.tradeId} · Gas ~0.0031 USDC
+												</span>
+												{isOwner ? (
+													<span className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-[#f0f7f3] text-[#1a9e5c] border border-[#d1e8dc]">
+														Your Published {offer.side === "sell" ? "Sale" : "Offer"}
+													</span>
+												) : (
+													<button
+														onClick={() => void handleTakePeerOffer(offer)}
+														disabled={joiningTradeId === offer.tradeId}
+														className="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-[#1a9e5c] hover:bg-[#15854c] transition-colors disabled:opacity-60"
+													>
+														{joiningTradeId === offer.tradeId
+															? "Allocating..."
+															: offer.sellerBusy
+															? "Join Seller Queue (0 Deposit)"
+															: offer.side === "sell"
+															? "Buy USDC (0 Collateral)"
+															: "Take Offer"}
+													</button>
+												)}
+											</div>
 										</div>
-									</div>
-								))}
+									);
+								})}
 							</div>
 						</div>
 					)}
@@ -1611,9 +2041,9 @@ export default function UserDashboard() {
 					{activeTab === "create" && (
 						<div className="max-w-md mx-auto rounded-lg border border-[#d1e8dc] bg-white p-5 space-y-4">
 							<div>
-								<h3 className="text-xs font-semibold text-[#0d2b1e]">Publish Peer Trade Offer</h3>
+								<h3 className="text-xs font-semibold text-[#0d2b1e]">Publish Seller-Funded Escrow Offer</h3>
 								<p className="text-[11px] text-[#7aaa92] mt-0.5">
-									Lock USDC in ArcP2PEscrowService. Bank account is hashed client side with keccak256.
+									Lock any positive USDC amount in ArcP2PEscrowService. Buyers can request full or partial fills without a 50 USDC buyer deposit.
 								</p>
 							</div>
 
@@ -1638,7 +2068,7 @@ export default function UserDashboard() {
 
 								<div>
 									<label className="block text-[11px] font-medium text-[#7aaa92] mb-1">
-										USDC Amount
+										USDC Inventory Amount (Any Positive Amount)
 									</label>
 									<div className="relative">
 										<input
@@ -1693,17 +2123,27 @@ export default function UserDashboard() {
 										<span className="font-mono text-[#0d2b1e]">1 USDC = ₦{RATE.toLocaleString("en-NG")}</span>
 									</div>
 									<div className="flex justify-between text-[#7aaa92]">
-										<span>Buyer Collateral</span>
-										<span className="font-mono text-[#0d2b1e]">50.00 USDC</span>
+										<span>Buyer Collateral Required</span>
+										<span className="font-mono font-semibold text-[#1a9e5c]">0.00 USDC (Seller-Funded)</span>
+									</div>
+									<div className="flex justify-between text-[#7aaa92]">
+										<span>Estimated Arc Network Gas</span>
+										<span className="font-mono text-[#0d2b1e]">~0.0031 USDC</span>
 									</div>
 								</div>
+
+								{stats.walletUsdc < 0.0031 && (
+									<div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[11px]">
+										Your wallet balance ({stats.walletUsdc.toFixed(4)} USDC) is below the estimated Arc network gas fee (~0.0031 USDC).
+									</div>
+								)}
 
 								<button
 									type="submit"
 									disabled={creatingOffer}
 									className="w-full py-2.5 rounded-lg font-medium text-xs text-white bg-[#1a9e5c] hover:bg-[#15854c] transition-colors disabled:opacity-60"
 								>
-									{creatingOffer ? "Publishing on Chain..." : "Approve & Publish Offer"}
+									{creatingOffer ? "Locking Inventory on Chain..." : "Lock Seller Inventory & Publish Offer"}
 								</button>
 							</form>
 						</div>

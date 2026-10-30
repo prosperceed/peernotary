@@ -86,7 +86,7 @@ function BankCheckoutContent() {
 	const searchParams = useSearchParams();
 	const { address, isConnected } = useAccount();
 
-	const tradeId = searchParams.get("tradeId") || "104";
+	const tradeId = searchParams.get("tradeId") || "";
 	const callbackTxRef = searchParams.get("tx_ref") || "";
 	const callbackTransactionId = searchParams.get("transaction_id") || "";
 	const returnTo = searchParams.get("returnTo") || "/dashboard";
@@ -107,9 +107,12 @@ function BankCheckoutContent() {
 	const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
 
 	const fetchTradeState = useCallback(async () => {
-		if (!address) return;
+		if (!address || !tradeId) {
+			setLoading(false);
+			return;
+		}
 		try {
-			const res = await fetch(`/api/trades/${tradeId}/lifecycle`, {
+			const res = await fetch(`/api/trades/${encodeURIComponent(tradeId)}/lifecycle`, {
 				cache: "no-store",
 				headers: { "x-wallet-address": address },
 			});
@@ -466,6 +469,28 @@ function BankCheckoutContent() {
 					className="inline-flex items-center justify-center w-full py-2.5 rounded-lg bg-[#1a9e5c] text-white text-xs font-semibold"
 				>
 					Return to Dashboard Sign-In
+				</Link>
+			</div>
+		);
+	}
+
+	if (!tradeId || (!loading && !trade)) {
+		return (
+			<div className="max-w-md mx-auto my-14 p-6 rounded-xl bg-white border border-[#d1e8dc] text-center space-y-4">
+				<div className="w-11 h-11 rounded-xl bg-[#f0f7f3] border border-[#d1e8dc] flex items-center justify-center mx-auto">
+					<Lock size={18} className="text-[#1a9e5c]" />
+				</div>
+				<h2 className="text-sm font-bold text-[#0d2b1e]">
+					No Active Trade Order Found
+				</h2>
+				<p className="text-xs text-[#7aaa92]">
+					Please select an order from the Trading Desk or place an order from your Dashboard before accessing the settlement portal.
+				</p>
+				<Link
+					href="/trade"
+					className="inline-flex items-center justify-center w-full py-2.5 rounded-lg bg-[#1a9e5c] text-white text-xs font-semibold"
+				>
+					Go to Trading Desk
 				</Link>
 			</div>
 		);

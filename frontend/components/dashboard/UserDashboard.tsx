@@ -31,6 +31,7 @@ import {
 } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { formatUnits } from "viem";
+import { ToastAlert } from "@/components/shared";
 import { useEscrow } from "@/hooks/useEscrow";
 import {
 	arcTestnet,
@@ -72,6 +73,64 @@ function parseNumericUsdc(val: string): number {
 	return parseFloat(val.replace(/,/g, "")) || 0;
 }
 
+export function DashboardSkeleton() {
+	return (
+		<div className="space-y-6 animate-pulse">
+			<div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+				{[...Array(4)].map((_, i) => (
+					<div
+						key={i}
+						className="p-4 rounded-xl border border-[#d1e8dc] bg-white space-y-2.5"
+					>
+						<div className="flex items-center justify-between">
+							<div className="h-3 w-20 bg-[#e2f0e8] rounded" />
+							<div className="h-6 w-6 bg-[#e2f0e8] rounded-full" />
+						</div>
+						<div className="h-7 w-28 bg-[#e2f0e8] rounded" />
+						<div className="h-2.5 w-16 bg-[#e2f0e8] rounded" />
+					</div>
+				))}
+			</div>
+
+			<div className="p-4 rounded-xl border border-[#d1e8dc] bg-white space-y-3">
+				<div className="flex items-center justify-between">
+					<div className="h-4 w-44 bg-[#e2f0e8] rounded" />
+					<div className="h-6 w-24 bg-[#e2f0e8] rounded-full" />
+				</div>
+				<div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+					{[...Array(4)].map((_, i) => (
+						<div
+							key={i}
+							className="h-12 bg-[#f0f7f3] rounded-lg border border-[#d1e8dc]"
+						/>
+					))}
+				</div>
+			</div>
+
+			<div className="rounded-xl border border-[#d1e8dc] bg-white overflow-hidden">
+				<div className="p-4 border-b border-[#d1e8dc] flex items-center justify-between">
+					<div className="h-5 w-32 bg-[#e2f0e8] rounded" />
+					<div className="h-4 w-24 bg-[#e2f0e8] rounded" />
+				</div>
+				<div className="p-4 space-y-3">
+					{[...Array(5)].map((_, i) => (
+						<div
+							key={i}
+							className="h-16 rounded-lg bg-[#fbfdfc] border border-[#d1e8dc] p-3 flex items-center justify-between"
+						>
+							<div className="space-y-2">
+								<div className="h-3.5 w-36 bg-[#e2f0e8] rounded" />
+								<div className="h-2.5 w-24 bg-[#e2f0e8] rounded" />
+							</div>
+							<div className="h-7 w-20 bg-[#e2f0e8] rounded-lg" />
+						</div>
+					))}
+				</div>
+			</div>
+		</div>
+	);
+}
+
 export default function UserDashboard() {
 	const { address, chainId, isConnected } = useAccount();
 	const { connectAsync, connectors } = useConnect();
@@ -79,6 +138,7 @@ export default function UserDashboard() {
 	const { switchChainAsync } = useSwitchChain();
 	const escrow = useEscrow();
 
+	const [mounted, setMounted] = useState(false);
 	const [checkingSession, setCheckingSession] = useState(true);
 	const [authenticated, setAuthenticated] = useState(false);
 	const [authBusy, setAuthBusy] = useState(false);
@@ -107,13 +167,18 @@ export default function UserDashboard() {
 	const [guarantorAddressInput, setGuarantorAddressInput] = useState("");
 	const [guarantorBackedInput, setGuarantorBackedInput] = useState("1000");
 	const [guarantorBusy, setGuarantorBusy] = useState(false);
-	const [loadingData, setLoadingData] = useState(false);
+	const [loadingData, setLoadingData] = useState(true);
+	const [cancellingTradeId, setCancellingTradeId] = useState<string | null>(null);
 	const [actionFeedback, setActionFeedback] = useState<{
 		type: "success" | "error";
 		text: string;
 	} | null>(null);
 	const [copiedAddr, setCopiedAddr] = useState(false);
 	const previousAddressRef = useRef<string | undefined>(undefined);
+
+	useEffect(() => {
+		setMounted(true);
+	}, []);
 
 	// Immediately invalidate stale session and wipe previous wallet data on address change
 	useEffect(() => {
@@ -144,6 +209,7 @@ export default function UserDashboard() {
 	const [peerSearch, setPeerSearch] = useState("");
 	const [joiningTradeId, setJoiningTradeId] = useState<string | null>(null);
 	const [verifyingTradeId, setVerifyingTradeId] = useState<string | null>(null);
+	const [releasingTradeId, setReleasingTradeId] = useState<string | null>(null);
 
 	// Create Offer form state
 	const [offerSide, setOfferSide] = useState<"sell" | "buy">("sell");
@@ -156,6 +222,7 @@ export default function UserDashboard() {
 	const { data: nativeBalance, refetch: refetchNative } = useBalance({
 		address,
 		chainId: arcTestnet.id,
+		query: { refetchInterval: 4000 },
 	});
 
 	const { data: erc20BalanceRaw, refetch: refetchErc20 } = useReadContract(
@@ -165,6 +232,7 @@ export default function UserDashboard() {
 					abi: USDC_ABI,
 					functionName: "balanceOf",
 					args: [address],
+					query: { refetchInterval: 4000 },
 				}
 			: undefined,
 	);
@@ -244,10 +312,16 @@ export default function UserDashboard() {
 		void fetchDashboardData();
 		const onAuthChange = () => {
 			void fetchDashboardData();
+			void refetchNative();
+			void refetchErc20();
 		};
 		window.addEventListener("peernotary-auth-change", onAuthChange);
-		return () => window.removeEventListener("peernotary-auth-change", onAuthChange);
-	}, [fetchDashboardData]);
+		window.addEventListener("peernotary-balance-refresh", onAuthChange);
+		return () => {
+			window.removeEventListener("peernotary-auth-change", onAuthChange);
+			window.removeEventListener("peernotary-balance-refresh", onAuthChange);
+		};
+	}, [fetchDashboardData, refetchNative, refetchErc20]);
 
 	const authenticateWallet = async (targetAddress: `0x${string}`) => {
 		if (chainId && chainId !== arcTestnet.id) {
@@ -460,7 +534,7 @@ export default function UserDashboard() {
 		if (requestedNumeric * offer.rateNgn < 1) {
 			setActionFeedback({
 				type: "error",
-				text: "Converted fiat amount must be at least ₦1.00 (Flutterwave minimum).",
+				text: "Converted fiat amount must be at least ₦1.00.",
 			});
 			return;
 		}
@@ -470,7 +544,6 @@ export default function UserDashboard() {
 		try {
 			let txHash: `0x${string}` | undefined;
 
-			// Seller-funded escrow: buyer pays 0 USDC collateral; only submits on-chain join when slot is free and full offer is taken
 			if (
 				!offer.sellerBusy &&
 				requestedNumeric === maxAvailable &&
@@ -519,12 +592,12 @@ export default function UserDashboard() {
 			if (data.executionMode === "QUEUED" && data.queueEntry) {
 				setActionFeedback({
 					type: "success",
-					text: `Seller is currently completing another trade. Your request for ${data.queueEntry.requestedUsdc} USDC is queued at Position #${data.queueEntry.queuePosition} (no buyer deposit required).`,
+					text: `Seller is currently completing another trade. Your request for ${data.queueEntry.requestedUsdc} USDC is queued at Position #${data.queueEntry.queuePosition}.`,
 				});
 			} else {
 				setActionFeedback({
 					type: "success",
-					text: `Order #${data.activeTradeId ?? offer.tradeId} activated for ${requestedNumeric.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 6 })} USDC (0 USDC buyer collateral). Complete payment within 20 minutes.`,
+					text: `Order #${data.activeTradeId ?? offer.tradeId} activated for ${requestedNumeric.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 6 })} USDC. Complete payment within 20 minutes.`,
 				});
 			}
 			setActiveTab("escrows");
@@ -582,6 +655,52 @@ export default function UserDashboard() {
 			});
 		} finally {
 			setQueueBusyRef(null);
+		}
+	};
+
+	const handleCancelTrade = async (tradeId: string) => {
+		setCancellingTradeId(tradeId);
+		setActionFeedback(null);
+		try {
+			const res = await fetch("/api/user/dashboard", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					...(address ? { "x-wallet-address": address } : {}),
+				},
+				body: JSON.stringify({
+					action: "cancel_trade",
+					tradeId,
+					cancelReason: "Cancelled by user due to technical difficulties or preference.",
+				}),
+			});
+			const data = (await res.json()) as {
+				error?: string;
+				transactions?: UserTransaction[];
+				peerOffers?: PeerTradeOffer[];
+				trustSummary?: UserTrustSummary;
+				queueEntries?: QueueEntryItem[];
+			};
+			if (!res.ok) {
+				throw new Error(data.error || "Failed to cancel transaction.");
+			}
+			if (data.transactions) setTransactions(data.transactions);
+			if (data.peerOffers) setPeerOffers(data.peerOffers);
+			if (data.trustSummary) setTrustSummary(data.trustSummary);
+			if (data.queueEntries) setQueueEntries(data.queueEntries);
+
+			setActionFeedback({
+				type: "success",
+				text: `Trade #${tradeId} cancelled. Escrow lock has been released back to seller.`,
+			});
+			void fetchDashboardData();
+		} catch (err) {
+			setActionFeedback({
+				type: "error",
+				text: err instanceof Error ? err.message : "Failed to cancel trade.",
+			});
+		} finally {
+			setCancellingTradeId(null);
 		}
 	};
 
@@ -684,7 +803,7 @@ export default function UserDashboard() {
 		if (numeric * RATE < 1) {
 			setActionFeedback({
 				type: "error",
-				text: "Converted NGN amount must be at least ₦1.00 (Flutterwave minimum).",
+				text: "Converted NGN amount must be at least ₦1.00.",
 			});
 			return;
 		}
@@ -697,13 +816,16 @@ export default function UserDashboard() {
 		setActionFeedback(null);
 		try {
 			let txHash: `0x${string}` | undefined;
+			let onChainTradeId: string | undefined;
 
 			if (ESCROW_ADDRESS !== "0x0000000000000000000000000000000000000000") {
-				txHash = await escrow.initiateTrade({
+				const initRes = await escrow.initiateTrade({
 					cryptoAmountUsdc: numeric.toString(),
 					bankName: offerBank,
 					accountNo: offerAccountNo.trim(),
 				});
+				txHash = initRes.txHash;
+				onChainTradeId = initRes.tradeId;
 			}
 
 			const res = await fetch("/api/user/dashboard", {
@@ -719,6 +841,7 @@ export default function UserDashboard() {
 					bankName: offerBank,
 					accountNumber: offerAccountNo.trim(),
 					txHash,
+					tradeId: onChainTradeId,
 				}),
 			});
 
@@ -738,7 +861,7 @@ export default function UserDashboard() {
 			setOfferAccountNo("");
 			setActionFeedback({
 				type: "success",
-				text: `Locked ${numeric.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 6 })} USDC in Seller-Funded Arc Escrow (0 USDC buyer collateral required).`,
+				text: `Locked ${numeric.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 6 })} USDC in Seller-Funded Arc Escrow.`,
 			});
 			setActiveTab("peers");
 			await refetchNative();
@@ -878,6 +1001,51 @@ export default function UserDashboard() {
 			});
 		} finally {
 			setVerifyingTradeId(null);
+		}
+	};
+
+	const handleReleaseEscrowOnChain = async (trade: UserTransaction) => {
+		const { tradeId } = trade;
+		setReleasingTradeId(tradeId);
+		setActionFeedback(null);
+		try {
+			let txHash: `0x${string}` | undefined;
+			if (ESCROW_ADDRESS !== "0x0000000000000000000000000000000000000000" && /^\d+$/.test(tradeId)) {
+				txHash = await escrow.releaseFunds(BigInt(tradeId));
+			}
+
+			const res = await fetch(`/api/trades/${encodeURIComponent(tradeId)}/lifecycle`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					...(address ? { "x-wallet-address": address } : {}),
+				},
+				body: JSON.stringify({
+					operation: "escrow_confirm_on_chain",
+					txHash: txHash || undefined,
+				}),
+			});
+
+			if (!res.ok) {
+				const data = (await res.json().catch(() => ({}))) as { error?: string };
+				throw new Error(data.error || "Failed to confirm release on server.");
+			}
+
+			setActionFeedback({
+				type: "success",
+				text: `USDC escrow released on-chain${txHash ? ` (Tx: ${txHash.slice(0, 8)}…)` : ""}. Trade #${tradeId} is completed.`,
+			});
+			await refetchNative();
+			await refetchErc20();
+			void fetchDashboardData();
+			window.dispatchEvent(new CustomEvent("peernotary-balance-refresh"));
+		} catch (err) {
+			setActionFeedback({
+				type: "error",
+				text: formatUserFriendlyWalletError(err, "Failed to release escrow on-chain."),
+			});
+		} finally {
+			setReleasingTradeId(null);
 		}
 	};
 
@@ -1023,6 +1191,10 @@ export default function UserDashboard() {
 		{ id: "create", label: "Post Offer", icon: <PlusCircle size={16} /> },
 	];
 
+	if (!mounted || (loadingData && transactions.length === 0 && peerOffers.length === 0)) {
+		return <DashboardSkeleton />;
+	}
+
 	return (
 		<div className="rounded-xl border border-[#d1e8dc] bg-[#fbfdfc] overflow-hidden flex flex-col lg:flex-row min-h-[640px]">
 			{/* Mobile Header Bar */}
@@ -1162,7 +1334,7 @@ export default function UserDashboard() {
 							{navItems.find((n) => n.id === activeTab)?.label}
 						</h2>
 						<p className="text-xs text-[#7aaa92]">
-							{activeTab === "overview" && "Summary of your balances, collateral, and escrow activity"}
+							{activeTab === "overview" && "Summary of your balances and escrow activity"}
 							{activeTab === "escrows" && "Active trades waiting for payment or TLSNotary verification"}
 							{activeTab === "transactions" && "Complete ledger of your executed peer transactions"}
 							{activeTab === "peers" && "Liquidity offers posted by peers on Arc Network"}
@@ -1193,32 +1365,12 @@ export default function UserDashboard() {
 					</div>
 				</div>
 
-				{/* Feedback Alert */}
-				{actionFeedback && (
-					<div
-						className={cn(
-							"mx-4 sm:mx-6 mt-4 p-3 rounded-lg border text-xs flex items-center justify-between",
-							actionFeedback.type === "success"
-								? "bg-[#f0f7f3] border-[#1a9e5c]/30 text-[#0d2b1e]"
-								: "bg-red-50 border-red-200 text-red-700",
-						)}
-					>
-						<div className="flex items-center gap-2 min-w-0">
-							{actionFeedback.type === "success" ? (
-								<CheckCircle size={14} className="text-[#1a9e5c] shrink-0" />
-							) : (
-								<AlertCircle size={14} className="text-red-500 shrink-0" />
-							)}
-							<span className="truncate">{actionFeedback.text}</span>
-						</div>
-						<button
-							onClick={() => setActionFeedback(null)}
-							className="text-[11px] font-medium ml-2 underline text-[#7aaa92] hover:text-[#0d2b1e]"
-						>
-							Dismiss
-						</button>
-					</div>
-				)}
+				{/* Animated Dropping Toast Notification */}
+				<ToastAlert
+					type={actionFeedback?.type ?? "info"}
+					message={actionFeedback?.text}
+					onClose={() => setActionFeedback(null)}
+				/>
 
 				{/* Tab Content Body */}
 				<div className="p-4 sm:p-6 flex-1 space-y-6 overflow-y-auto">
@@ -1431,17 +1583,17 @@ export default function UserDashboard() {
 										{stats.walletUsdc.toFixed(2)} USDC
 									</div>
 									<div className="text-[11px] text-[#7aaa92] font-mono mt-0.5">
-										≈ ₦{stats.walletNgn.toLocaleString("en-NG")} · Est. gas ~0.0031 USDC
+										≈ ₦{stats.walletNgn.toLocaleString("en-NG")}
 									</div>
 								</div>
 
 								<div className="p-4 rounded-lg border border-[#d1e8dc] bg-[#fbfdfc]">
-									<div className="text-[11px] font-medium text-[#7aaa92]">Seller-Funded Escrow</div>
+									<div className="text-[11px] font-medium text-[#7aaa92]">Active Escrow</div>
 									<div className="mt-1 font-mono text-xl font-semibold text-[#0d2b1e]">
 										{stats.lockedEscrowUsdc.toFixed(2)} USDC
 									</div>
 									<div className="text-[11px] text-[#7aaa92] mt-0.5">
-										{activeEscrows.length} active trade{activeEscrows.length === 1 ? "" : "s"} · 0 USDC buyer deposit
+										{activeEscrows.length} active trade{activeEscrows.length === 1 ? "" : "s"}
 									</div>
 								</div>
 
@@ -1576,15 +1728,28 @@ export default function UserDashboard() {
 														)}&returnTo=/dashboard`}
 														className="px-3 py-1.5 rounded-lg text-xs font-medium border border-[#1a9e5c] text-[#1a9e5c] hover:bg-[#f0f7f3] transition-colors"
 													>
-														{trade.role === "buyer" ? "Flutterwave Checkout" : "Manage Settlement"}
+														{trade.role === "buyer" ? "Proceed to Payment" : "Settlement Portal"}
 													</Link>
-													<button
-														onClick={() => void handleVerifyAndRelease(trade)}
-														disabled={verifyingTradeId === trade.tradeId}
-														className="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-[#1a9e5c] hover:bg-[#15854c] transition-colors disabled:opacity-60"
-													>
-														{verifyingTradeId === trade.tradeId ? "Verifying..." : "Verify & Release"}
-													</button>
+													{trade.role === "seller" &&
+													(trade.paymentState === "CONFIRMED" ||
+														trade.lifecycleState === "PAYMENT_CONFIRMED" ||
+														trade.lifecycleState === "SELLER_PAYOUT_CONFIRMED") ? (
+														<button
+															onClick={() => void handleReleaseEscrowOnChain(trade)}
+															disabled={releasingTradeId === trade.tradeId}
+															className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-[#1a9e5c] hover:bg-[#15854c] transition-colors disabled:opacity-60"
+														>
+															{releasingTradeId === trade.tradeId ? "Releasing..." : "Release USDC"}
+														</button>
+													) : (
+														<button
+															onClick={() => void handleVerifyAndRelease(trade)}
+															disabled={verifyingTradeId === trade.tradeId}
+															className="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-[#1a9e5c] hover:bg-[#15854c] transition-colors disabled:opacity-60"
+														>
+															{verifyingTradeId === trade.tradeId ? "Verifying..." : "Verify & Release"}
+														</button>
+													)}
 												</div>
 											</div>
 										))}
@@ -1718,16 +1883,41 @@ export default function UserDashboard() {
 													)}&returnTo=/dashboard`}
 													className="px-3 py-1.5 rounded-lg text-xs font-medium border border-[#1a9e5c] text-[#1a9e5c] hover:bg-[#f0f7f3] transition-colors"
 												>
-													{trade.role === "buyer" ? "Flutterwave Checkout" : "Settlement Portal"}
+													{trade.role === "buyer" ? "Proceed to Payment" : "Settlement Portal"}
 												</Link>
 
-												<button
-													onClick={() => void handleVerifyAndRelease(trade)}
-													disabled={verifyingTradeId === trade.tradeId}
-													className="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-[#1a9e5c] hover:bg-[#15854c] transition-colors disabled:opacity-60"
-												>
-													{verifyingTradeId === trade.tradeId ? "Verifying Proof..." : "Verify & Release"}
-												</button>
+												{trade.role === "seller" &&
+												(trade.paymentState === "CONFIRMED" ||
+													trade.lifecycleState === "PAYMENT_CONFIRMED" ||
+													trade.lifecycleState === "SELLER_PAYOUT_CONFIRMED") ? (
+													<button
+														onClick={() => void handleReleaseEscrowOnChain(trade)}
+														disabled={releasingTradeId === trade.tradeId}
+														className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-[#1a9e5c] hover:bg-[#15854c] transition-colors disabled:opacity-60"
+													>
+														{releasingTradeId === trade.tradeId ? "Releasing..." : "Release USDC"}
+													</button>
+												) : (
+													<button
+														onClick={() => void handleVerifyAndRelease(trade)}
+														disabled={verifyingTradeId === trade.tradeId}
+														className="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-[#1a9e5c] hover:bg-[#15854c] transition-colors disabled:opacity-60"
+													>
+														{verifyingTradeId === trade.tradeId ? "Verifying Proof..." : "Verify & Release"}
+													</button>
+												)}
+
+												{(trade.lifecycleState === "AWAITING_PAYMENT" ||
+													trade.lifecycleState === "OPEN" ||
+													trade.status === "escrow") && (
+													<button
+														onClick={() => void handleCancelTrade(trade.tradeId)}
+														disabled={cancellingTradeId === trade.tradeId}
+														className="px-3 py-1.5 rounded-lg text-xs font-medium border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition-colors disabled:opacity-60"
+													>
+														{cancellingTradeId === trade.tradeId ? "Cancelling..." : "Cancel"}
+													</button>
+												)}
 											</div>
 										</div>
 									))}
@@ -1742,7 +1932,7 @@ export default function UserDashboard() {
 							{/* Filters Bar */}
 							<div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
 								<div className="flex flex-wrap items-center gap-1.5">
-									{(["all", "buy", "sell", "collateral", "release"] as const).map((t) => (
+									{(["all", "buy", "sell", "release"] as const).map((t) => (
 										<button
 											key={t}
 											onClick={() => setTxTypeFilter(t)}
@@ -1783,12 +1973,13 @@ export default function UserDashboard() {
 												<th className="py-2.5 px-4 font-medium text-right">Amount</th>
 												<th className="py-2.5 px-4 font-medium text-center">Status</th>
 												<th className="py-2.5 px-4 font-medium text-right">Explorer</th>
+												<th className="py-2.5 px-4 font-medium text-right">Action</th>
 											</tr>
 										</thead>
 										<tbody className="divide-y divide-[#d1e8dc]/60">
 											{filteredTransactions.length === 0 ? (
 												<tr>
-													<td colSpan={7} className="py-8 text-center text-[#7aaa92]">
+													<td colSpan={8} className="py-8 text-center text-[#7aaa92]">
 														No transactions found matching your filter criteria.
 													</td>
 												</tr>
@@ -1824,15 +2015,69 @@ export default function UserDashboard() {
 															</span>
 														</td>
 														<td className="py-2.5 px-4 text-right">
-															<a
-																href={ARCSCAN_TX(tx.txHash)}
-																target="_blank"
-																rel="noopener noreferrer"
-																className="inline-flex items-center gap-1 font-mono text-[11px] text-[#1a9e5c] hover:underline"
-															>
-																<span>{tx.txHash.slice(0, 6)}…</span>
-																<ArrowUpRight size={11} />
-															</a>
+															{tx.txHash &&
+															tx.txHash !== "0x0" &&
+															!tx.txHash.startsWith("0x0000000000000000000000000000000000000000000000000000000000000000") &&
+															!tx.txHash.startsWith("0xaaaaaaaa") ? (
+																<a
+																	href={ARCSCAN_TX(tx.txHash)}
+																	target="_blank"
+																	rel="noopener noreferrer"
+																	className="inline-flex items-center gap-1 font-mono text-[11px] text-[#1a9e5c] hover:underline"
+																>
+																	<span>{tx.txHash.slice(0, 6)}…{tx.txHash.slice(-4)}</span>
+																	<ArrowUpRight size={11} />
+																</a>
+															) : (
+																<span className="text-[#7aaa92] text-[11px]">—</span>
+															)}
+														</td>
+														<td className="py-2.5 px-4 text-right">
+															<div className="flex items-center justify-end gap-1.5">
+																{tx.role === "seller" &&
+																	(tx.status === "escrow" ||
+																		tx.paymentState === "CONFIRMED" ||
+																		tx.lifecycleState === "PAYMENT_CONFIRMED" ||
+																		tx.lifecycleState === "SELLER_PAYOUT_CONFIRMED") && (
+																		<button
+																			onClick={() => void handleReleaseEscrowOnChain(tx)}
+																			disabled={releasingTradeId === tx.tradeId}
+																			className="px-2 py-1 rounded text-[11px] font-semibold bg-[#1a9e5c] text-white hover:bg-[#15854c] transition-colors disabled:opacity-50"
+																		>
+																			{releasingTradeId === tx.tradeId
+																				? "Releasing..."
+																				: "Release USDC"}
+																		</button>
+																	)}
+
+																{(tx.status === "escrow" ||
+																	tx.status === "pending" ||
+																	tx.lifecycleState === "AWAITING_PAYMENT" ||
+																	tx.lifecycleState === "OPEN") &&
+																	tx.lifecycleState !== "COMPLETED" && (
+																		<button
+																			onClick={() => void handleCancelTrade(tx.tradeId)}
+																			disabled={cancellingTradeId === tx.tradeId}
+																			className="px-2 py-1 rounded text-[11px] font-medium border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition-colors disabled:opacity-50"
+																		>
+																			{cancellingTradeId === tx.tradeId
+																				? "Cancelling..."
+																				: "Cancel"}
+																		</button>
+																	)}
+
+																{tx.role === "buyer" &&
+																	tx.lifecycleState === "AWAITING_PAYMENT" && (
+																		<Link
+																			href={`/bank-checkout?tradeId=${encodeURIComponent(
+																				tx.tradeId,
+																			)}&returnTo=/dashboard`}
+																			className="px-2 py-1 rounded text-[11px] font-medium bg-[#1a9e5c] text-white hover:bg-[#15854c] transition-colors"
+																		>
+																			Pay
+																		</Link>
+																	)}
+															</div>
 														</td>
 													</tr>
 												))
@@ -1943,18 +2188,10 @@ export default function UserDashboard() {
 											<div className="p-2.5 rounded bg-[#fbfdfc] border border-[#d1e8dc] flex items-center justify-between text-xs">
 												<div>
 													<div className="text-[10px] text-[#7aaa92]">
-														Available Inventory
+														Available
 													</div>
 													<div className="font-mono font-semibold text-[#0d2b1e]">
 														{offer.availableUsdc} USDC
-													</div>
-												</div>
-												<div className="text-right">
-													<div className="text-[10px] text-[#7aaa92]">
-														Buyer Deposit
-													</div>
-													<div className="font-mono font-semibold text-[#1a9e5c]">
-														0.00 USDC (Seller-Funded)
 													</div>
 												</div>
 											</div>
@@ -2008,11 +2245,11 @@ export default function UserDashboard() {
 
 											<div className="flex items-center justify-between pt-1">
 												<span className="text-[11px] font-mono text-[#7aaa92]">
-													Offer #{offer.tradeId} · Gas ~0.0031 USDC
+													Offer #{offer.tradeId}
 												</span>
 												{isOwner ? (
 													<span className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-[#f0f7f3] text-[#1a9e5c] border border-[#d1e8dc]">
-														Your Published {offer.side === "sell" ? "Sale" : "Offer"}
+														Your Published Sale
 													</span>
 												) : (
 													<button
@@ -2023,9 +2260,9 @@ export default function UserDashboard() {
 														{joiningTradeId === offer.tradeId
 															? "Allocating..."
 															: offer.sellerBusy
-															? "Join Seller Queue (0 Deposit)"
+															? "Join Seller Queue"
 															: offer.side === "sell"
-															? "Buy USDC (0 Collateral)"
+															? "Buy USDC"
 															: "Take Offer"}
 													</button>
 												)}
@@ -2041,34 +2278,16 @@ export default function UserDashboard() {
 					{activeTab === "create" && (
 						<div className="max-w-md mx-auto rounded-lg border border-[#d1e8dc] bg-white p-5 space-y-4">
 							<div>
-								<h3 className="text-xs font-semibold text-[#0d2b1e]">Publish Seller-Funded Escrow Offer</h3>
+								<h3 className="text-xs font-semibold text-[#0d2b1e]">Create Peer Offer</h3>
 								<p className="text-[11px] text-[#7aaa92] mt-0.5">
-									Lock any positive USDC amount in ArcP2PEscrowService. Buyers can request full or partial fills without a 50 USDC buyer deposit.
+									Post an offer to sell USDC for NGN fiat settlement.
 								</p>
 							</div>
 
 							<form onSubmit={(e) => void handleCreateOffer(e)} className="space-y-3.5">
-								<div className="grid grid-cols-2 gap-2 p-1 rounded-lg bg-[#f0f7f3] border border-[#d1e8dc]">
-									{(["sell", "buy"] as const).map((side) => (
-										<button
-											type="button"
-											key={side}
-											onClick={() => setOfferSide(side)}
-											className={cn(
-												"py-1.5 rounded text-xs font-medium transition-colors",
-												offerSide === side
-													? "bg-white text-[#1a9e5c] font-semibold"
-													: "text-[#3d6b55] hover:text-[#0d2b1e]",
-											)}
-										>
-											{side === "sell" ? "Sell USDC" : "Buy USDC"}
-										</button>
-									))}
-								</div>
-
 								<div>
 									<label className="block text-[11px] font-medium text-[#7aaa92] mb-1">
-										USDC Inventory Amount (Any Positive Amount)
+										USDC Amount
 									</label>
 									<div className="relative">
 										<input
@@ -2122,28 +2341,14 @@ export default function UserDashboard() {
 										<span>Rate</span>
 										<span className="font-mono text-[#0d2b1e]">1 USDC = ₦{RATE.toLocaleString("en-NG")}</span>
 									</div>
-									<div className="flex justify-between text-[#7aaa92]">
-										<span>Buyer Collateral Required</span>
-										<span className="font-mono font-semibold text-[#1a9e5c]">0.00 USDC (Seller-Funded)</span>
-									</div>
-									<div className="flex justify-between text-[#7aaa92]">
-										<span>Estimated Arc Network Gas</span>
-										<span className="font-mono text-[#0d2b1e]">~0.0031 USDC</span>
-									</div>
 								</div>
-
-								{stats.walletUsdc < 0.0031 && (
-									<div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[11px]">
-										Your wallet balance ({stats.walletUsdc.toFixed(4)} USDC) is below the estimated Arc network gas fee (~0.0031 USDC).
-									</div>
-								)}
 
 								<button
 									type="submit"
 									disabled={creatingOffer}
 									className="w-full py-2.5 rounded-lg font-medium text-xs text-white bg-[#1a9e5c] hover:bg-[#15854c] transition-colors disabled:opacity-60"
 								>
-									{creatingOffer ? "Locking Inventory on Chain..." : "Lock Seller Inventory & Publish Offer"}
+									{creatingOffer ? "Publishing Offer..." : "Publish Offer"}
 								</button>
 							</form>
 						</div>

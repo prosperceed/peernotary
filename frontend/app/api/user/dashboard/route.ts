@@ -6,12 +6,14 @@ import { RATE } from "@/lib/utils";
 import {
 	activateBuyerQueueEntry,
 	cancelBuyerQueueEntry,
+	cancelPeerTradeUser,
 	completePeerTrade,
 	createPeerOffer,
 	getActivePeerOffers,
 	getUserLedger,
 	getUserQueueEntries,
 	getUserTrustSummary,
+	hydrateUserTradesFromSupabase,
 	reconcileExpiredTrades,
 	submitGuarantorCommitment,
 	takePeerOffer,
@@ -25,6 +27,7 @@ export async function GET(request: NextRequest) {
 		const current = user.walletAddress.toLowerCase();
 
 		reconcileExpiredTrades();
+		await hydrateUserTradesFromSupabase(current);
 		const transactions = [...getUserLedger(current)];
 
 		// Inspect recent on-chain trade slots 1..10 when RPC is reachable
@@ -134,6 +137,7 @@ export async function POST(request: NextRequest) {
 				| "update_status"
 				| "cancel_queue"
 				| "activate_queue"
+				| "cancel_trade"
 				| "submit_guarantor"
 				| "verify_identity";
 			usdcAmount?: string;
@@ -164,6 +168,7 @@ export async function POST(request: NextRequest) {
 					accountNumber: body.accountNumber,
 					side: body.side,
 					txHash: body.txHash,
+					tradeId: body.tradeId,
 				});
 
 				return NextResponse.json({
@@ -261,6 +266,27 @@ export async function POST(request: NextRequest) {
 			} catch (err) {
 				const msg =
 					err instanceof Error ? err.message : "QUEUE_ACTIVATION_FAILED";
+				return NextResponse.json({ error: msg }, { status: 400 });
+			}
+		}
+
+		if (body.action === "cancel_trade" && body.tradeId) {
+			try {
+				const cancelled = cancelPeerTradeUser(
+					body.tradeId,
+					user.walletAddress,
+					body.cancelReason,
+				);
+				return NextResponse.json({
+					ok: true,
+					cancelled,
+					transactions: getUserLedger(current),
+					peerOffers: getActivePeerOffers(),
+					trustSummary: getUserTrustSummary(current),
+					queueEntries: getUserQueueEntries(current),
+				});
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : "CANCEL_FAILED";
 				return NextResponse.json({ error: msg }, { status: 400 });
 			}
 		}

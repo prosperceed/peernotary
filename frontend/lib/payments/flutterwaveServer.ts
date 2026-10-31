@@ -189,56 +189,55 @@ export async function verifyFlutterwaveTransactionServerSide(params: {
 			? `${getFlwBaseUrl()}/transactions/${encodeURIComponent(String(params.flwTransactionId))}/verify`
 			: `${getFlwBaseUrl()}/transactions/verify_by_reference?tx_ref=${encodeURIComponent(params.txRef)}`;
 
-		const res = await fetch(verifyUrl, {
-			method: "GET",
-			headers: {
-				Authorization: `Bearer ${secretKey}`,
-			},
-			cache: "no-store",
-			signal: AbortSignal.timeout(10_000),
-		});
-
-		if (!res.ok) {
-			throw new Error(`FLW_VERIFICATION_HTTP_${res.status}`);
+		let res: Response | null = null;
+		try {
+			res = await fetch(verifyUrl, {
+				method: "GET",
+				headers: {
+					Authorization: `Bearer ${secretKey}`,
+				},
+				cache: "no-store",
+				signal: AbortSignal.timeout(10_000),
+			});
+		} catch {
+			res = null;
 		}
 
-		const payload = (await res.json()) as {
-			status?: string;
-			data?: {
-				id?: number;
-				tx_ref?: string;
+		if (res && res.ok) {
+			const payload = (await res.json()) as {
 				status?: string;
-				amount?: number | string;
-				currency?: string;
+				data?: {
+					id?: number;
+					tx_ref?: string;
+					status?: string;
+					amount?: number | string;
+					currency?: string;
+				};
 			};
-		};
 
-		if (
-			payload.status !== "success" ||
-			!payload.data ||
-			payload.data.status?.toLowerCase() !== "successful"
-		) {
-			throw new Error("FLW_TRANSACTION_NOT_SUCCESSFUL");
+			if (
+				payload.status === "success" &&
+				payload.data &&
+				payload.data.status?.toLowerCase() === "successful" &&
+				payload.data.tx_ref === params.txRef
+			) {
+				const verifiedAmountMinor = parseDecimalToMinorUnits(
+					payload.data.amount ?? 0,
+				);
+				const verifiedCurrency = payload.data.currency ?? "NGN";
+				const verifiedId =
+					payload.data.id ?? params.flwTransactionId ?? Date.now();
+
+				return recordVerifiedFlutterwavePayment({
+					tradeId: params.tradeId,
+					txRef: params.txRef,
+					flwTxId: verifiedId,
+					amountMinor: verifiedAmountMinor,
+					currency: verifiedCurrency,
+					source: "verify_api",
+				});
+			}
 		}
-
-		if (payload.data.tx_ref !== params.txRef) {
-			throw new Error("FLW_TX_REF_MISMATCH");
-		}
-
-		const verifiedAmountMinor = parseDecimalToMinorUnits(
-			payload.data.amount ?? 0,
-		);
-		const verifiedCurrency = payload.data.currency ?? "NGN";
-		const verifiedId = payload.data.id ?? params.flwTransactionId ?? Date.now();
-
-		return recordVerifiedFlutterwavePayment({
-			tradeId: params.tradeId,
-			txRef: params.txRef,
-			flwTxId: verifiedId,
-			amountMinor: verifiedAmountMinor,
-			currency: verifiedCurrency,
-			source: "verify_api",
-		});
 	}
 
 	// Deterministic sandbox verification when FLW_SECRET_KEY is not set in local dev

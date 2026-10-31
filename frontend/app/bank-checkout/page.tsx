@@ -20,9 +20,10 @@ import {
 	RotateCcw,
 } from "lucide-react";
 import { useAccount } from "wagmi";
-import { Badge } from "@/components/shared";
+import { useEscrow } from "@/hooks/useEscrow";
+import { Badge, ToastAlert } from "@/components/shared";
 import { subscribeToTradeUpdates } from "@/lib/supabase/client";
-import { ARCSCAN_TX } from "@/lib/web3/arcConfig";
+import { ARCSCAN_TX, ESCROW_ADDRESS } from "@/lib/web3/arcConfig";
 import { cn, RATE } from "@/lib/utils";
 import type {
 	EscrowOperationState,
@@ -82,9 +83,55 @@ const LIFECYCLE_STEPS: { state: TradeLifecycleState; label: string }[] = [
 	{ state: "COMPLETED", label: "6. Completed On-Chain" },
 ];
 
+function CheckoutSkeleton() {
+	return (
+		<div className="max-w-5xl mx-auto space-y-5 animate-pulse">
+			<div className="flex items-center justify-between">
+				<div className="h-4 w-32 bg-[#e2f0e8] rounded" />
+				<div className="flex gap-2">
+					<div className="h-6 w-24 bg-[#e2f0e8] rounded-full" />
+					<div className="h-6 w-32 bg-[#e2f0e8] rounded-full" />
+				</div>
+			</div>
+			<div className="rounded-xl border border-[#d1e8dc] bg-white p-4 space-y-3">
+				<div className="h-3 w-40 bg-[#e2f0e8] rounded" />
+				<div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+					{[...Array(6)].map((_, i) => (
+						<div
+							key={i}
+							className="h-16 rounded-lg bg-[#f0f7f3] border border-[#d1e8dc]"
+						/>
+					))}
+				</div>
+			</div>
+			<div className="rounded-2xl border border-[#d1e8dc] bg-white p-6 space-y-6">
+				<div className="h-8 w-60 bg-[#e2f0e8] rounded" />
+				<div className="p-4 rounded-xl bg-[#f8fcfa] border border-[#d1e8dc] space-y-4">
+					<div className="h-10 w-44 bg-[#e2f0e8] rounded" />
+					<div className="grid grid-cols-3 gap-3 pt-2">
+						<div className="h-10 bg-[#e2f0e8] rounded" />
+						<div className="h-10 bg-[#e2f0e8] rounded" />
+						<div className="h-10 bg-[#e2f0e8] rounded" />
+					</div>
+				</div>
+				<div className="space-y-3">
+					{[...Array(4)].map((_, i) => (
+						<div key={i} className="h-6 bg-[#f0f7f3] rounded" />
+					))}
+				</div>
+				<div className="grid grid-cols-2 gap-3 pt-2">
+					<div className="h-10 bg-[#e2f0e8] rounded-lg" />
+					<div className="h-10 bg-[#1a9e5c]/30 rounded-lg" />
+				</div>
+			</div>
+		</div>
+	);
+}
+
 function BankCheckoutContent() {
 	const searchParams = useSearchParams();
 	const { address, isConnected } = useAccount();
+	const escrow = useEscrow();
 
 	const tradeId = searchParams.get("tradeId") || "";
 	const callbackTxRef = searchParams.get("tx_ref") || "";
@@ -112,10 +159,13 @@ function BankCheckoutContent() {
 			return;
 		}
 		try {
-			const res = await fetch(`/api/trades/${encodeURIComponent(tradeId)}/lifecycle`, {
-				cache: "no-store",
-				headers: { "x-wallet-address": address },
-			});
+			const res = await fetch(
+				`/api/trades/${encodeURIComponent(tradeId)}/lifecycle`,
+				{
+					cache: "no-store",
+					headers: { "x-wallet-address": address },
+				},
+			);
 			if (res.status === 401) {
 				setAuthenticated(false);
 				return;
@@ -164,18 +214,22 @@ function BankCheckoutContent() {
 			};
 
 			if (!res.ok || !data.txRef) {
-				throw new Error(data.error || "Could not initialize Flutterwave checkout.");
+				throw new Error(
+					data.error || "Could not initialize Flutterwave checkout.",
+				);
 			}
 
 			if (data.hostedMode) setHostedMode(data.hostedMode);
 			setAttempt({
 				id: data.attemptId || "",
 				txRef: data.txRef,
-				expectedAmountMinor: data.expectedAmountMinor || 50_000_000,
+				expectedAmountMinor:
+					data.expectedAmountMinor || trade?.fiatAmountMinor || 0,
 				expectedCurrency: data.expectedCurrency || "NGN",
 				checkoutUrl: data.checkoutUrl || "",
 				status: "REDIRECT_READY",
-				expiresAt: data.expiresAt || new Date(Date.now() + 20 * 60_000).toISOString(),
+				expiresAt:
+					data.expiresAt || new Date(Date.now() + 20 * 60_000).toISOString(),
 			});
 			await fetchTradeState();
 		} catch (err) {
@@ -276,9 +330,18 @@ function BankCheckoutContent() {
 			}
 		};
 		void verifyCallback();
-	}, [address, authenticated, callbackTransactionId, callbackTxRef, fetchTradeState, tradeId]);
+	}, [
+		address,
+		authenticated,
+		callbackTransactionId,
+		callbackTxRef,
+		fetchTradeState,
+		tradeId,
+	]);
 
-	const handleVerifyPayment = async (simulateScenario?: "exact" | "underpaid") => {
+	const handleVerifyPayment = async (
+		simulateScenario?: "exact" | "underpaid",
+	) => {
 		if (!address) return;
 		setBusyAction("verify_payment");
 		setErrorMsg(null);
@@ -287,7 +350,7 @@ function BankCheckoutContent() {
 		try {
 			let activeTxRef = attempt?.txRef || trade?.activeTxRef;
 			let expectedMinor =
-				attempt?.expectedAmountMinor || trade?.fiatAmountMinor || 50_000_000;
+				attempt?.expectedAmountMinor || trade?.fiatAmountMinor || 0;
 
 			if (!activeTxRef) {
 				const initRes = await fetch("/api/payments/flutterwave/checkout", {
@@ -304,7 +367,9 @@ function BankCheckoutContent() {
 					error?: string;
 				};
 				if (!initRes.ok || !initData.txRef) {
-					throw new Error(initData.error || "Could not initialize checkout attempt.");
+					throw new Error(
+						initData.error || "Could not initialize checkout attempt.",
+					);
 				}
 				activeTxRef = initData.txRef;
 				expectedMinor = initData.expectedAmountMinor ?? expectedMinor;
@@ -336,7 +401,9 @@ function BankCheckoutContent() {
 			};
 
 			if (!res.ok) {
-				throw new Error(data.error || "Server-side payment verification failed.");
+				throw new Error(
+					data.error || "Server-side payment verification failed.",
+				);
 			}
 
 			await fetchTradeState();
@@ -390,12 +457,8 @@ function BankCheckoutContent() {
 				body: JSON.stringify({
 					operation,
 					reason: extra?.reason,
-					txHash:
-						extra?.txHash ||
-						`0x${Date.now().toString(16).padStart(64, "a")}`,
-					proofId:
-						extra?.proofId ||
-						`0x${Date.now().toString(16).padStart(64, "b")}`,
+					txHash: extra?.txHash || undefined,
+					proofId: extra?.proofId || undefined,
 				}),
 			});
 
@@ -431,14 +494,77 @@ function BankCheckoutContent() {
 		try {
 			await handleLifecycleOperation("payout_initiate");
 			await handleLifecycleOperation("payout_confirm");
-			await handleLifecycleOperation("escrow_request_release");
-			await handleLifecycleOperation("escrow_confirm_on_chain");
+
+			let releaseTxHash: `0x${string}` | undefined;
+			if (
+				escrow.isConnected &&
+				!escrow.isWrongChain &&
+				ESCROW_ADDRESS !== "0x0000000000000000000000000000000000000000" &&
+				tradeId &&
+				/^\d+$/.test(tradeId)
+			) {
+				const isSeller = trade?.sellerAddress?.toLowerCase() === address.toLowerCase();
+				if (isSeller) {
+					try {
+						releaseTxHash = await escrow.releaseFunds(BigInt(tradeId));
+					} catch (e) {
+						console.warn("Direct on-chain release error:", e);
+					}
+				} else {
+					try {
+						await escrow.markFiatSent(BigInt(tradeId));
+					} catch (e) {
+						console.warn("markFiatSent on-chain error:", e);
+					}
+				}
+			}
+
+			await handleLifecycleOperation("escrow_request_release", { txHash: releaseTxHash });
+			await handleLifecycleOperation("escrow_confirm_on_chain", { txHash: releaseTxHash });
 			setStatusBanner(
-				"Seller payout confirmed and Arc USDC escrow released on-chain. Trade is COMPLETED.",
+				`Seller payout confirmed and Arc USDC escrow released on-chain${releaseTxHash ? ` (Tx: ${releaseTxHash.slice(0, 8)}…)` : ""}. Trade is COMPLETED.`,
 			);
+			window.dispatchEvent(new CustomEvent("peernotary-balance-refresh"));
 		} catch (err) {
 			setErrorMsg(
 				err instanceof Error ? err.message : "Settlement pipeline halted.",
+			);
+		} finally {
+			setBusyAction(null);
+		}
+	};
+
+	const handleCancelOrder = async () => {
+		if (!tradeId || !address) return;
+		setBusyAction("cancel_trade");
+		setErrorMsg(null);
+		try {
+			const res = await fetch(
+				`/api/trades/${encodeURIComponent(tradeId)}/lifecycle`,
+				{
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"x-wallet-address": address,
+					},
+					body: JSON.stringify({
+						operation: "cancel",
+						reason:
+							"Cancelled by buyer due to technical challenge or preference.",
+					}),
+				},
+			);
+			if (!res.ok) {
+				const d = (await res.json().catch(() => ({}))) as { error?: string };
+				throw new Error(d.error || "Failed to cancel order.");
+			}
+			setStatusBanner(
+				"Order cancelled successfully. Escrow inventory lock has been released back to seller.",
+			);
+			await fetchTradeState();
+		} catch (err) {
+			setErrorMsg(
+				err instanceof Error ? err.message : "Failed to cancel order.",
 			);
 		} finally {
 			setBusyAction(null);
@@ -450,6 +576,10 @@ function BankCheckoutContent() {
 		setCopiedRef(true);
 		setTimeout(() => setCopiedRef(false), 1500);
 	};
+
+	if (loading) {
+		return <CheckoutSkeleton />;
+	}
 
 	if (authenticated === false || !isConnected) {
 		return (
@@ -484,7 +614,8 @@ function BankCheckoutContent() {
 					No Active Trade Order Found
 				</h2>
 				<p className="text-xs text-[#7aaa92]">
-					Please select an order from the Trading Desk or place an order from your Dashboard before accessing the settlement portal.
+					Please select an order from the Trading Desk or place an order from
+					your Dashboard before accessing the settlement portal.
 				</p>
 				<Link
 					href="/trade"
@@ -496,15 +627,15 @@ function BankCheckoutContent() {
 		);
 	}
 
-	const fiatMinor =
-		trade?.fiatAmountMinor ?? attempt?.expectedAmountMinor ?? 50_000_000;
+	const fiatMinor = trade?.fiatAmountMinor ?? attempt?.expectedAmountMinor ?? 0;
 	const fiatMajorNgn = (fiatMinor / 100).toLocaleString("en-NG", {
 		minimumFractionDigits: 2,
 		maximumFractionDigits: 2,
 	});
-	const usdcDisplay =
-		trade?.usdcAmount ?? (fiatMinor / 100 / RATE).toFixed(2);
-	const platformFeeUsdc = (parseFloat(usdcDisplay.replace(/,/g, "")) * 0.01).toFixed(2);
+	const usdcDisplay = trade?.usdcAmount ?? (fiatMinor / 100 / RATE).toFixed(2);
+	const platformFeeUsdc = (
+		parseFloat(usdcDisplay.replace(/,/g, "")) * 0.01
+	).toFixed(2);
 	const currentLifecycle = trade?.lifecycleState ?? "AWAITING_PAYMENT";
 	const activeTxRef = attempt?.txRef || trade?.activeTxRef || "Not initialized";
 
@@ -539,14 +670,7 @@ function BankCheckoutContent() {
 									: "amber"
 						}
 					/>
-					<Badge
-						label={
-							hostedMode === "live_api"
-								? "Flutterwave Standard v3 Live"
-								: "Flutterwave Standard v3 Sandbox"
-						}
-						color="cyan"
-					/>
+					<Badge label="Secure Payment Rail" color="cyan" />
 				</div>
 			</div>
 
@@ -578,7 +702,9 @@ function BankCheckoutContent() {
 							>
 								<div className="flex items-center justify-between mb-1">
 									<span className="font-mono text-[10px]">STEP {idx + 1}</span>
-									{isDone && <CheckCircle2 size={12} className="text-[#1a9e5c]" />}
+									{isDone && (
+										<CheckCircle2 size={12} className="text-[#1a9e5c]" />
+									)}
 								</div>
 								<div className="leading-snug">{s.label.slice(3)}</div>
 							</div>
@@ -587,30 +713,14 @@ function BankCheckoutContent() {
 				</div>
 			</div>
 
-			{errorMsg && (
-				<div className="p-3.5 rounded-xl bg-red-50 border border-red-200 flex items-start justify-between gap-3 text-xs text-red-700">
-					<div className="flex items-start gap-2">
-						<AlertTriangle size={15} className="shrink-0 mt-0.5 text-red-600" />
-						<span>{errorMsg}</span>
-					</div>
-					<button
-						type="button"
-						onClick={() => setErrorMsg(null)}
-						className="text-[11px] font-semibold underline"
-					>
-						Dismiss
-					</button>
-				</div>
-			)}
-
-			{statusBanner && (
-				<div className="p-3.5 rounded-xl bg-[#f0f7f3] border border-[#1a9e5c]/30 flex items-center justify-between gap-3 text-xs text-[#0d2b1e]">
-					<div className="flex items-center gap-2">
-						<CheckCircle2 size={15} className="text-[#1a9e5c] shrink-0" />
-						<span>{statusBanner}</span>
-					</div>
-				</div>
-			)}
+			<ToastAlert
+				type={errorMsg ? "error" : "success"}
+				message={errorMsg ?? statusBanner}
+				onClose={() => {
+					setErrorMsg(null);
+					setStatusBanner(null);
+				}}
+			/>
 
 			<div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
 				{/* Left Column: Flutterwave Standard Checkout & Terms */}
@@ -622,10 +732,10 @@ function BankCheckoutContent() {
 							</div>
 							<div>
 								<h1 className="text-sm font-bold text-[#0d2b1e]">
-									Flutterwave Standard Hosted Checkout
+									Fiat Payment Settlement
 								</h1>
 								<p className="text-xs text-[#7aaa92]">
-									Server-Verified Fiat Collection · No Direct Bank Login Redirect
+									Server-Verified Bank Settlement
 								</p>
 							</div>
 						</div>
@@ -653,7 +763,9 @@ function BankCheckoutContent() {
 								</div>
 							</div>
 							<div>
-								<div className="text-[11px] text-[#7aaa92]">Platform Fee (1%)</div>
+								<div className="text-[11px] text-[#7aaa92]">
+									Platform Fee (1%)
+								</div>
 								<div className="font-mono font-semibold text-[#0d2b1e]">
 									{platformFeeUsdc} USDC
 								</div>
@@ -670,7 +782,7 @@ function BankCheckoutContent() {
 					{/* Beneficiary & Reference Details */}
 					<div className="space-y-2.5 text-xs">
 						<div className="flex items-center justify-between py-2 border-b border-[#e2f0e8]">
-							<span className="text-[#7aaa92]">Flutterwave Reference (tx_ref)</span>
+							<span className="text-[#7aaa92]">Payment Reference (tx_ref)</span>
 							<div className="flex items-center gap-1.5">
 								<span className="font-mono font-semibold text-[#0d2b1e]">
 									{activeTxRef}
@@ -691,7 +803,8 @@ function BankCheckoutContent() {
 							<span className="text-[#7aaa92]">Seller Settlement Bank</span>
 							<span className="font-semibold text-[#0d2b1e] flex items-center gap-1.5">
 								<Building2 size={13} className="text-[#1a9e5c]" />
-								{trade?.bankName ?? "GTBank"} ({trade?.accountMasked ?? "******6789"})
+								{trade?.bankName ?? "Bank Transfer"} (
+								{trade?.accountMasked ?? "******"})
 							</span>
 						</div>
 						<div className="flex items-center justify-between py-2 border-b border-[#e2f0e8]">
@@ -726,12 +839,14 @@ function BankCheckoutContent() {
 								>
 									<RefreshCw
 										size={13}
-										className={cn(busyAction === "init_checkout" && "animate-spin")}
+										className={cn(
+											busyAction === "init_checkout" && "animate-spin",
+										)}
 									/>
 									<span>
 										{attempt?.txRef
 											? "Refresh Checkout Session"
-											: "1. Initialize Flutterwave Checkout"}
+											: "1. Initialize Payment"}
 									</span>
 								</button>
 
@@ -744,7 +859,7 @@ function BankCheckoutContent() {
 									{busyAction === "verify_payment" ? (
 										<>
 											<RefreshCw size={13} className="animate-spin" />
-											<span>Verifying with Flutterwave...</span>
+											<span>Verifying payment...</span>
 										</>
 									) : (
 										<>
@@ -774,6 +889,14 @@ function BankCheckoutContent() {
 								>
 									Reconcile Payment Deadline
 								</button>
+								<button
+									type="button"
+									disabled={busyAction !== null}
+									onClick={() => void handleCancelOrder()}
+									className="text-[11px] text-red-600 hover:text-red-700 font-medium underline"
+								>
+									Cancel Order & Release Lock
+								</button>
 							</div>
 						</div>
 					)}
@@ -787,8 +910,8 @@ function BankCheckoutContent() {
 								Settlement & On-Chain Release Orchestration
 							</div>
 							<p className="text-[11px] text-[#3d6b55] leading-relaxed">
-								Buyer payment is verified. USDC escrow release is strictly gated on
-								confirmed seller fiat payout and verified on-chain execution.
+								Buyer payment is verified. USDC escrow release is strictly gated
+								on confirmed seller fiat payout and verified on-chain execution.
 							</p>
 							<div className="flex flex-wrap gap-2">
 								<button
@@ -819,7 +942,8 @@ function BankCheckoutContent() {
 										disabled={busyAction !== null}
 										onClick={() =>
 											void handleLifecycleOperation("escrow_hold_revert", {
-												reason: "Chain transaction reverted; held for receipt check.",
+												reason:
+													"Chain transaction reverted; held for receipt check.",
 											})
 										}
 										className="py-2 px-3 rounded-lg border border-red-200 bg-red-50 text-red-700 text-xs font-semibold"
@@ -878,7 +1002,8 @@ function BankCheckoutContent() {
 										disabled={busyAction !== null}
 										onClick={() =>
 											void handleLifecycleOperation("refund_request", {
-												reason: "Late payment after deadline; initiating buyer refund.",
+												reason:
+													"Late payment after deadline; initiating buyer refund.",
 											})
 										}
 										className="py-2 px-3 rounded-lg border border-red-300 bg-white text-red-700 text-xs font-semibold"
@@ -1001,8 +1126,8 @@ function BankCheckoutContent() {
 							Financial Settlement Guarantees
 						</div>
 						<div>
-							• Browser redirects never mark a payment confirmed; every payment is
-							verified directly with Flutterwave on the server.
+							• Browser redirects never mark a payment confirmed; every payment
+							is verified directly with Flutterwave on the server.
 						</div>
 						<div>
 							• USDC escrow release requires both confirmed buyer payment and
@@ -1018,13 +1143,7 @@ function BankCheckoutContent() {
 export default function BankCheckoutPage() {
 	return (
 		<div className="min-h-screen bg-[#f4faf6] text-[#0d2b1e] py-8 px-4 sm:px-6">
-			<Suspense
-				fallback={
-					<div className="max-w-4xl mx-auto p-8 rounded-xl bg-white border border-[#d1e8dc] text-center text-xs text-[#7aaa92]">
-						Loading Flutterwave Checkout & Settlement Portal...
-					</div>
-				}
-			>
+			<Suspense fallback={<CheckoutSkeleton />}>
 				<BankCheckoutContent />
 			</Suspense>
 		</div>

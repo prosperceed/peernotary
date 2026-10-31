@@ -1,4 +1,5 @@
-import UserDashboard from "@/components/dashboard/UserDashboard";
+import { Suspense } from "react";
+import UserDashboard, { DashboardSkeleton } from "@/components/dashboard/UserDashboard";
 
 export default function UserDashboardPage() {
 	return (
@@ -10,7 +11,9 @@ export default function UserDashboardPage() {
 						Track your wallet balance, escrow trades, and open peer market orders on Arc Testnet
 					</p>
 				</div>
-				<UserDashboard />
+				<Suspense fallback={<DashboardSkeleton />}>
+					<UserDashboard />
+				</Suspense>
 			</div>
 		</div>
 	);

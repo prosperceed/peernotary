@@ -22,7 +22,7 @@ import {
 	CreditCard,
 	Clock,
 } from "lucide-react";
-import { StepBar } from "@/components/shared";
+import { StepBar, ToastAlert } from "@/components/shared";
 import { useEscrow } from "@/hooks/useEscrow";
 import {
 	arcTestnet,
@@ -321,17 +321,19 @@ export default function TradingWidget({
 	const [remainingSeconds, setRemainingSeconds] = useState<number>(1200);
 
 	// Track real on-chain wallet USDC balance
-	const { data: nativeBalance } = useBalance({
+	const { data: nativeBalance, refetch: refetchNative } = useBalance({
 		address,
 		chainId: arcTestnet.id,
+		query: { refetchInterval: 4000 },
 	});
-	const { data: erc20BalanceRaw } = useReadContract(
+	const { data: erc20BalanceRaw, refetch: refetchErc20 } = useReadContract(
 		address
 			? {
 					address: USDC_ADDRESS,
 					abi: USDC_ABI,
 					functionName: "balanceOf",
 					args: [address],
+					query: { refetchInterval: 4000 },
 				}
 			: undefined,
 	);
@@ -346,35 +348,6 @@ export default function TradingWidget({
 		}
 		return 0;
 	}, [erc20BalanceRaw, nativeBalance]);
-
-	// Sync external selectedOffer prop when clicked in parent portal
-	useEffect(() => {
-		if (selectedOffer) {
-			setActiveOffer(selectedOffer);
-			setSelectedBank(selectedOffer.bankName);
-			setNgnInput(selectedOffer.ngnAmount.replace(/[^0-9,]/g, ""));
-			setFeedback(null);
-			void fetchTradeLifecycle(selectedOffer.tradeId);
-		} else {
-			setActiveOffer(null);
-			setLifecycleTrade(null);
-			setNgnInput("");
-		}
-	}, [selectedOffer, fetchTradeLifecycle]);
-
-	const activeTradeId = activeOffer?.tradeId ?? lifecycleTrade?.tradeId ?? "";
-	const activeRate = activeOffer?.rateNgn ?? lifecycleTrade?.rateNgn ?? RATE;
-	const maxOfferUsdc = parseFloat(
-		(activeOffer?.availableUsdc ?? lifecycleTrade?.usdcAmount ?? "0").replace(/,/g, ""),
-	) || 0;
-	const rawNgn = parseFloat(ngnInput.replace(/[^0-9.]/g, "")) || 0;
-	const computedUsdc = activeRate > 0 ? Math.min(maxOfferUsdc, rawNgn / activeRate) : 0;
-	const usdcAmount = computedUsdc > 0 ? computedUsdc.toFixed(2) : "0.00";
-	const collateralUsdc =
-		activeOffer?.requiredCollateralUsdc ??
-		lifecycleTrade?.requiredCollateralUsdc ??
-		"0.00";
-	const platformFee = (parseFloat(usdcAmount.replace(/,/g, "") || "0") * 0.005).toFixed(2);
 
 	const fetchTradeLifecycle = useCallback(async (tid: string) => {
 		if (!tid) return;
@@ -401,6 +374,35 @@ export default function TradingWidget({
 		}
 	}, []);
 
+	// Sync external selectedOffer prop when clicked in parent portal
+	useEffect(() => {
+		if (selectedOffer) {
+			setActiveOffer(selectedOffer);
+			setSelectedBank(selectedOffer.bankName);
+			setNgnInput(selectedOffer.ngnAmount.replace(/[^0-9,]/g, ""));
+			setFeedback(null);
+			void fetchTradeLifecycle(selectedOffer.tradeId);
+		} else {
+			setActiveOffer(null);
+			setLifecycleTrade(null);
+			setNgnInput("");
+		}
+	}, [selectedOffer, fetchTradeLifecycle]);
+
+	const activeTradeId = lifecycleTrade?.tradeId ?? activeOffer?.tradeId ?? "";
+	const activeRate = lifecycleTrade?.rateNgn ?? activeOffer?.rateNgn ?? RATE;
+	const maxOfferUsdc = parseFloat(
+		(activeOffer?.availableUsdc ?? lifecycleTrade?.usdcAmount ?? "0").replace(/,/g, ""),
+	) || 0;
+	const rawNgn = parseFloat(ngnInput.replace(/[^0-9.]/g, "")) || 0;
+	const computedUsdc = activeRate > 0 ? Math.min(maxOfferUsdc, rawNgn / activeRate) : 0;
+	const usdcAmount = computedUsdc > 0 ? computedUsdc.toFixed(2) : "0.00";
+	const collateralUsdc =
+		lifecycleTrade?.requiredCollateralUsdc ??
+		activeOffer?.requiredCollateralUsdc ??
+		"0.00";
+	const platformFee = (parseFloat(usdcAmount.replace(/,/g, "") || "0") * 0.005).toFixed(2);
+
 	const loadLiveMarket = useCallback(async () => {
 		setLoadingMarket(true);
 		try {
@@ -421,14 +423,14 @@ export default function TradingWidget({
 				if (currentInOffers) {
 					setActiveOffer(currentInOffers);
 				}
-				void fetchTradeLifecycle(activeOffer.tradeId);
+				void fetchTradeLifecycle(lifecycleTrade?.tradeId || activeOffer.tradeId);
 			}
 		} catch {
 			// Ignore initial fetch failure
 		} finally {
 			setLoadingMarket(false);
 		}
-	}, [activeOffer, address, fetchTradeLifecycle]);
+	}, [activeOffer, address, fetchTradeLifecycle, lifecycleTrade?.tradeId]);
 
 	useEffect(() => {
 		void loadLiveMarket();
@@ -561,7 +563,14 @@ export default function TradingWidget({
 			const data = (await res.json()) as {
 				error?: string;
 				executionMode?: "ACTIVE_SLOT" | "QUEUED";
+				activeTradeId?: string | null;
 				allocatedTradeId?: string;
+				queueEntry?: {
+					queueRef: string;
+					queuePosition: number;
+					estimatedWaitSeconds: number;
+					requestedUsdc: string;
+				} | null;
 				queueRef?: string;
 				queuePosition?: number;
 				estimatedWaitSeconds?: number;
@@ -572,21 +581,24 @@ export default function TradingWidget({
 			}
 
 			if (data.executionMode === "QUEUED") {
+				const qRef = data.queueEntry?.queueRef || data.queueRef || `Q-${activeTradeId}`;
+				const qPos = data.queueEntry?.queuePosition ?? data.queuePosition ?? 1;
+				const qWait = data.queueEntry?.estimatedWaitSeconds ?? data.estimatedWaitSeconds ?? 420;
 				setQueuedOrderInfo({
-					queueRef: data.queueRef || `Q-${activeTradeId}`,
-					queuePosition: data.queuePosition ?? 1,
-					estimatedWaitSeconds: data.estimatedWaitSeconds ?? 420,
-					requestedUsdc: usdcAmount,
+					queueRef: qRef,
+					queuePosition: qPos,
+					estimatedWaitSeconds: qWait,
+					requestedUsdc: data.queueEntry?.requestedUsdc || usdcAmount,
 				});
 				onTradeUpdated?.();
 				setFeedback({
 					type: "success",
-					text: `Seller is currently settling an active buyer slot. Reserved ${usdcAmount} USDC at Queue #${data.queuePosition ?? 1}.`,
+					text: `Seller is currently settling an active buyer slot. Reserved ${usdcAmount} USDC at Queue #${qPos}.`,
 				});
 				return;
 			}
 
-			const targetTradeId = data.allocatedTradeId || activeTradeId;
+			const targetTradeId = data.activeTradeId || data.allocatedTradeId || activeTradeId;
 			setQueuedOrderInfo(null);
 			await fetchTradeLifecycle(targetTradeId);
 			onTradeUpdated?.();
@@ -661,12 +673,13 @@ export default function TradingWidget({
 			});
 			const data = (await res.json()) as {
 				error?: string;
+				activeTradeId?: string;
 				allocatedTradeId?: string;
 			};
 			if (!res.ok) {
 				throw new Error(data.error || "Seller slot is still busy.");
 			}
-			const tid = data.allocatedTradeId || activeTradeId;
+			const tid = data.activeTradeId || data.allocatedTradeId || activeTradeId;
 			setQueuedOrderInfo(null);
 			await fetchTradeLifecycle(tid);
 			onTradeUpdated?.();
@@ -693,21 +706,26 @@ export default function TradingWidget({
 		try {
 			const res = await fetch("/api/payments/flutterwave/checkout", {
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
+				headers: {
+					"Content-Type": "application/json",
+					...(address ? { "x-wallet-address": address } : {}),
+				},
 				body: JSON.stringify({
 					tradeId: activeTradeId,
-					redirectUrl: `${window.location.origin}/bank-checkout?tradeId=${encodeURIComponent(
-						activeTradeId,
-					)}&bank=${encodeURIComponent(selectedBank)}&amountNgn=${encodeURIComponent(
-						cleanNgn,
-					)}&amountUsdc=${encodeURIComponent(usdcAmount)}&returnTo=/trade`,
 				}),
 			});
 
 			if (res.ok) {
 				const data = (await res.json()) as { checkoutUrl?: string };
-				if (data.checkoutUrl && data.checkoutUrl.startsWith("https://")) {
-					window.location.href = data.checkoutUrl;
+				if (data.checkoutUrl) {
+					if (
+						data.checkoutUrl.startsWith("https://") &&
+						!data.checkoutUrl.includes(window.location.host)
+					) {
+						window.location.href = data.checkoutUrl;
+						return;
+					}
+					router.push(data.checkoutUrl);
 					return;
 				}
 			}
@@ -726,6 +744,48 @@ export default function TradingWidget({
 		router.push(`/bank-checkout?${qs.toString()}`);
 	};
 
+	const handleCancelTradeInWidget = async () => {
+		if (!activeTradeId) return;
+		setActionBusy("cancel_trade");
+		setFeedback(null);
+		try {
+			const res = await fetch(
+				`/api/trades/${encodeURIComponent(activeTradeId)}/lifecycle`,
+				{
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						...(address ? { "x-wallet-address": address } : {}),
+					},
+					body: JSON.stringify({
+						operation: "cancel",
+						reason: "Cancelled by buyer due to technical challenge or preference.",
+					}),
+				},
+			);
+			const data = (await res.json()) as { error?: string };
+			if (!res.ok) {
+				throw new Error(data.error || "Failed to cancel order.");
+			}
+			setFeedback({
+				type: "success",
+				text: `Trade #${activeTradeId} cancelled successfully and escrow lock released back to seller.`,
+			});
+			setStep(0);
+			setActiveOffer(null);
+			setLifecycleTrade(null);
+			onTradeUpdated?.();
+			void loadLiveMarket();
+		} catch (err) {
+			setFeedback({
+				type: "error",
+				text: err instanceof Error ? err.message : "Could not cancel order.",
+			});
+		} finally {
+			setActionBusy(null);
+		}
+	};
+
 	const handleLifecycleAction = async (
 		action: string,
 		extra: Record<string, unknown> = {},
@@ -733,12 +793,36 @@ export default function TradingWidget({
 		setActionBusy(action);
 		setFeedback(null);
 		try {
+			let operation = action;
+			let txHash: `0x${string}` | undefined = (extra.txHash as `0x${string}`) || undefined;
+
+			if (action === "confirm_payout") {
+				operation = "payout_confirm";
+			} else if (action === "release_escrow") {
+				operation = "escrow_confirm_on_chain";
+				if (
+					escrow.isConnected &&
+					!escrow.isWrongChain &&
+					ESCROW_ADDRESS !== "0x0000000000000000000000000000000000000000" &&
+					/^\d+$/.test(activeTradeId)
+				) {
+					try {
+						txHash = await escrow.releaseFunds(BigInt(activeTradeId));
+					} catch (e) {
+						console.warn("Direct releaseFunds failed:", e);
+					}
+				}
+			}
+
 			const res = await fetch(
 				`/api/trades/${encodeURIComponent(activeTradeId)}/lifecycle`,
 				{
 					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ action, ...extra }),
+					headers: {
+						"Content-Type": "application/json",
+						...(address ? { "x-wallet-address": address } : {}),
+					},
+					body: JSON.stringify({ operation, txHash, ...extra }),
 				},
 			);
 			const data = (await res.json()) as {
@@ -751,10 +835,13 @@ export default function TradingWidget({
 			if (data.trade) {
 				setLifecycleTrade(data.trade);
 			}
+			await refetchNative?.();
+			await refetchErc20?.();
 			onTradeUpdated?.();
+			window.dispatchEvent(new CustomEvent("peernotary-balance-refresh"));
 			setFeedback({
 				type: "success",
-				text: `Updated Trade #${activeTradeId} to ${data.trade?.lifecycleState ?? action}.`,
+				text: `Updated Trade #${activeTradeId} to ${data.trade?.lifecycleState ?? action}${txHash ? ` (Tx: ${txHash.slice(0, 8)}…)` : ""}.`,
 			});
 		} catch (err) {
 			setFeedback({
@@ -811,26 +898,12 @@ export default function TradingWidget({
 				</div>
 			</div>
 
-			{/* Feedback Banner */}
-			{feedback && (
-				<div
-					className={cn(
-						"mb-4 p-3 rounded-lg border text-xs flex items-center justify-between gap-2",
-						feedback.type === "success"
-							? "bg-[#f0f7f3] border-[#1a9e5c]/30 text-[#0d2b1e]"
-							: "bg-red-50 border-red-200 text-red-700",
-					)}
-				>
-					<span className="break-words">{feedback.text}</span>
-					<button
-						type="button"
-						onClick={() => setFeedback(null)}
-						className="text-[11px] underline text-[#7aaa92] hover:text-[#0d2b1e] shrink-0"
-					>
-						Dismiss
-					</button>
-				</div>
-			)}
+			{/* Animated Dropping Toast Notification */}
+			<ToastAlert
+				type={feedback?.type ?? "info"}
+				message={feedback?.text}
+				onClose={() => setFeedback(null)}
+			/>
 
 			{!activeOffer && !lifecycleTrade ? (
 				<div className="py-12 px-4 text-center space-y-3">
@@ -975,13 +1048,6 @@ export default function TradingWidget({
 							<div className="text-[11px] text-[#7aaa92]">Settlement Bank Rail</div>
 							<div className="font-medium text-[#0d2b1e] mt-0.5 truncate">
 								{activeOffer?.bankName ?? lifecycleTrade?.bankName ?? selectedBank}
-							</div>
-						</div>
-
-						<div className="p-2.5 rounded-lg border border-[#d1e8dc] bg-[#fbfdfc]">
-							<div className="text-[11px] text-[#7aaa92]">Buyer Collateral Required</div>
-							<div className="font-mono font-medium text-[#1a9e5c] mt-0.5">
-								0.00 USDC (Seller-Funded)
 							</div>
 						</div>
 					</div>
@@ -1142,8 +1208,8 @@ export default function TradingWidget({
 								>
 									<span>
 										{redirectingBank
-											? "Opening Checkout..."
-											: "Proceed to Bank Checkout"}
+											? "Opening Payment..."
+											: "Proceed to Payment"}
 									</span>
 									<ExternalLink size={13} />
 								</button>
@@ -1160,8 +1226,17 @@ export default function TradingWidget({
 									)}&returnTo=/trade`}
 									className="py-2.5 px-3 rounded-lg border border-[#d1e8dc] bg-white text-[#0d2b1e] hover:bg-[#f0f7f3] font-medium text-xs text-center"
 								>
-									Open Full Settlement Portal
+									Open Settlement Portal
 								</Link>
+
+								<button
+									type="button"
+									onClick={() => void handleCancelTradeInWidget()}
+									disabled={actionBusy === "cancel_trade"}
+									className="py-2.5 px-3 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 font-medium text-xs flex items-center justify-center gap-1.5 disabled:opacity-50"
+								>
+									<span>Cancel Trade</span>
+								</button>
 							</div>
 						</div>
 					)}
@@ -1229,13 +1304,6 @@ export default function TradingWidget({
 							<span className="text-[#7aaa92]">Seller Principal Locked</span>
 							<span className="font-mono font-semibold text-[#0d2b1e]">
 								{usdcAmount} USDC
-							</span>
-						</div>
-
-						<div className="flex items-center justify-between">
-							<span className="text-[#7aaa92]">Buyer Collateral Required</span>
-							<span className="font-mono font-medium text-[#1a9e5c]">
-								0.00 USDC (Seller-Funded)
 							</span>
 						</div>
 

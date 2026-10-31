@@ -1,6 +1,8 @@
 "use client";
 
-import React, { useRef, useEffect } from "react";
+import React, { useEffect } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { CheckCircle2, AlertTriangle, Info, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { BadgeColor, TradeStep } from "@/types";
 
@@ -262,16 +264,121 @@ export function CountdownRing({ seconds, total = 300 }: CountdownRingProps) {
 				>
 					{mins}:{secs}
 				</text>
-				<text
-					x={cx}
-					y={cy + 13}
-					textAnchor="middle"
-					fill="#7aaa92"
-					fontSize="9"
-				>
-					remaining
-				</text>
-			</svg>
-		</div>
+					<text
+						x={cx}
+						y={cy + 13}
+						textAnchor="middle"
+						fill="#7aaa92"
+						fontSize="9"
+					>
+						remaining
+					</text>
+				</svg>
+			</div>
+		);
+}
+
+// ─── SILEO CAPSULE TOAST ALERT ────────────────────────────────────────────────
+export interface ToastAlertProps {
+	type: "success" | "error" | "info" | "warning";
+	message: string | null | undefined;
+	title?: string;
+	onClose: () => void;
+	autoHideMs?: number;
+}
+
+export function ToastAlert({
+	type,
+	message,
+	title,
+	onClose,
+	autoHideMs = 5000,
+}: ToastAlertProps) {
+	useEffect(() => {
+		if (!message) return;
+		const timer = window.setTimeout(() => {
+			onClose();
+		}, autoHideMs);
+		return () => window.clearTimeout(timer);
+	}, [message, autoHideMs, onClose]);
+
+	const palette = {
+		success: {
+			border: "border-[#1a9e5c]/40",
+			iconBg: "bg-[#f0f7f3] text-[#1a9e5c] border-[#d1e8dc]",
+			Icon: CheckCircle2,
+		},
+		error: {
+			border: "border-red-300",
+			iconBg: "bg-red-50 text-red-600 border-red-200",
+			Icon: AlertTriangle,
+		},
+		warning: {
+			border: "border-amber-300",
+			iconBg: "bg-amber-50 text-amber-700 border-amber-200",
+			Icon: AlertTriangle,
+		},
+		info: {
+			border: "border-[#d1e8dc]",
+			iconBg: "bg-[#f0f7f3] text-[#1a9e5c] border-[#d1e8dc]",
+			Icon: Info,
+		},
+	}[type];
+
+	const IconComponent = palette.Icon;
+
+	return (
+		<AnimatePresence>
+			{message && (
+				<div className="fixed top-5 left-1/2 -translate-x-1/2 z-[150] w-auto max-w-[92vw] pointer-events-none flex justify-center">
+					<motion.div
+						key={message}
+						initial={{ opacity: 0, y: -22, scale: 0.92 }}
+						animate={{ opacity: 1, y: 0, scale: 1 }}
+						exit={{ opacity: 0, y: -16, scale: 0.94 }}
+						transition={{
+							type: "spring",
+							stiffness: 460,
+							damping: 32,
+							mass: 0.7,
+						}}
+						className={cn(
+							"pointer-events-auto relative inline-flex items-center gap-2.5 rounded-full border bg-white/95 backdrop-blur-md shadow-lg shadow-[#0d2b1e]/10 py-1.5 px-3 sm:px-3.5",
+							palette.border,
+						)}
+					>
+						<div
+							className={cn(
+								"w-5 h-5 rounded-full border flex items-center justify-center shrink-0",
+								palette.iconBg,
+							)}
+						>
+							<IconComponent size={12} strokeWidth={2.5} />
+						</div>
+
+						<div className="flex items-center gap-1.5 min-w-0 text-xs">
+							{title && (
+								<span className="font-semibold text-[#0d2b1e] shrink-0">
+									{title}
+								</span>
+							)}
+							{title && <span className="text-[#7aaa92] shrink-0">·</span>}
+							<span className="text-[#0d2b1e] font-medium truncate max-w-[240px] sm:max-w-md">
+								{message}
+							</span>
+						</div>
+
+						<button
+							type="button"
+							onClick={onClose}
+							aria-label="Dismiss notification"
+							className="p-1 rounded-full text-[#7aaa92] hover:text-[#0d2b1e] hover:bg-[#f0f7f3] transition-colors shrink-0 -mr-1"
+						>
+							<X size={12} strokeWidth={2.5} />
+						</button>
+					</motion.div>
+				</div>
+			)}
+		</AnimatePresence>
 	);
 }

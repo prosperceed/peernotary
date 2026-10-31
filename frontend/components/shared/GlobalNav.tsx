@@ -78,12 +78,17 @@ function WalletButton({
 }: {
 	onAuthChange?: (authenticated: boolean) => void;
 }) {
+	const [mounted, setMounted] = useState(false);
 	const { address, chainId, isConnected } = useAccount();
 	const { connectAsync, connectors } = useConnect();
 	const { disconnect } = useDisconnect();
 	const { signMessageAsync } = useSignMessage();
 	const { switchChainAsync } = useSwitchChain();
 	const [authenticated, setAuthenticated] = useState(false);
+
+	useEffect(() => {
+		setMounted(true);
+	}, []);
 
 	const updateAuthState = (next: boolean) => {
 		setAuthenticated(next);
@@ -239,7 +244,7 @@ function WalletButton({
 		`${addr.slice(0, 6)}…${addr.slice(-4)}`;
 
 	// ── STATE 1: Not connected ────────────────────────────────────────────────
-	if (!isConnected || !address) {
+	if (!mounted || !isConnected || !address) {
 		return (
 			<div className="flex flex-col items-end gap-1">
 				<button

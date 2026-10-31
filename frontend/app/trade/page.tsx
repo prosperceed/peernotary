@@ -358,7 +358,7 @@ export default function TradePage() {
 									<span>Seller-Funded Escrow</span>
 								</div>
 								<p className="text-[11px] text-[#7aaa92] mt-1 leading-relaxed">
-									Sellers lock 100% of available USDC inventory on Arc before listing. Buyers require 0 USDC collateral deposit.
+									Sellers lock 100% of available USDC inventory on Arc before listing for instant buyer settlement.
 								</p>
 							</div>
 

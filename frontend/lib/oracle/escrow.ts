@@ -9,7 +9,11 @@ const requiredEnv = (name: string): string => {
   return value;
 };
 
-const provider = new ethers.JsonRpcProvider(requiredEnv("ARC_RPC_URL"));
+const provider = new ethers.JsonRpcProvider(
+  requiredEnv("ARC_RPC_URL"),
+  5042002,
+  { staticNetwork: true },
+);
 const oracleWallet = new ethers.Wallet(
   requiredEnv("ORACLE_PRIVATE_KEY"),
   provider,

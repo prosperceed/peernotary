@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { Landmark, Search, ChevronDown, Check, X, Sparkles } from "lucide-react";
+import { Landmark, Search, ChevronDown, Check, X } from "lucide-react";
 
 export interface BankItem {
 	id: number | string;
@@ -321,13 +321,12 @@ export function BankSearchSelect({
 						<button
 							type="button"
 							onClick={() => setActiveCategory("popular")}
-							className={`px-2 py-0.5 rounded-full flex items-center gap-1 transition-all ${
+							className={`px-2.5 py-0.5 rounded-full transition-all ${
 								activeCategory === "popular"
 									? "bg-[#1a9e5c] text-white"
 									: "bg-[#f0f7f3] text-[#4a6b5d] hover:bg-[#e2f1e9]"
 							}`}
 						>
-							<Sparkles size={9} />
 							Popular
 						</button>
 						<button
@@ -360,8 +359,8 @@ export function BankSearchSelect({
 								}`}
 							>
 								<span className="flex items-center gap-2">
-									<span className="w-5 h-5 rounded-lg bg-[#e3f4ec] flex items-center justify-center text-[10px] font-bold text-[#1a9e5c]">
-										*
+									<span className="w-5 h-5 rounded-lg bg-[#e3f4ec] flex items-center justify-center text-[10px] text-[#1a9e5c]">
+										<Landmark size={10} />
 									</span>
 									<span>{allLabel}</span>
 								</span>

@@ -17,6 +17,9 @@ import {
 	Clock,
 	CreditCard,
 	RotateCcw,
+	Landmark,
+	ShieldCheck,
+	Sparkles,
 } from "lucide-react";
 import { useAccount } from "wagmi";
 import { useEscrow } from "@/hooks/useEscrow";
@@ -84,43 +87,51 @@ const LIFECYCLE_STEPS: { state: TradeLifecycleState; label: string }[] = [
 
 function CheckoutSkeleton() {
 	return (
-		<div className="max-w-5xl mx-auto space-y-5 animate-pulse">
+		<div className="max-w-6xl mx-auto space-y-6 animate-pulse">
 			<div className="flex items-center justify-between">
-				<div className="h-4 w-32 bg-[#e2f0e8] rounded" />
+				<div className="h-8 w-28 bg-[#e2f0e8] rounded-full" />
 				<div className="flex gap-2">
-					<div className="h-6 w-24 bg-[#e2f0e8] rounded-full" />
-					<div className="h-6 w-32 bg-[#e2f0e8] rounded-full" />
+					<div className="h-8 w-28 bg-[#e2f0e8] rounded-full" />
+					<div className="h-8 w-32 bg-[#e2f0e8] rounded-full" />
 				</div>
 			</div>
-			<div className="rounded-xl border border-[#d1e8dc] bg-white p-4 space-y-3">
+			<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+				{[...Array(4)].map((_, i) => (
+					<div
+						key={i}
+						className="h-36 rounded-[28px] bg-white border border-[#e5ebe7] p-6 space-y-3"
+					>
+						<div className="h-4 w-24 bg-[#e2f0e8] rounded" />
+						<div className="h-8 w-36 bg-[#e2f0e8] rounded" />
+						<div className="h-3 w-40 bg-[#e2f0e8] rounded" />
+					</div>
+				))}
+			</div>
+			<div className="rounded-[28px] border border-[#e5ebe7] bg-white p-6 space-y-3">
 				<div className="h-3 w-40 bg-[#e2f0e8] rounded" />
-				<div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+				<div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
 					{[...Array(6)].map((_, i) => (
 						<div
 							key={i}
-							className="h-16 rounded-lg bg-[#f0f7f3] border border-[#d1e8dc]"
+							className="h-16 rounded-2xl bg-[#f0f7f3] border border-[#d1e8dc]"
 						/>
 					))}
 				</div>
 			</div>
-			<div className="rounded-2xl border border-[#d1e8dc] bg-white p-6 space-y-6">
-				<div className="h-8 w-60 bg-[#e2f0e8] rounded" />
-				<div className="p-4 rounded-xl bg-[#f8fcfa] border border-[#d1e8dc] space-y-4">
-					<div className="h-10 w-44 bg-[#e2f0e8] rounded" />
-					<div className="grid grid-cols-3 gap-3 pt-2">
-						<div className="h-10 bg-[#e2f0e8] rounded" />
-						<div className="h-10 bg-[#e2f0e8] rounded" />
-						<div className="h-10 bg-[#e2f0e8] rounded" />
+			<div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+				<div className="lg:col-span-7 rounded-[32px] border border-[#e5ebe7] bg-white p-7 space-y-5">
+					<div className="h-6 w-48 bg-[#e2f0e8] rounded" />
+					<div className="grid grid-cols-2 gap-3">
+						<div className="h-20 bg-[#fbfdfc] rounded-2xl border border-[#e5ebe7]" />
+						<div className="h-20 bg-[#fbfdfc] rounded-2xl border border-[#e5ebe7]" />
+						<div className="h-20 bg-[#fbfdfc] rounded-2xl border border-[#e5ebe7]" />
+						<div className="h-20 bg-[#fbfdfc] rounded-2xl border border-[#e5ebe7]" />
 					</div>
+					<div className="h-12 bg-[#1a9e5c]/20 rounded-full" />
 				</div>
-				<div className="space-y-3">
-					{[...Array(4)].map((_, i) => (
-						<div key={i} className="h-6 bg-[#f0f7f3] rounded" />
-					))}
-				</div>
-				<div className="grid grid-cols-2 gap-3 pt-2">
-					<div className="h-10 bg-[#e2f0e8] rounded-lg" />
-					<div className="h-10 bg-[#1a9e5c]/30 rounded-lg" />
+				<div className="lg:col-span-5 rounded-[32px] border border-[#e5ebe7] bg-white p-7 space-y-4">
+					<div className="h-5 w-32 bg-[#e2f0e8] rounded" />
+					<div className="h-48 bg-[#fbfdfc] rounded-2xl border border-[#e5ebe7]" />
 				</div>
 			</div>
 		</div>
@@ -642,41 +653,136 @@ function BankCheckoutContent() {
 			: "20:00";
 
 	return (
-		<div className="max-w-5xl mx-auto space-y-6">
-			{/* Header Navigation */}
+		<div className="max-w-6xl mx-auto space-y-6">
+			{/* Top Navigation & Status Bar */}
 			<div className="flex flex-wrap items-center justify-between gap-3">
-				<Link
-					href={returnTo}
-					className="inline-flex items-center gap-2 rounded-full px-4 py-2 border border-[#d1e8dc] bg-white text-xs font-semibold text-[#0d2b1e] hover:bg-[#f0f7f3] transition-all shadow-sm"
-				>
-					<ArrowLeft size={14} />
-					<span>Back to Dashboard</span>
-				</Link>
+				<div className="flex items-center gap-3">
+					<Link
+						href={returnTo}
+						className="inline-flex items-center gap-2 rounded-full px-4 py-2 border border-[#d1e8dc] bg-white text-xs font-semibold text-[#0d2b1e] hover:bg-[#f0f7f3] hover:border-[#1a9e5c] transition-all shadow-sm"
+					>
+						<ArrowLeft size={14} />
+						<span>Dashboard</span>
+					</Link>
+					<span className="text-xs font-mono font-semibold text-[#7aaa92]">
+						Order #{tradeId}
+					</span>
+				</div>
+
 				<div className="flex items-center gap-2">
 					<span
 						className={cn(
-							"px-3.5 py-1.5 rounded-full text-xs font-semibold border",
+							"px-3.5 py-1.5 rounded-full text-xs font-semibold border flex items-center gap-1.5",
 							currentLifecycle === "COMPLETED"
 								? "bg-[#e8f7ee] border-[#1a9e5c] text-[#0d2b1e]"
 								: currentLifecycle.includes("HOLD") ||
 									  currentLifecycle === "REFUND_PENDING" ||
 									  currentLifecycle === "LATE_PAYMENT_REVIEW"
 									? "bg-red-50 border-red-200 text-red-800"
-									: "bg-amber-50 border-amber-200 text-amber-800",
+									: "bg-[#f0f7f3] border-[#d1e8dc] text-[#0d2b1e]",
 						)}
 					>
-						State: {currentLifecycle}
+						<span
+							className={cn(
+								"w-2 h-2 rounded-full",
+								currentLifecycle === "COMPLETED"
+									? "bg-[#1a9e5c]"
+									: currentLifecycle.includes("HOLD")
+										? "bg-red-500"
+										: "bg-[#1a9e5c] animate-pulse",
+							)}
+						/>
+						<span>{currentLifecycle.replace(/_/g, " ")}</span>
 					</span>
-					<span className="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#f0f7f3] border border-[#d1e8dc] text-[#1a9e5c]">
-						Secure Payment Rail
+					<span className="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#0d2b1e] text-white">
+						Protected Escrow
 					</span>
+				</div>
+			</div>
+
+			{/* 4 Metric Pill Cards matching the Dashboard Layout */}
+			<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+				{/* Card 1: Payable Amount */}
+				<div className="rounded-[28px] p-6 bg-gradient-to-br from-[#0d2b1e] via-[#113827] to-[#1a4a35] text-white shadow-sm flex flex-col justify-between min-h-[148px]">
+					<div className="flex items-center justify-between text-xs text-[#a0c4b3]">
+						<span>Payable Amount</span>
+						<span className="px-2 py-0.5 rounded-full bg-white/10 text-[10px] font-mono font-semibold text-[#d1e8dc]">
+							Fiat NGN
+						</span>
+					</div>
+					<div className="my-2">
+						<div className="text-2xl sm:text-3xl font-extrabold font-mono tracking-tight">
+							₦{fiatMajorNgn}
+						</div>
+					</div>
+					<div className="flex items-center gap-1.5 text-[11px] text-[#d1e8dc] font-mono">
+						<CheckCircle2 size={12} className="text-[#34d399]" />
+						<span>≈ {usdcDisplay} USDC (Rate: ₦{(trade?.rateNgn ?? RATE).toLocaleString("en-NG")})</span>
+					</div>
+				</div>
+
+				{/* Card 2: Release SLA / Timer */}
+				<div className="rounded-[28px] p-6 bg-white border border-[#e5ebe7] shadow-sm flex flex-col justify-between min-h-[148px]">
+					<div className="flex items-center justify-between text-xs text-[#7aaa92]">
+						<span>Payment Window</span>
+						<span className="px-2 py-0.5 rounded-full bg-[#f0f7f3] text-[10px] font-mono font-semibold text-[#1a9e5c]">
+							20m Auto-Cancel
+						</span>
+					</div>
+					<div className="my-2 flex items-baseline gap-2">
+						<div className="text-2xl sm:text-3xl font-extrabold font-mono text-[#0d2b1e] tracking-tight">
+							{formattedCountdown}
+						</div>
+					</div>
+					<div className="flex items-center gap-1.5 text-[11px] text-[#3d6b55]">
+						<Clock size={12} className="text-[#1a9e5c]" />
+						<span>Instant Release SLA · 4.1s Avg Settlement</span>
+					</div>
+				</div>
+
+				{/* Card 3: Settlement Bank */}
+				<div className="rounded-[28px] p-6 bg-white border border-[#e5ebe7] shadow-sm flex flex-col justify-between min-h-[148px]">
+					<div className="flex items-center justify-between text-xs text-[#7aaa92]">
+						<span>Settlement Bank</span>
+						<span className="px-2 py-0.5 rounded-full bg-[#f0f7f3] text-[10px] font-mono text-[#4a6b5d]">
+							CBN {trade?.bankCode ?? "058"}
+						</span>
+					</div>
+					<div className="my-2">
+						<div className="text-xl sm:text-2xl font-bold text-[#0d2b1e] truncate">
+							{trade?.bankName ?? "Bank Transfer"}
+						</div>
+					</div>
+					<div className="flex items-center gap-1.5 text-[11px] font-mono text-[#7aaa92]">
+						<Landmark size={12} className="text-[#1a9e5c]" />
+						<span>Account: {trade?.accountMasked ?? "******"}</span>
+					</div>
+				</div>
+
+				{/* Card 4: Arc Escrow Lock */}
+				<div className="rounded-[28px] p-6 bg-white border border-[#e5ebe7] shadow-sm flex flex-col justify-between min-h-[148px]">
+					<div className="flex items-center justify-between text-xs text-[#7aaa92]">
+						<span>Escrow Inventory</span>
+						<span className="px-2 py-0.5 rounded-full bg-[#f0f7f3] text-[10px] font-mono text-[#1a9e5c]">
+							Arc Testnet
+						</span>
+					</div>
+					<div className="my-2">
+						<div className="text-2xl sm:text-3xl font-extrabold font-mono text-[#0d2b1e] tracking-tight">
+							{usdcDisplay} USDC
+						</div>
+					</div>
+					<div className="flex items-center gap-1.5 text-[11px] text-[#3d6b55]">
+						<ShieldCheck size={12} className="text-[#1a9e5c]" />
+						<span>0 USDC Buyer Bond · Zero Collateral</span>
+					</div>
 				</div>
 			</div>
 
 			{/* Authoritative 6-Stage Progress Stepper */}
 			<div className="rounded-[28px] border border-[#e5ebe7] bg-white p-6 shadow-sm">
 				<div className="text-[11px] font-bold uppercase tracking-wider text-[#7aaa92] mb-3">
-					Authoritative Settlement Pipeline (Trade #{tradeId})
+					Settlement Pipeline (Trade #{tradeId})
 				</div>
 				<div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
 					{LIFECYCLE_STEPS.map((s, idx) => {
@@ -691,21 +797,25 @@ function BankCheckoutContent() {
 							<div
 								key={s.state}
 								className={cn(
-									"p-3 rounded-2xl border text-[11px] font-medium transition-all",
+									"p-3.5 rounded-2xl border text-[11px] font-medium transition-all",
 									isDone
 										? "border-[#1a9e5c]/40 bg-[#f0f7f3] text-[#0d2b1e]"
 										: isCurrent
-											? "border-[#1a9e5c] bg-[#e3f5ec] text-[#0d2b1e] font-bold shadow-sm"
-											: "border-[#e2f0e8] bg-[#fafdfc] text-[#7aaa92]",
+											? "border-[#1a9e5c] bg-[#e3f5ec] text-[#0d2b1e] font-bold shadow-sm ring-2 ring-[#1a9e5c]/20"
+											: "border-[#e5ebe7] bg-[#fafdfc] text-[#7aaa92]",
 								)}
 							>
-								<div className="flex items-center justify-between mb-1">
-									<span className="font-mono text-[10px]">STEP {idx + 1}</span>
-									{isDone && (
-										<CheckCircle2 size={12} className="text-[#1a9e5c]" />
-									)}
+								<div className="flex items-center justify-between mb-1.5">
+									<span className="font-mono text-[10px] text-[#7aaa92]">
+										STAGE {idx + 1}
+									</span>
+									{isDone ? (
+										<CheckCircle2 size={13} className="text-[#1a9e5c]" />
+									) : isCurrent ? (
+										<span className="w-2 h-2 rounded-full bg-[#1a9e5c] animate-ping" />
+									) : null}
 								</div>
-								<div className="leading-snug">{s.label.slice(3)}</div>
+								<div className="leading-snug text-[#0d2b1e]">{s.label.slice(3)}</div>
 							</div>
 						);
 					})}
@@ -721,9 +831,10 @@ function BankCheckoutContent() {
 				}}
 			/>
 
+			{/* Main Two-Column Layout */}
 			<div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-				{/* Left Column: Standard Checkout & Terms */}
-				<div className="lg:col-span-7 rounded-[32px] border border-[#e5ebe7] bg-white p-6 sm:p-7 space-y-6 shadow-[0_4px_24px_rgba(13,43,30,0.06)]">
+				{/* Left Column: Bank Settlement Card */}
+				<div className="lg:col-span-7 rounded-[32px] border border-[#e5ebe7] bg-white p-6 sm:p-8 space-y-6 shadow-[0_4px_24px_rgba(13,43,30,0.06)]">
 					<div className="flex items-start justify-between border-b border-[#eef2ee] pb-4">
 						<div className="flex items-center gap-3">
 							<div className="w-11 h-11 rounded-2xl bg-[#f0f7f3] border border-[#d1e8dc] flex items-center justify-center text-[#1a9e5c]">
@@ -734,7 +845,7 @@ function BankCheckoutContent() {
 									Fiat Payment Settlement
 								</h1>
 								<p className="text-xs text-[#7aaa92]">
-									Server-Verified Bank Settlement
+									Transfer exact NGN amount using the details below
 								</p>
 							</div>
 						</div>
@@ -744,156 +855,116 @@ function BankCheckoutContent() {
 						</div>
 					</div>
 
-					{/* Immutable Payment Summary */}
-					<div className="p-4 rounded-xl bg-[#f8fcfa] border border-[#d1e8dc] space-y-3">
-						<div className="flex items-baseline justify-between">
-							<span className="text-xs text-[#3d6b55] font-medium">
-								Authoritative Payable Amount
+					{/* Bank Transfer Details Cards */}
+					<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+						{/* Bank Name */}
+						<div className="p-4 rounded-2xl bg-[#fbfdfc] border border-[#e5ebe7] space-y-1">
+							<span className="text-[11px] font-medium text-[#7aaa92]">
+								Beneficiary Bank
 							</span>
-							<span className="text-xl font-bold font-mono text-[#0d2b1e]">
-								₦{fiatMajorNgn}
-							</span>
-						</div>
-						<div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-2 border-t border-[#e2f0e8] text-xs">
-							<div>
-								<div className="text-[11px] text-[#7aaa92]">Locked Escrow</div>
-								<div className="font-mono font-semibold text-[#0d2b1e]">
-									{usdcDisplay} USDC
-								</div>
-							</div>
-							<div>
-								<div className="text-[11px] text-[#7aaa92]">
-									Platform Fee (1%)
-								</div>
-								<div className="font-mono font-semibold text-[#0d2b1e]">
-									{platformFeeUsdc} USDC
-								</div>
-							</div>
-							<div>
-								<div className="text-[11px] text-[#7aaa92]">Exchange Rate</div>
-								<div className="font-mono font-semibold text-[#0d2b1e]">
-									₦{(trade?.rateNgn ?? RATE).toLocaleString("en-NG")} / USDC
-								</div>
-							</div>
-						</div>
-					</div>
-
-					{/* Beneficiary & Reference Details */}
-					<div className="space-y-2.5 text-xs">
-						<div className="flex items-center justify-between py-2 border-b border-[#e2f0e8]">
-							<span className="text-[#7aaa92]">Payment Reference (tx_ref)</span>
-							<div className="flex items-center gap-1.5">
-								<span className="font-mono font-semibold text-[#0d2b1e]">
-									{activeTxRef}
+							<div className="text-sm font-bold text-[#0d2b1e] flex items-center justify-between">
+								<span>{trade?.bankName ?? "Bank Transfer"}</span>
+								<span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-[#f0f7f3] text-[#4a6b5d] border border-[#d1e8dc]">
+									{trade?.bankCode ?? "058"}
 								</span>
+							</div>
+						</div>
+
+						{/* Account Number */}
+						<div className="p-4 rounded-2xl bg-[#fbfdfc] border border-[#e5ebe7] space-y-1">
+							<span className="text-[11px] font-medium text-[#7aaa92]">
+								Account Number
+							</span>
+							<div className="text-sm font-mono font-bold text-[#0d2b1e] flex items-center justify-between">
+								<span>{trade?.accountMasked ?? "******"}</span>
+								<button
+									type="button"
+									onClick={() => copyReference(trade?.accountMasked ?? "")}
+									className="p-1 rounded-full text-[#7aaa92] hover:text-[#0d2b1e] hover:bg-[#f0f7f3] transition-colors"
+									title="Copy account"
+								>
+									{copiedRef ? <Check size={12} className="text-[#1a9e5c]" /> : <Copy size={12} />}
+								</button>
+							</div>
+						</div>
+
+						{/* Payable Exact Amount */}
+						<div className="p-4 rounded-2xl bg-[#fbfdfc] border border-[#e5ebe7] space-y-1">
+							<span className="text-[11px] font-medium text-[#7aaa92]">
+								Exact Amount to Pay
+							</span>
+							<div className="text-base font-mono font-extrabold text-[#1a9e5c] flex items-center justify-between">
+								<span>₦{fiatMajorNgn}</span>
+								<span className="text-[10px] font-normal text-[#7aaa92]">
+									{usdcDisplay} USDC
+								</span>
+							</div>
+						</div>
+
+						{/* Payment Reference */}
+						<div className="p-4 rounded-2xl bg-[#fbfdfc] border border-[#e5ebe7] space-y-1">
+							<span className="text-[11px] font-medium text-[#7aaa92]">
+								Payment Reference (tx_ref)
+							</span>
+							<div className="text-xs font-mono font-semibold text-[#0d2b1e] flex items-center justify-between">
+								<span className="truncate max-w-[150px]">{activeTxRef}</span>
 								{activeTxRef !== "Not initialized" && (
 									<button
 										type="button"
 										onClick={() => copyReference(activeTxRef)}
-										className="p-1 rounded hover:bg-[#f0f7f3] text-[#3d6b55]"
-										title="Copy tx_ref"
+										className="p-1 rounded-full text-[#7aaa92] hover:text-[#0d2b1e] hover:bg-[#f0f7f3] transition-colors"
+										title="Copy reference"
 									>
-										{copiedRef ? <Check size={12} /> : <Copy size={12} />}
+										{copiedRef ? <Check size={12} className="text-[#1a9e5c]" /> : <Copy size={12} />}
 									</button>
 								)}
 							</div>
 						</div>
-						<div className="flex items-center justify-between py-2 border-b border-[#e2f0e8]">
-							<span className="text-[#7aaa92]">Seller Settlement Bank</span>
-							<span className="font-semibold text-[#0d2b1e]">
-								{trade?.bankName ?? "Bank Transfer"} (
-								{trade?.accountMasked ?? "******"})
-							</span>
-						</div>
-						<div className="flex items-center justify-between py-2 border-b border-[#e2f0e8]">
-							<span className="text-[#7aaa92]">Payment State</span>
-							<span className="font-mono font-semibold text-[#0d2b1e]">
-								{trade?.paymentState ?? "UNPAID"}
-							</span>
-						</div>
-						<div className="flex items-center justify-between py-2 border-b border-[#e2f0e8]">
-							<span className="text-[#7aaa92]">Seller Payout State</span>
-							<span className="font-mono font-semibold text-[#0d2b1e]">
-								{trade?.payoutState ?? "NOT_STARTED"}
-							</span>
-						</div>
-						<div className="flex items-center justify-between py-2">
-							<span className="text-[#7aaa92]">Escrow Contract State</span>
-							<span className="font-mono font-semibold text-[#0d2b1e]">
-								{trade?.escrowState ?? "FUNDED"}
-							</span>
-						</div>
 					</div>
 
-					{/* Action Controls Based on Authoritative Lifecycle State */}
+					{/* Action Buttons */}
 					{currentLifecycle === "AWAITING_PAYMENT" && (
-						<div className="space-y-2.5 pt-2">
-							<div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+						<div className="space-y-3 pt-2">
+							<button
+								type="button"
+								disabled={busyAction !== null || secondsRemaining === 0}
+								onClick={() => void handleVerifyPayment("exact")}
+								className="w-full py-4 px-6 rounded-full bg-[#1a9e5c] hover:bg-[#15854c] text-white text-sm font-bold shadow-lg shadow-[#1a9e5c]/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+							>
+								{busyAction === "verify_payment" || busyAction === "full_pipeline" ? (
+									<>
+										<RefreshCw size={15} className="animate-spin" />
+										<span>Verifying Payment & Settling Escrow...</span>
+									</>
+								) : (
+									<>
+										<span>I Have Paid — Complete & Verify Checkout</span>
+										<ArrowRight size={15} />
+									</>
+								)}
+							</button>
+
+							<div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs">
 								<button
 									type="button"
 									disabled={busyAction !== null || secondsRemaining === 0}
 									onClick={() => void initializeCheckoutSession()}
-									className="py-2.5 px-4 rounded-lg border border-[#1a9e5c] text-[#1a9e5c] hover:bg-[#f0f7f3] text-xs font-semibold flex items-center justify-center gap-2 disabled:opacity-50"
+									className="px-4 py-2 rounded-full border border-[#d1e8dc] text-[#3d6b55] hover:border-[#1a9e5c] hover:text-[#0d2b1e] transition-all flex items-center gap-1.5"
 								>
 									<RefreshCw
-										size={13}
-										className={cn(
-											busyAction === "init_checkout" && "animate-spin",
-										)}
+										size={12}
+										className={cn(busyAction === "init_checkout" && "animate-spin")}
 									/>
-									<span>
-										{attempt?.txRef
-											? "Refresh Checkout Session"
-											: "1. Initialize Payment"}
-									</span>
+									<span>Refresh Session</span>
 								</button>
 
-								<button
-									type="button"
-									disabled={busyAction !== null || secondsRemaining === 0}
-									onClick={() => void handleVerifyPayment("exact")}
-									className="py-2.5 px-4 rounded-lg bg-[#1a9e5c] hover:bg-[#15854c] text-white text-xs font-semibold flex items-center justify-center gap-2 disabled:opacity-50"
-								>
-									{busyAction === "verify_payment" ? (
-										<>
-											<RefreshCw size={13} className="animate-spin" />
-											<span>Verifying payment...</span>
-										</>
-									) : (
-										<>
-											<span>2. Complete & Verify Checkout</span>
-											<ArrowRight size={13} />
-										</>
-									)}
-								</button>
-							</div>
-
-							<div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-								<button
-									type="button"
-									disabled={busyAction !== null}
-									onClick={() => void handleVerifyPayment("underpaid")}
-									className="text-[11px] text-[#7aaa92] hover:text-[#0d2b1e] underline"
-								>
-									Test Underpayment Hold Guard
-								</button>
-								<button
-									type="button"
-									disabled={busyAction !== null}
-									onClick={() =>
-										void handleLifecycleOperation("reconcile_deadline")
-									}
-									className="text-[11px] text-[#7aaa92] hover:text-[#0d2b1e] underline"
-								>
-									Reconcile Payment Deadline
-								</button>
 								<button
 									type="button"
 									disabled={busyAction !== null}
 									onClick={() => void handleCancelOrder()}
-									className="text-[11px] text-red-600 hover:text-red-700 font-medium underline"
+									className="px-4 py-2 rounded-full text-red-600 hover:bg-red-50 hover:text-red-700 transition-all font-medium"
 								>
-									Cancel Order & Release Lock
+									Cancel Order & Release Escrow
 								</button>
 							</div>
 						</div>
@@ -903,230 +974,161 @@ function BankCheckoutContent() {
 						currentLifecycle === "SELLER_PAYOUT_PENDING" ||
 						currentLifecycle === "SELLER_PAYOUT_CONFIRMED" ||
 						currentLifecycle === "RELEASE_PENDING") && (
-						<div className="p-4 rounded-xl bg-[#f0f7f3] border border-[#d1e8dc] space-y-3">
-							<div className="text-xs font-bold text-[#0d2b1e]">
-								Settlement & On-Chain Release Orchestration
+						<div className="p-5 rounded-2xl bg-[#f0f7f3] border border-[#1a9e5c]/30 space-y-3">
+							<div className="text-xs font-bold text-[#0d2b1e] flex items-center gap-2">
+								<CheckCircle2 size={16} className="text-[#1a9e5c]" />
+								<span>Payment Verified — Settlement in Progress</span>
 							</div>
-							<p className="text-[11px] text-[#3d6b55] leading-relaxed">
-								Buyer payment is verified. USDC escrow release is strictly gated
-								on confirmed seller fiat payout and verified on-chain execution.
+							<p className="text-xs text-[#3d6b55] leading-relaxed">
+								Your payment was confirmed. The oracle is releasing {usdcDisplay} USDC on Arc Testnet to your wallet.
 							</p>
-							<div className="flex flex-wrap gap-2">
-								<button
-									type="button"
-									disabled={busyAction !== null}
-									onClick={() => void handleCompleteFullSettlementPipeline()}
-									className="py-2 px-3.5 rounded-lg bg-[#1a9e5c] text-white text-xs font-semibold hover:bg-[#15854c] disabled:opacity-50"
-								>
-									{busyAction === "full_pipeline"
-										? "Executing Settlement..."
-										: "Execute Seller Payout & Release Escrow"}
-								</button>
-								<button
-									type="button"
-									disabled={busyAction !== null}
-									onClick={() =>
-										void handleLifecycleOperation("payout_hold", {
-											reason: "Bank NIP transfer timeout; placed on hold.",
-										})
-									}
-									className="py-2 px-3 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 text-xs font-semibold"
-								>
-									Simulate Payout Hold
-								</button>
-								{currentLifecycle === "RELEASE_PENDING" && (
-									<button
-										type="button"
-										disabled={busyAction !== null}
-										onClick={() =>
-											void handleLifecycleOperation("escrow_hold_revert", {
-												reason:
-													"Chain transaction reverted; held for receipt check.",
-											})
-										}
-										className="py-2 px-3 rounded-lg border border-red-200 bg-red-50 text-red-700 text-xs font-semibold"
-									>
-										Simulate Chain Revert Hold
-									</button>
-								)}
-							</div>
-						</div>
-					)}
-
-					{(currentLifecycle === "PAYOUT_ON_HOLD" ||
-						currentLifecycle === "LATE_PAYMENT_REVIEW" ||
-						currentLifecycle === "RELEASE_ON_HOLD" ||
-						currentLifecycle === "REFUND_PENDING") && (
-						<div className="p-4 rounded-xl bg-amber-50/70 border border-amber-200 space-y-3">
-							<div className="flex items-center gap-2 text-xs font-bold text-amber-900">
-								<AlertTriangle size={14} className="text-amber-600" />
-								<span>Recovery & Hold Resolution ({currentLifecycle})</span>
-							</div>
-							<p className="text-[11px] text-amber-800 leading-relaxed">
-								{trade?.failureReason ||
-									"Trade is preserved on hold. Reconcile the provider or chain state before retrying or authorizing a buyer refund."}
-							</p>
-							<div className="flex flex-wrap gap-2">
-								{currentLifecycle === "PAYOUT_ON_HOLD" && (
-									<>
-										<button
-											type="button"
-											disabled={busyAction !== null}
-											onClick={() =>
-												void handleLifecycleOperation("payout_confirm")
-											}
-											className="py-2 px-3 rounded-lg bg-[#1a9e5c] text-white text-xs font-semibold"
-										>
-											Retry & Confirm Seller Payout
-										</button>
-										<button
-											type="button"
-											disabled={busyAction !== null}
-											onClick={() =>
-												void handleLifecycleOperation("refund_request", {
-													reason: "Seller authorized refund after payout hold.",
-												})
-											}
-											className="py-2 px-3 rounded-lg border border-red-300 bg-white text-red-700 text-xs font-semibold flex items-center gap-1.5"
-										>
-											<RotateCcw size={12} />
-											<span>Request Buyer Refund</span>
-										</button>
-									</>
-								)}
-								{currentLifecycle === "LATE_PAYMENT_REVIEW" && (
-									<button
-										type="button"
-										disabled={busyAction !== null}
-										onClick={() =>
-											void handleLifecycleOperation("refund_request", {
-												reason:
-													"Late payment after deadline; initiating buyer refund.",
-											})
-										}
-										className="py-2 px-3 rounded-lg border border-red-300 bg-white text-red-700 text-xs font-semibold"
-									>
-										Authorize Late-Payment Refund
-									</button>
-								)}
-								{currentLifecycle === "REFUND_PENDING" && (
-									<button
-										type="button"
-										disabled={busyAction !== null}
-										onClick={() =>
-											void handleLifecycleOperation("refund_complete")
-										}
-										className="py-2 px-3 rounded-lg bg-red-600 text-white text-xs font-semibold"
-									>
-										Confirm Refund Settlement & Cancel Escrow
-									</button>
-								)}
-								{currentLifecycle === "RELEASE_ON_HOLD" && (
-									<button
-										type="button"
-										disabled={busyAction !== null}
-										onClick={() =>
-											void handleLifecycleOperation("escrow_confirm_on_chain")
-										}
-										className="py-2 px-3 rounded-lg bg-[#1a9e5c] text-white text-xs font-semibold"
-									>
-										Reconcile Receipt & Confirm Release
-									</button>
-								)}
-							</div>
+							<button
+								type="button"
+								disabled={busyAction !== null}
+								onClick={() => void handleCompleteFullSettlementPipeline()}
+								className="py-2.5 px-5 rounded-full bg-[#1a9e5c] text-white text-xs font-semibold hover:bg-[#15854c] shadow-sm transition-all"
+							>
+								{busyAction === "full_pipeline"
+									? "Executing Settlement..."
+									: "Finalize Escrow Release"}
+							</button>
 						</div>
 					)}
 
 					{currentLifecycle === "COMPLETED" && (
-						<div className="p-4 rounded-xl bg-[#f0f7f3] border border-[#1a9e5c]/40 space-y-3">
-							<div className="flex items-center justify-between">
-								<div className="flex items-center gap-2 text-xs font-bold text-[#0d2b1e]">
-									<CheckCircle2 size={16} className="text-[#1a9e5c]" />
-									<span>Trade Settled & Confirmed On-Chain</span>
-								</div>
-								{trade?.txHash && (
+						<div className="p-6 rounded-[24px] bg-[#f0f7f3] border border-[#1a9e5c]/40 space-y-4 text-center">
+							<div className="w-12 h-12 rounded-full bg-[#1a9e5c]/10 text-[#1a9e5c] flex items-center justify-center mx-auto">
+								<CheckCircle2 size={24} />
+							</div>
+							<div className="space-y-1">
+								<h3 className="text-base font-bold text-[#0d2b1e]">
+									Settlement Completed Successfully!
+								</h3>
+								<p className="text-xs text-[#3d6b55]">
+									{usdcDisplay} USDC has been released to your wallet on Arc Testnet.
+								</p>
+							</div>
+							{trade?.txHash && (
+								<div className="pt-1">
 									<a
 										href={ARCSCAN_TX(trade.txHash)}
 										target="_blank"
 										rel="noopener noreferrer"
-										className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#1a9e5c] hover:underline"
+										className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-white border border-[#d1e8dc] text-xs font-semibold text-[#1a9e5c] hover:border-[#1a9e5c] transition-all shadow-sm"
 									>
-										<span>View on ArcScan</span>
-										<ExternalLink size={11} />
+										<span>View On-Chain Receipt</span>
+										<ExternalLink size={12} />
 									</a>
-								)}
-							</div>
-							<div className="flex gap-2">
+								</div>
+							)}
+							<div className="pt-2">
 								<Link
 									href="/dashboard"
-									className="py-2 px-4 rounded-lg bg-[#1a9e5c] text-white text-xs font-semibold"
+									className="inline-flex items-center justify-center rounded-full px-6 py-2.5 bg-[#0d2b1e] hover:bg-[#153e2c] text-white text-xs font-semibold shadow-sm transition-all"
 								>
-									Return to User Dashboard
+									Return to Dashboard
 								</Link>
 							</div>
 						</div>
 					)}
 				</div>
 
-				{/* Right Column: Persistent Audit Trail & Security Invariants */}
-				<div className="lg:col-span-5 rounded-[32px] border border-[#e5ebe7] bg-white p-6 sm:p-7 space-y-4 shadow-[0_4px_24px_rgba(13,43,30,0.06)]">
-					<div className="flex items-center justify-between border-b border-[#eef2ee] pb-3">
-						<h2 className="text-sm font-bold text-[#0d2b1e]">
-							Authoritative Audit Trail
-						</h2>
-						<span className="text-[11px] font-mono font-semibold text-[#7aaa92]">
-							v{trade?.version ?? 1}
-						</span>
+				{/* Right Column: Counterparty Dossier & Audit Log */}
+				<div className="lg:col-span-5 space-y-6">
+					{/* Counterparty Trust Card */}
+					<div className="rounded-[32px] border border-[#e5ebe7] bg-white p-6 sm:p-7 shadow-[0_4px_24px_rgba(13,43,30,0.06)] space-y-4">
+						<div className="flex items-center justify-between border-b border-[#eef2ee] pb-3">
+							<div className="flex items-center gap-2">
+								<ShieldCheck size={16} className="text-[#1a9e5c]" />
+								<h2 className="text-sm font-bold text-[#0d2b1e]">
+									Settlement Guarantees
+								</h2>
+							</div>
+							<span className="text-[11px] font-mono text-[#7aaa92]">
+								Verified Peer
+							</span>
+						</div>
+
+						<div className="space-y-3 text-xs text-[#3d6b55]">
+							<div className="flex items-center justify-between py-1.5 border-b border-[#f0f4f2]">
+								<span className="text-[#7aaa92]">Seller Counterparty</span>
+								<span className="font-mono font-semibold text-[#0d2b1e]">
+									{trade?.sellerAddress ? `${trade.sellerAddress.slice(0, 6)}...${trade.sellerAddress.slice(-4)}` : "Verified Merchant"}
+								</span>
+							</div>
+							<div className="flex items-center justify-between py-1.5 border-b border-[#f0f4f2]">
+								<span className="text-[#7aaa92]">Order Completion SLA</span>
+								<span className="font-semibold text-[#0d2b1e]">100% Guaranteed</span>
+							</div>
+							<div className="flex items-center justify-between py-1.5 border-b border-[#f0f4f2]">
+								<span className="text-[#7aaa92]">Buyer Bond Required</span>
+								<span className="font-semibold text-[#1a9e5c]">0.00 USDC</span>
+							</div>
+							<div className="flex items-center justify-between py-1.5">
+								<span className="text-[#7aaa92]">Escrow Contract</span>
+								<span className="font-mono text-[11px] text-[#0d2b1e] truncate max-w-[140px]">
+									{ESCROW_ADDRESS}
+								</span>
+							</div>
+						</div>
+
+						<div className="p-3.5 rounded-2xl bg-[#f0f7f3] border border-[#d1e8dc]/70 text-[11px] text-[#3d6b55] space-y-1">
+							<div className="font-bold text-[#0d2b1e] flex items-center gap-1.5">
+								<Sparkles size={12} className="text-[#1a9e5c]" />
+								<span>Zero Counterparty Risk</span>
+							</div>
+							<p className="leading-relaxed">
+								The seller&apos;s {usdcDisplay} USDC was locked in escrow before order publication. Funds release automatically upon verified fiat receipt.
+							</p>
+						</div>
 					</div>
 
-					<div className="space-y-2.5 max-h-[380px] overflow-y-auto pr-1">
-						{loading ? (
-							<div className="text-xs text-[#7aaa92] py-8 text-center">
-								Loading trade lifecycle history...
-							</div>
-						) : auditEvents.length === 0 ? (
-							<div className="text-xs text-[#7aaa92] py-8 text-center">
-								No state transitions recorded yet for Trade #{tradeId}.
-							</div>
-						) : (
-							auditEvents.map((ev) => (
-								<div
-									key={ev.id}
-									className="p-3.5 rounded-2xl border border-[#eef2ee] bg-[#fafdfc] space-y-1 text-xs"
-								>
-									<div className="flex items-center justify-between">
-										<span className="font-mono font-bold text-[#0d2b1e] text-[11px]">
-											{ev.eventType}
-										</span>
-										<span className="text-[10px] text-[#7aaa92] uppercase font-semibold">
-											{ev.actorRole}
-										</span>
-									</div>
-									<div className="text-[11px] text-[#3d6b55]">
-										{ev.previousState ? `${ev.previousState} -> ` : ""}
-										<span className="font-semibold text-[#0d2b1e]">
-											{ev.newState}
-										</span>
-									</div>
-									<div className="text-[10px] text-[#7aaa92] font-mono">
-										{new Date(ev.createdAt).toLocaleTimeString()}
-									</div>
+					{/* Real-Time Audit Log Card */}
+					<div className="rounded-[32px] border border-[#e5ebe7] bg-white p-6 sm:p-7 shadow-[0_4px_24px_rgba(13,43,30,0.06)] space-y-4">
+						<div className="flex items-center justify-between border-b border-[#eef2ee] pb-3">
+							<h2 className="text-sm font-bold text-[#0d2b1e]">
+								Authoritative Audit Trail
+							</h2>
+							<span className="text-[11px] font-mono font-semibold text-[#7aaa92]">
+								v{trade?.version ?? 1}
+							</span>
+						</div>
+
+						<div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
+							{loading ? (
+								<div className="text-xs text-[#7aaa92] py-8 text-center">
+									Loading trade lifecycle history...
 								</div>
-							))
-						)}
-					</div>
-
-					<div className="p-3.5 rounded-2xl bg-[#f8fcfa] border border-[#d1e8dc] text-[11px] text-[#3d6b55] space-y-1">
-						<div className="font-bold text-[#0d2b1e]">
-							Financial Settlement Guarantees
-						</div>
-						<div>
-							• Browser redirects never mark a payment confirmed; every payment
-							is verified directly with Flutterwave on the server.
-						</div>
-						<div>
-							• USDC escrow release requires both confirmed buyer payment and
-							confirmed seller payout.
+							) : auditEvents.length === 0 ? (
+								<div className="text-xs text-[#7aaa92] py-8 text-center">
+									No state transitions recorded yet for Order #{tradeId}.
+								</div>
+							) : (
+								auditEvents.map((ev) => (
+									<div
+										key={ev.id}
+										className="p-3 rounded-2xl border border-[#eef2ee] bg-[#fafdfc] space-y-1 text-xs"
+									>
+										<div className="flex items-center justify-between">
+											<span className="font-mono font-bold text-[#0d2b1e] text-[11px]">
+												{ev.eventType}
+											</span>
+											<span className="text-[10px] text-[#7aaa92] uppercase font-semibold">
+												{ev.actorRole}
+											</span>
+										</div>
+										<div className="text-[11px] text-[#3d6b55]">
+											{ev.previousState ? `${ev.previousState} -> ` : ""}
+											<span className="font-semibold text-[#0d2b1e]">
+												{ev.newState}
+											</span>
+										</div>
+										<div className="text-[10px] text-[#7aaa92] font-mono">
+											{new Date(ev.createdAt).toLocaleTimeString()}
+										</div>
+									</div>
+								))
+							)}
 						</div>
 					</div>
 				</div>

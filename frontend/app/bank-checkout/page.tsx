@@ -10,7 +10,6 @@ import {
 	AlertTriangle,
 	ArrowLeft,
 	ArrowRight,
-	Building2,
 	ExternalLink,
 	Copy,
 	Check,
@@ -417,8 +416,9 @@ function BankCheckoutContent() {
 				);
 			} else {
 				setStatusBanner(
-					"Flutterwave transaction verified server-side. Trade advanced to PAYMENT_CONFIRMED.",
+					"Payment verified server-side. Completing settlement and releasing USDC on Arc Testnet...",
 				);
+				await handleCompleteFullSettlementPipeline();
 			}
 		} catch (err) {
 			setErrorMsg(
@@ -503,7 +503,8 @@ function BankCheckoutContent() {
 				tradeId &&
 				/^\d+$/.test(tradeId)
 			) {
-				const isSeller = trade?.sellerAddress?.toLowerCase() === address.toLowerCase();
+				const isSeller =
+					trade?.sellerAddress?.toLowerCase() === address.toLowerCase();
 				if (isSeller) {
 					try {
 						releaseTxHash = await escrow.releaseFunds(BigInt(tradeId));
@@ -519,8 +520,12 @@ function BankCheckoutContent() {
 				}
 			}
 
-			await handleLifecycleOperation("escrow_request_release", { txHash: releaseTxHash });
-			await handleLifecycleOperation("escrow_confirm_on_chain", { txHash: releaseTxHash });
+			await handleLifecycleOperation("escrow_request_release", {
+				txHash: releaseTxHash,
+			});
+			await handleLifecycleOperation("escrow_confirm_on_chain", {
+				txHash: releaseTxHash,
+			});
 			setStatusBanner(
 				`Seller payout confirmed and Arc USDC escrow released on-chain${releaseTxHash ? ` (Tx: ${releaseTxHash.slice(0, 8)}…)` : ""}. Trade is COMPLETED.`,
 			);
@@ -647,39 +652,43 @@ function BankCheckoutContent() {
 			: "20:00";
 
 	return (
-		<div className="max-w-5xl mx-auto space-y-5">
+		<div className="max-w-5xl mx-auto space-y-6">
 			{/* Header Navigation */}
 			<div className="flex flex-wrap items-center justify-between gap-3">
 				<Link
 					href={returnTo}
-					className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#3d6b55] hover:text-[#1a9e5c]"
+					className="inline-flex items-center gap-2 rounded-full px-4 py-2 border border-[#d1e8dc] bg-white text-xs font-semibold text-[#0d2b1e] hover:bg-[#f0f7f3] transition-all shadow-sm"
 				>
 					<ArrowLeft size={14} />
 					<span>Back to Dashboard</span>
 				</Link>
 				<div className="flex items-center gap-2">
-					<Badge
-						label={`State: ${currentLifecycle}`}
-						color={
+					<span
+						className={cn(
+							"px-3.5 py-1.5 rounded-full text-xs font-semibold border",
 							currentLifecycle === "COMPLETED"
-								? "green"
+								? "bg-[#e8f7ee] border-[#1a9e5c] text-[#0d2b1e]"
 								: currentLifecycle.includes("HOLD") ||
 									  currentLifecycle === "REFUND_PENDING" ||
 									  currentLifecycle === "LATE_PAYMENT_REVIEW"
-									? "red"
-									: "amber"
-						}
-					/>
-					<Badge label="Secure Payment Rail" color="cyan" />
+									? "bg-red-50 border-red-200 text-red-800"
+									: "bg-amber-50 border-amber-200 text-amber-800",
+						)}
+					>
+						State: {currentLifecycle}
+					</span>
+					<span className="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#f0f7f3] border border-[#d1e8dc] text-[#1a9e5c]">
+						Secure Payment Rail
+					</span>
 				</div>
 			</div>
 
 			{/* Authoritative 6-Stage Progress Stepper */}
-			<div className="rounded-xl border border-[#d1e8dc] bg-white p-4">
-				<div className="text-[11px] font-semibold uppercase tracking-wider text-[#7aaa92] mb-3">
-					Authoritative Trade Settlement Pipeline (Trade #{tradeId})
+			<div className="rounded-[28px] border border-[#e5ebe7] bg-white p-6 shadow-sm">
+				<div className="text-[11px] font-bold uppercase tracking-wider text-[#7aaa92] mb-3">
+					Authoritative Settlement Pipeline (Trade #{tradeId})
 				</div>
-				<div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+				<div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
 					{LIFECYCLE_STEPS.map((s, idx) => {
 						const currentIndex = LIFECYCLE_STEPS.findIndex(
 							(item) => item.state === currentLifecycle,
@@ -692,11 +701,11 @@ function BankCheckoutContent() {
 							<div
 								key={s.state}
 								className={cn(
-									"p-2.5 rounded-lg border text-[11px] font-medium transition-colors",
+									"p-3 rounded-2xl border text-[11px] font-medium transition-all",
 									isDone
 										? "border-[#1a9e5c]/40 bg-[#f0f7f3] text-[#0d2b1e]"
 										: isCurrent
-											? "border-[#1a9e5c] bg-[#e3f5ec] text-[#0d2b1e] font-bold"
+											? "border-[#1a9e5c] bg-[#e3f5ec] text-[#0d2b1e] font-bold shadow-sm"
 											: "border-[#e2f0e8] bg-[#fafdfc] text-[#7aaa92]",
 								)}
 							>
@@ -722,16 +731,16 @@ function BankCheckoutContent() {
 				}}
 			/>
 
-			<div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-				{/* Left Column: Flutterwave Standard Checkout & Terms */}
-				<div className="lg:col-span-7 rounded-xl border border-[#d1e8dc] bg-white p-5 space-y-5">
-					<div className="flex items-start justify-between border-b border-[#e2f0e8] pb-4">
+			<div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+				{/* Left Column: Standard Checkout & Terms */}
+				<div className="lg:col-span-7 rounded-[32px] border border-[#e5ebe7] bg-white p-6 sm:p-7 space-y-6 shadow-[0_4px_24px_rgba(13,43,30,0.06)]">
+					<div className="flex items-start justify-between border-b border-[#eef2ee] pb-4">
 						<div className="flex items-center gap-3">
-							<div className="w-10 h-10 rounded-xl bg-[#f0f7f3] border border-[#d1e8dc] flex items-center justify-center">
-								<CreditCard size={18} className="text-[#1a9e5c]" />
+							<div className="w-11 h-11 rounded-2xl bg-[#f0f7f3] border border-[#d1e8dc] flex items-center justify-center text-[#1a9e5c]">
+								<CreditCard size={20} />
 							</div>
 							<div>
-								<h1 className="text-sm font-bold text-[#0d2b1e]">
+								<h1 className="text-base font-bold text-[#0d2b1e]">
 									Fiat Payment Settlement
 								</h1>
 								<p className="text-xs text-[#7aaa92]">
@@ -739,8 +748,8 @@ function BankCheckoutContent() {
 								</p>
 							</div>
 						</div>
-						<div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#f0f7f3] border border-[#d1e8dc] text-xs font-mono text-[#0d2b1e]">
-							<Clock size={12} className="text-[#1a9e5c]" />
+						<div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#f0f7f3] border border-[#d1e8dc] text-xs font-mono font-semibold text-[#0d2b1e]">
+							<Clock size={13} className="text-[#1a9e5c]" />
 							<span>{formattedCountdown}</span>
 						</div>
 					</div>
@@ -801,8 +810,7 @@ function BankCheckoutContent() {
 						</div>
 						<div className="flex items-center justify-between py-2 border-b border-[#e2f0e8]">
 							<span className="text-[#7aaa92]">Seller Settlement Bank</span>
-							<span className="font-semibold text-[#0d2b1e] flex items-center gap-1.5">
-								<Building2 size={13} className="text-[#1a9e5c]" />
+							<span className="font-semibold text-[#0d2b1e]">
 								{trade?.bankName ?? "Bank Transfer"} (
 								{trade?.accountMasked ?? "******"})
 							</span>
@@ -1071,15 +1079,12 @@ function BankCheckoutContent() {
 				</div>
 
 				{/* Right Column: Persistent Audit Trail & Security Invariants */}
-				<div className="lg:col-span-5 rounded-xl border border-[#d1e8dc] bg-white p-5 space-y-4">
-					<div className="flex items-center justify-between border-b border-[#e2f0e8] pb-3">
-						<div className="flex items-center gap-2">
-							<Shield size={16} className="text-[#1a9e5c]" />
-							<h2 className="text-sm font-bold text-[#0d2b1e]">
-								Authoritative Audit Trail
-							</h2>
-						</div>
-						<span className="text-[11px] font-mono text-[#7aaa92]">
+				<div className="lg:col-span-5 rounded-[32px] border border-[#e5ebe7] bg-white p-6 sm:p-7 space-y-4 shadow-[0_4px_24px_rgba(13,43,30,0.06)]">
+					<div className="flex items-center justify-between border-b border-[#eef2ee] pb-3">
+						<h2 className="text-sm font-bold text-[#0d2b1e]">
+							Authoritative Audit Trail
+						</h2>
+						<span className="text-[11px] font-mono font-semibold text-[#7aaa92]">
 							v{trade?.version ?? 1}
 						</span>
 					</div>
@@ -1097,7 +1102,7 @@ function BankCheckoutContent() {
 							auditEvents.map((ev) => (
 								<div
 									key={ev.id}
-									className="p-3 rounded-lg border border-[#e2f0e8] bg-[#fafdfc] space-y-1 text-xs"
+									className="p-3.5 rounded-2xl border border-[#eef2ee] bg-[#fafdfc] space-y-1 text-xs"
 								>
 									<div className="flex items-center justify-between">
 										<span className="font-mono font-bold text-[#0d2b1e] text-[11px]">
@@ -1121,8 +1126,8 @@ function BankCheckoutContent() {
 						)}
 					</div>
 
-					<div className="p-3 rounded-lg bg-[#f8fcfa] border border-[#d1e8dc] text-[11px] text-[#3d6b55] space-y-1">
-						<div className="font-semibold text-[#0d2b1e]">
+					<div className="p-3.5 rounded-2xl bg-[#f8fcfa] border border-[#d1e8dc] text-[11px] text-[#3d6b55] space-y-1">
+						<div className="font-bold text-[#0d2b1e]">
 							Financial Settlement Guarantees
 						</div>
 						<div>
@@ -1142,7 +1147,7 @@ function BankCheckoutContent() {
 
 export default function BankCheckoutPage() {
 	return (
-		<div className="min-h-screen bg-[#f4faf6] text-[#0d2b1e] py-8 px-4 sm:px-6">
+		<div className="min-h-screen bg-[#edf2ee] text-[#0d2b1e] py-8 px-4 sm:px-6">
 			<Suspense fallback={<CheckoutSkeleton />}>
 				<BankCheckoutContent />
 			</Suspense>

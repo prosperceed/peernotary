@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ethers } from "ethers";
 import { getAuthenticatedUser } from "@/lib/auth/wallet";
-import { oracleRelease } from "@/lib/oracle/escrow";
+import { oracleSettleToBuyer } from "@/lib/oracle/escrow";
 import {
 	cancelPeerTradeUser,
 	getPaymentAttemptByRef,
 	getSharedTrade,
 	getTradeAuditEvents,
 	reconcileExpiredTrades,
+	resolveParentListingId,
 	transitionEscrowReleaseState,
 	transitionSellerPayoutState,
 	transitionTradeRefundState,
@@ -121,20 +122,31 @@ export async function POST(
 				break;
 			case "escrow_confirm_on_chain": {
 				let resolvedTxHash = body.txHash;
-				if (!resolvedTxHash && /^\d+$/.test(tradeId)) {
+				const sharedTrade = getSharedTrade(tradeId);
+				if (!resolvedTxHash && sharedTrade && /^\d+$/.test(tradeId)) {
+					const proof =
+						body.proofId && ethers.isHexString(body.proofId, 32)
+							? body.proofId
+							: ethers.keccak256(
+									ethers.toUtf8Bytes(`PN-RELEASE-${tradeId}-${Date.now()}`),
+								);
 					try {
-						const proof =
-							body.proofId && ethers.isHexString(body.proofId, 32)
-								? body.proofId
-								: ethers.keccak256(
-										ethers.toUtf8Bytes(`PN-RELEASE-${tradeId}-${Date.now()}`),
-									);
-						const releaseRes = await oracleRelease(BigInt(tradeId), proof);
-						if (releaseRes?.transactionHash) {
-							resolvedTxHash = releaseRes.transactionHash;
+						const settled = await oracleSettleToBuyer({
+							listingId: BigInt(resolveParentListingId(tradeId)),
+							buyerAddress: sharedTrade.buyerAddress ?? "",
+							amountUnits: BigInt(sharedTrade.usdcAmountUnits),
+							proofId: proof,
+						});
+						if (settled.transactionHash) {
+							resolvedTxHash = settled.transactionHash;
 						}
 					} catch (e) {
-						console.warn("oracleRelease on-chain execution skipped:", e);
+						const reason =
+							e instanceof Error ? e.message : "Escrow release failed";
+						return NextResponse.json(
+							{ error: `On-chain escrow release failed: ${reason}` },
+							{ status: 502 },
+						);
 					}
 				}
 				updatedTrade = transitionEscrowReleaseState(

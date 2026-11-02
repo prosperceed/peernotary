@@ -104,6 +104,10 @@ const userLedgerStore = new Map<string, UserTransaction[]>();
 const sharedTradesMap = new Map<string, SharedTrade>();
 const sellerInventoryMap = new Map<string, SellerInventoryRecord>();
 const childTradeToParentListingMap = new Map<string, string>();
+
+export function resolveParentListingId(tradeId: string): string {
+	return childTradeToParentListingMap.get(tradeId) ?? tradeId;
+}
 const queueEntriesStore = new Map<string, QueueEntryItem>();
 const userTrustStore = new Map<string, UserTrustSummary>();
 const paymentAttemptsByRef = new Map<string, PaymentAttemptInfo>();

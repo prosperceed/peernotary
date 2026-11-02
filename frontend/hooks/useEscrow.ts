@@ -65,7 +65,6 @@ export interface EscrowHookReturn {
 	isLoading: boolean;
 
 	// Actions
-	initiateTrade: (params: InitiateTradeParams) => Promise<`0x${string}`>;
 	initiateTrade: (params: InitiateTradeParams) => Promise<InitiateTradeResult>;
 	fundBuyerCollateral: (params: FundCollateralParams) => Promise<`0x${string}`>;
 	markFiatSent: (tradeId: bigint) => Promise<`0x${string}`>;
@@ -208,7 +207,6 @@ export function useEscrow(): EscrowHookReturn {
 			bankName,
 			accountNo,
 			sortCode = "",
-		}: InitiateTradeParams): Promise<`0x${string}`> => {
 		}: InitiateTradeParams): Promise<InitiateTradeResult> => {
 			reset();
 			try {
@@ -237,7 +235,6 @@ export function useEscrow(): EscrowHookReturn {
 									topics: log.topics,
 								});
 								if (decoded.eventName === "TradeInitiated") {
-									// @ts-expect-error viem args property
 									onChainTradeId = decoded.args?.tradeId?.toString();
 									break;
 								}
@@ -248,14 +245,12 @@ export function useEscrow(): EscrowHookReturn {
 
 				setTxHash(hash);
 				setTxState("confirmed");
-				return hash;
 				return { txHash: hash, tradeId: onChainTradeId };
 			} catch (e) {
 				setError(e);
 				throw e;
 			}
 		},
-		[reset, approveAndWrite, writeEscrow],
 		[reset, approveAndWrite, writeEscrow, publicClient],
 	);
 

@@ -3,11 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import {
-	useAccount,
-	useBalance,
-	useReadContract,
-} from "wagmi";
+import { useAccount, useBalance, useReadContract } from "wagmi";
 import { formatUnits } from "viem";
 import {
 	Shield,
@@ -178,7 +174,10 @@ function ZKProofPanel({
 				};
 			};
 
-			if (!execRes.ok || !verifiedData.proofSummary?.on_chain_proof_id_bytes32) {
+			if (
+				!execRes.ok ||
+				!verifiedData.proofSummary?.on_chain_proof_id_bytes32
+			) {
 				throw new Error(
 					verifiedData.error || "Proof verification failed on Rust server.",
 				);
@@ -236,7 +235,9 @@ function ZKProofPanel({
 										: "text-[#3d6b55]",
 							)}
 						>
-							<span className="shrink-0">{i < stage || isVerified ? "✓" : "→"}</span>
+							<span className="shrink-0">
+								{i < stage || isVerified ? "✓" : "→"}
+							</span>
 							<span className="break-words">{s}</span>
 						</div>
 					);
@@ -266,7 +267,8 @@ function ZKProofPanel({
 					</div>
 					{proofMeta.checksCount && (
 						<div className="text-[10px] text-[#3d6b55]">
-							{proofMeta.checksCount} cryptographic checks passed · Chain #5042002
+							{proofMeta.checksCount} cryptographic checks passed · Chain
+							#5042002
 						</div>
 					)}
 				</div>
@@ -294,8 +296,11 @@ export default function TradingWidget({
 
 	const [step, setStep] = useState<TradeStep>(0);
 	const [peerOffers, setPeerOffers] = useState<PeerTradeOffer[]>([]);
-	const [activeOffer, setActiveOffer] = useState<PeerTradeOffer | null>(selectedOffer);
-	const [lifecycleTrade, setLifecycleTrade] = useState<LifecycleTradeData | null>(null);
+	const [activeOffer, setActiveOffer] = useState<PeerTradeOffer | null>(
+		selectedOffer,
+	);
+	const [lifecycleTrade, setLifecycleTrade] =
+		useState<LifecycleTradeData | null>(null);
 	const [loadingMarket, setLoadingMarket] = useState(true);
 
 	const [verifyMode, setVerifyMode] = useState<VerifyMode>("bank");
@@ -303,7 +308,9 @@ export default function TradingWidget({
 	const [redirectingBank, setRedirectingBank] = useState(false);
 	const [zkDone, setZkDone] = useState(false);
 	const [bankLinked, setBankLinked] = useState(false);
-	const [verifiedProof, setVerifiedProof] = useState<VerifiedProofMeta | null>(null);
+	const [verifiedProof, setVerifiedProof] = useState<VerifiedProofMeta | null>(
+		null,
+	);
 
 	const [ngnInput, setNgnInput] = useState("");
 	const [creatingOrder, setCreatingOrder] = useState(false);
@@ -343,7 +350,9 @@ export default function TradingWidget({
 			return parseFloat(formatUsdc(erc20BalanceRaw));
 		}
 		if (nativeBalance && typeof nativeBalance.value === "bigint") {
-			const parsed = parseFloat(formatUnits(nativeBalance.value, nativeBalance.decimals));
+			const parsed = parseFloat(
+				formatUnits(nativeBalance.value, nativeBalance.decimals),
+			);
 			return Number.isFinite(parsed) ? parsed : 0;
 		}
 		return 0;
@@ -352,9 +361,12 @@ export default function TradingWidget({
 	const fetchTradeLifecycle = useCallback(async (tid: string) => {
 		if (!tid) return;
 		try {
-			const res = await fetch(`/api/trades/${encodeURIComponent(tid)}/lifecycle`, {
-				cache: "no-store",
-			});
+			const res = await fetch(
+				`/api/trades/${encodeURIComponent(tid)}/lifecycle`,
+				{
+					cache: "no-store",
+				},
+			);
 			if (!res.ok) return;
 			const data = (await res.json()) as { trade?: LifecycleTradeData };
 			if (data.trade) {
@@ -391,17 +403,24 @@ export default function TradingWidget({
 
 	const activeTradeId = lifecycleTrade?.tradeId ?? activeOffer?.tradeId ?? "";
 	const activeRate = lifecycleTrade?.rateNgn ?? activeOffer?.rateNgn ?? RATE;
-	const maxOfferUsdc = parseFloat(
-		(activeOffer?.availableUsdc ?? lifecycleTrade?.usdcAmount ?? "0").replace(/,/g, ""),
-	) || 0;
+	const maxOfferUsdc =
+		parseFloat(
+			(activeOffer?.availableUsdc ?? lifecycleTrade?.usdcAmount ?? "0").replace(
+				/,/g,
+				"",
+			),
+		) || 0;
 	const rawNgn = parseFloat(ngnInput.replace(/[^0-9.]/g, "")) || 0;
-	const computedUsdc = activeRate > 0 ? Math.min(maxOfferUsdc, rawNgn / activeRate) : 0;
+	const computedUsdc =
+		activeRate > 0 ? Math.min(maxOfferUsdc, rawNgn / activeRate) : 0;
 	const usdcAmount = computedUsdc > 0 ? computedUsdc.toFixed(2) : "0.00";
 	const collateralUsdc =
 		lifecycleTrade?.requiredCollateralUsdc ??
 		activeOffer?.requiredCollateralUsdc ??
 		"0.00";
-	const platformFee = (parseFloat(usdcAmount.replace(/,/g, "") || "0") * 0.005).toFixed(2);
+	const platformFee = (
+		parseFloat(usdcAmount.replace(/,/g, "") || "0") * 0.005
+	).toFixed(2);
 
 	const loadLiveMarket = useCallback(async () => {
 		setLoadingMarket(true);
@@ -419,11 +438,15 @@ export default function TradingWidget({
 			setPeerOffers(offers);
 
 			if (activeOffer) {
-				const currentInOffers = offers.find((o) => o.tradeId === activeOffer.tradeId);
+				const currentInOffers = offers.find(
+					(o) => o.tradeId === activeOffer.tradeId,
+				);
 				if (currentInOffers) {
 					setActiveOffer(currentInOffers);
 				}
-				void fetchTradeLifecycle(lifecycleTrade?.tradeId || activeOffer.tradeId);
+				void fetchTradeLifecycle(
+					lifecycleTrade?.tradeId || activeOffer.tradeId,
+				);
 			}
 		} catch {
 			// Ignore initial fetch failure
@@ -581,9 +604,13 @@ export default function TradingWidget({
 			}
 
 			if (data.executionMode === "QUEUED") {
-				const qRef = data.queueEntry?.queueRef || data.queueRef || `Q-${activeTradeId}`;
+				const qRef =
+					data.queueEntry?.queueRef || data.queueRef || `Q-${activeTradeId}`;
 				const qPos = data.queueEntry?.queuePosition ?? data.queuePosition ?? 1;
-				const qWait = data.queueEntry?.estimatedWaitSeconds ?? data.estimatedWaitSeconds ?? 420;
+				const qWait =
+					data.queueEntry?.estimatedWaitSeconds ??
+					data.estimatedWaitSeconds ??
+					420;
 				setQueuedOrderInfo({
 					queueRef: qRef,
 					queuePosition: qPos,
@@ -598,7 +625,8 @@ export default function TradingWidget({
 				return;
 			}
 
-			const targetTradeId = data.activeTradeId || data.allocatedTradeId || activeTradeId;
+			const targetTradeId =
+				data.activeTradeId || data.allocatedTradeId || activeTradeId;
 			setQueuedOrderInfo(null);
 			await fetchTradeLifecycle(targetTradeId);
 			onTradeUpdated?.();
@@ -649,7 +677,8 @@ export default function TradingWidget({
 		} catch (err) {
 			setFeedback({
 				type: "error",
-				text: err instanceof Error ? err.message : "Could not cancel queue entry.",
+				text:
+					err instanceof Error ? err.message : "Could not cancel queue entry.",
 			});
 		} finally {
 			setActionBusy(null);
@@ -691,7 +720,10 @@ export default function TradingWidget({
 		} catch (err) {
 			setFeedback({
 				type: "error",
-				text: err instanceof Error ? err.message : "Could not activate queue entry.",
+				text:
+					err instanceof Error
+						? err.message
+						: "Could not activate queue entry.",
 			});
 		} finally {
 			setActionBusy(null);
@@ -759,7 +791,8 @@ export default function TradingWidget({
 					},
 					body: JSON.stringify({
 						operation: "cancel",
-						reason: "Cancelled by buyer due to technical challenge or preference.",
+						reason:
+							"Cancelled by buyer due to technical challenge or preference.",
 					}),
 				},
 			);
@@ -794,7 +827,8 @@ export default function TradingWidget({
 		setFeedback(null);
 		try {
 			let operation = action;
-			let txHash: `0x${string}` | undefined = (extra.txHash as `0x${string}`) || undefined;
+			let txHash: `0x${string}` | undefined =
+				(extra.txHash as `0x${string}`) || undefined;
 
 			if (action === "confirm_payout") {
 				operation = "payout_confirm";
@@ -860,28 +894,34 @@ export default function TradingWidget({
 	};
 
 	return (
-		<div className={cn("flex flex-col w-full", embedded ? "" : "")}>
-			{/* Top Bar: Clean Binance-Style Header */}
-			<div className="flex flex-wrap items-center justify-between gap-2 pb-4 mb-4 border-b border-[#d1e8dc]">
+		<div
+			className={cn(
+				"flex flex-col w-full rounded-[32px] border border-[#e5ebe7] bg-white p-6 sm:p-7 shadow-xl space-y-5",
+				embedded ? "" : "",
+			)}
+		>
+			{/* Top Bar: Clean Console Header */}
+			<div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-[#eef2ee]">
 				<div>
 					<div className="flex items-center gap-2">
-						<span className="text-sm font-semibold text-[#0d2b1e]">
+						<span className="text-base font-bold text-[#0d2b1e]">
 							Order Execution Terminal
 						</span>
-						<span className="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-[#f0f7f3] text-[#1a9e5c] border border-[#d1e8dc]">
+						<span className="px-3 py-0.5 rounded-full text-[10px] font-mono font-bold bg-[#f0f7f3] text-[#1a9e5c] border border-[#d1e8dc]">
 							{lifecycleTrade?.lifecycleState ?? "OPEN"}
 						</span>
 					</div>
 					<div className="text-[11px] text-[#7aaa92] mt-0.5">
-						Arc Testnet (#5042002) {activeTradeId ? `· Trade #${activeTradeId}` : "· Standby"}
+						Arc Testnet (#5042002){" "}
+						{activeTradeId ? `· Trade #${activeTradeId}` : "· Standby"}
 					</div>
 				</div>
 
-				<div className="flex items-center gap-2">
+				<div className="flex items-center gap-3">
 					{isConnected && (
 						<div className="text-right">
 							<div className="text-[10px] text-[#7aaa92]">Wallet Balance</div>
-							<div className="text-xs font-mono font-semibold text-[#0d2b1e]">
+							<div className="text-xs font-mono font-bold text-[#0d2b1e]">
 								{walletUsdc.toFixed(2)} USDC
 							</div>
 						</div>
@@ -890,10 +930,13 @@ export default function TradingWidget({
 						type="button"
 						onClick={() => void loadLiveMarket()}
 						disabled={loadingMarket}
-						className="p-1.5 rounded-lg border border-[#d1e8dc] text-[#3d6b55] hover:bg-[#f0f7f3] transition-colors"
+						className="w-9 h-9 rounded-full border border-[#d1e8dc] text-[#3d6b55] hover:bg-[#f0f7f3] transition-colors flex items-center justify-center"
 						title="Refresh live order state"
 					>
-						<RefreshCw size={13} className={loadingMarket ? "animate-spin text-[#1a9e5c]" : ""} />
+						<RefreshCw
+							size={13}
+							className={loadingMarket ? "animate-spin text-[#1a9e5c]" : ""}
+						/>
 					</button>
 				</div>
 			</div>
@@ -906,20 +949,23 @@ export default function TradingWidget({
 			/>
 
 			{!activeOffer && !lifecycleTrade ? (
-				<div className="py-12 px-4 text-center space-y-3">
-					<div className="w-10 h-10 mx-auto rounded-full bg-[#f0f7f3] border border-[#d1e8dc] flex items-center justify-center text-[#1a9e5c]">
-						<Lock size={18} />
+				<div className="py-12 px-4 text-center space-y-4">
+					<div className="w-12 h-12 mx-auto rounded-2xl bg-[#f0f7f3] border border-[#d1e8dc] flex items-center justify-center text-[#1a9e5c]">
+						<Lock size={20} />
 					</div>
 					<div className="space-y-1">
-						<h3 className="text-sm font-semibold text-[#0d2b1e]">No Order Selected</h3>
+						<h3 className="text-sm font-bold text-[#0d2b1e]">
+							No Order Selected
+						</h3>
 						<p className="text-xs text-[#7aaa92] max-w-sm mx-auto">
-							Select an offer from the open peer liquidity list or publish an offer from your dashboard to initiate escrow settlement.
+							Select an offer from the open peer liquidity list or publish an
+							offer from your dashboard to initiate escrow settlement.
 						</p>
 					</div>
 					<div className="pt-2 flex flex-wrap justify-center gap-2">
 						<Link
 							href="/dashboard"
-							className="px-3 py-1.5 rounded-lg bg-[#1a9e5c] hover:bg-[#15854c] text-white text-xs font-semibold"
+							className="rounded-full px-5 py-2.5 bg-[#1a9e5c] hover:bg-[#15854c] text-white text-xs font-semibold shadow-sm transition-all"
 						>
 							Publish Offer in Dashboard
 						</Link>
@@ -932,518 +978,580 @@ export default function TradingWidget({
 
 					{/* ── STEP 0: Order Terms ── */}
 					{step === 0 && (
-				<div className="space-y-4">
-					{/* Offer Selector if multiple peer offers exist */}
-					{peerOffers.length > 0 && (
-						<div>
-							<label className="block text-[11px] font-medium text-[#7aaa92] mb-1.5">
-								Active Market Offer
-							</label>
-							<select
-								value={activeOffer?.tradeId ?? ""}
-								onChange={(e) => {
-									const found = peerOffers.find((o) => o.tradeId === e.target.value);
-									if (found) {
-										setActiveOffer(found);
-										setSelectedBank(found.bankName);
-										setNgnInput(found.ngnAmount.replace(/[^0-9,]/g, ""));
-										onSelectOffer?.(found);
-										void fetchTradeLifecycle(found.tradeId);
-									}
-								}}
-								className="w-full px-3 py-2 rounded-lg border border-[#d1e8dc] bg-[#fbfdfc] text-xs text-[#0d2b1e] focus:outline-none focus:border-[#1a9e5c]"
+						<div className="space-y-4">
+							{/* Offer Selector if multiple peer offers exist */}
+							{peerOffers.length > 0 && (
+								<div>
+									<label className="block text-[11px] font-semibold text-[#7aaa92] mb-1.5">
+										Active Market Offer
+									</label>
+									<select
+										value={activeOffer?.tradeId ?? ""}
+										onChange={(e) => {
+											const found = peerOffers.find(
+												(o) => o.tradeId === e.target.value,
+											);
+											if (found) {
+												setActiveOffer(found);
+												setSelectedBank(found.bankName);
+												setNgnInput(found.ngnAmount.replace(/[^0-9,]/g, ""));
+												onSelectOffer?.(found);
+												void fetchTradeLifecycle(found.tradeId);
+											}
+										}}
+										className="w-full px-4 py-2.5 rounded-2xl border border-[#d1e8dc] bg-[#fbfdfc] text-xs text-[#0d2b1e] focus:outline-none focus:border-[#1a9e5c]"
+									>
+										{peerOffers.map((o) => (
+											<option key={o.tradeId} value={o.tradeId}>
+												#{o.tradeId} · {o.peerHandle} · {o.availableUsdc} USDC @
+												₦{o.rateNgn.toLocaleString("en-NG")} ({o.bankName})
+											</option>
+										))}
+									</select>
+								</div>
+							)}
+
+							{/* Amount Boxes */}
+							<div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+								<div className="p-4 rounded-[22px] border border-[#e5ebe7] bg-[#fbfdfc] shadow-sm">
+									<div className="flex items-center justify-between text-[11px] text-[#7aaa92] mb-1.5">
+										<span>You Pay (Fiat)</span>
+										<div className="flex items-center gap-1 font-mono">
+											<button
+												type="button"
+												onClick={() =>
+													setNgnInput(
+														Math.round(
+															maxOfferUsdc * 0.25 * activeRate,
+														).toLocaleString("en-NG"),
+													)
+												}
+												className="px-2 py-0.5 rounded-full border border-[#d1e8dc] text-[10px] hover:bg-[#f0f7f3] text-[#3d6b55]"
+											>
+												25%
+											</button>
+											<button
+												type="button"
+												onClick={() =>
+													setNgnInput(
+														Math.round(
+															maxOfferUsdc * 0.5 * activeRate,
+														).toLocaleString("en-NG"),
+													)
+												}
+												className="px-2 py-0.5 rounded-full border border-[#d1e8dc] text-[10px] hover:bg-[#f0f7f3] text-[#3d6b55]"
+											>
+												50%
+											</button>
+											<button
+												type="button"
+												onClick={() =>
+													setNgnInput(
+														Math.round(
+															maxOfferUsdc * activeRate,
+														).toLocaleString("en-NG"),
+													)
+												}
+												className="px-2.5 py-0.5 rounded-full border border-[#1a9e5c] text-[10px] hover:bg-[#f0f7f3] text-[#1a9e5c] font-semibold"
+											>
+												MAX
+											</button>
+										</div>
+									</div>
+									<div className="flex items-center gap-2">
+										<span className="text-base font-mono font-bold text-[#3d6b55]">
+											₦
+										</span>
+										<input
+											type="text"
+											value={ngnInput}
+											onChange={(e) => setNgnInput(e.target.value)}
+											className="w-full bg-transparent font-mono text-lg font-bold text-[#0d2b1e] focus:outline-none min-w-0"
+										/>
+									</div>
+								</div>
+
+								<div className="p-4 rounded-[22px] border border-[#e5ebe7] bg-[#fbfdfc] shadow-sm flex flex-col justify-between">
+									<div className="flex items-center justify-between text-[11px] text-[#7aaa92] mb-1.5">
+										<span>You Receive (Seller Escrowed)</span>
+										<span className="font-mono">
+											Max{" "}
+											{activeOffer?.availableUsdc ?? maxOfferUsdc.toFixed(2)}{" "}
+											USDC
+										</span>
+									</div>
+									<div className="font-mono text-lg font-bold text-[#1a9e5c] truncate">
+										{usdcAmount} USDC
+									</div>
+								</div>
+							</div>
+
+							{/* Immutable Trade Parameters Grid */}
+							<div className="grid grid-cols-2 gap-3 text-xs">
+								<div className="p-3 rounded-2xl border border-[#e5ebe7] bg-[#fbfdfc]">
+									<div className="text-[11px] text-[#7aaa92]">
+										Counterparty Seller
+									</div>
+									<div className="font-mono font-bold text-[#0d2b1e] mt-0.5 truncate">
+										{activeOffer?.peerHandle ??
+											lifecycleTrade?.sellerHandle ??
+											"Peer Seller"}
+									</div>
+								</div>
+
+								<div className="p-3 rounded-2xl border border-[#e5ebe7] bg-[#fbfdfc]">
+									<div className="text-[11px] text-[#7aaa92]">
+										Exchange Rate
+									</div>
+									<div className="font-mono font-bold text-[#0d2b1e] mt-0.5">
+										1 USDC = ₦{activeRate.toLocaleString("en-NG")}
+									</div>
+								</div>
+
+								<div className="p-3 rounded-2xl border border-[#e5ebe7] bg-[#fbfdfc] col-span-2">
+									<div className="text-[11px] text-[#7aaa92]">
+										Settlement Bank Rail
+									</div>
+									<div className="font-semibold text-[#0d2b1e] mt-0.5 truncate">
+										{activeOffer?.bankName ??
+											lifecycleTrade?.bankName ??
+											selectedBank}
+									</div>
+								</div>
+							</div>
+
+							{/* Fee & Deadline Notice */}
+							<div className="p-3.5 rounded-full bg-[#f0f7f3] border border-[#d1e8dc] flex flex-wrap items-center justify-between gap-2 text-xs text-[#3d6b55]">
+								<span>Protocol Fee (0.5%) + Est. Arc Gas (~0.0031 USDC)</span>
+								<span className="font-mono font-bold text-[#0d2b1e]">
+									{platformFee} USDC · 20-min Payment Window
+								</span>
+							</div>
+
+							{queuedOrderInfo && (
+								<div className="p-4 rounded-2xl border border-amber-300 bg-amber-50/70 space-y-2.5 text-xs">
+									<div className="flex items-center justify-between">
+										<span className="font-bold text-[#0d2b1e]">
+											FIFO Queue Position #{queuedOrderInfo.queuePosition} (
+											{queuedOrderInfo.queueRef})
+										</span>
+										<span className="font-mono text-[11px] text-amber-800 font-semibold">
+											Est. wait ~
+											{Math.max(
+												1,
+												Math.ceil(queuedOrderInfo.estimatedWaitSeconds / 60),
+											)}
+											m
+										</span>
+									</div>
+									<p className="text-[11px] text-[#3d6b55]">
+										Reserved {queuedOrderInfo.requestedUsdc} USDC of seller
+										inventory. Only one active buyer slot can pay a seller at a
+										time. You may cancel while queued with zero penalty.
+									</p>
+									<div className="flex flex-wrap gap-2 pt-1">
+										{queuedOrderInfo.queuePosition === 1 && (
+											<button
+												type="button"
+												disabled={actionBusy !== null}
+												onClick={() =>
+													void handleActivateQueueInWidget(
+														queuedOrderInfo.queueRef,
+													)
+												}
+												className="rounded-full px-4 py-2 bg-[#1a9e5c] hover:bg-[#15854c] text-white font-semibold text-xs shadow-sm"
+											>
+												{actionBusy === "activate_queue"
+													? "Activating..."
+													: "Activate Order & Proceed to Payment"}
+											</button>
+										)}
+										<button
+											type="button"
+											disabled={actionBusy !== null}
+											onClick={() =>
+												void handleCancelQueueInWidget(queuedOrderInfo.queueRef)
+											}
+											className="rounded-full px-4 py-2 border border-red-200 bg-white hover:bg-red-50 text-red-700 font-semibold text-xs"
+										>
+											{actionBusy === "cancel_queue"
+												? "Cancelling..."
+												: "Cancel Queued Request"}
+										</button>
+									</div>
+								</div>
+							)}
+
+							<button
+								type="button"
+								onClick={() => void handleCreateEscrowOrder()}
+								disabled={creatingOrder}
+								className="w-full py-3.5 px-6 rounded-full bg-[#1a9e5c] hover:bg-[#15854c] text-white font-bold text-xs transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-60"
 							>
-								{peerOffers.map((o) => (
-									<option key={o.tradeId} value={o.tradeId}>
-										#{o.tradeId} · {o.peerHandle} · {o.availableUsdc} USDC @ ₦
-										{o.rateNgn.toLocaleString("en-NG")} ({o.bankName})
-									</option>
-								))}
-							</select>
+								<span>
+									{creatingOrder
+										? "Reserving Seller Escrow Inventory..."
+										: `Reserve ${usdcAmount} USDC & Proceed to Payment (0 USDC Bond)`}
+								</span>
+								<ArrowRight size={14} />
+							</button>
 						</div>
 					)}
 
-					{/* Amount Boxes */}
-					<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-						<div className="p-3 rounded-lg border border-[#d1e8dc] bg-white">
-							<div className="flex items-center justify-between text-[11px] text-[#7aaa92] mb-1">
-								<span>You Pay (Fiat)</span>
-								<div className="flex items-center gap-1 font-mono">
-									<button
-										type="button"
-										onClick={() =>
-											setNgnInput(
-												Math.round(maxOfferUsdc * 0.25 * activeRate).toLocaleString("en-NG"),
-											)
-										}
-										className="px-1.5 py-0.5 rounded border border-[#d1e8dc] text-[10px] hover:bg-[#f0f7f3] text-[#3d6b55]"
-									>
-										25%
-									</button>
-									<button
-										type="button"
-										onClick={() =>
-											setNgnInput(
-												Math.round(maxOfferUsdc * 0.5 * activeRate).toLocaleString("en-NG"),
-											)
-										}
-										className="px-1.5 py-0.5 rounded border border-[#d1e8dc] text-[10px] hover:bg-[#f0f7f3] text-[#3d6b55]"
-									>
-										50%
-									</button>
-									<button
-										type="button"
-										onClick={() =>
-											setNgnInput(
-												Math.round(maxOfferUsdc * activeRate).toLocaleString("en-NG"),
-											)
-										}
-										className="px-1.5 py-0.5 rounded border border-[#1a9e5c] text-[10px] hover:bg-[#f0f7f3] text-[#1a9e5c] font-semibold"
-									>
-										MAX
-									</button>
+					{/* ── STEP 1: Fiat Payment & Cryptographic Verification ── */}
+					{step === 1 && (
+						<div className="space-y-4">
+							{/* 20-Minute Payment Deadline Bar */}
+							<div className="p-3 rounded-lg border border-[#d1e8dc] bg-[#fbfdfc] flex flex-wrap items-center justify-between gap-2 text-xs">
+								<div className="flex items-center gap-2 text-[#3d6b55]">
+									<Clock size={14} className="text-[#1a9e5c]" />
+									<span>Buyer Payment Window</span>
+								</div>
+								<span className="font-mono font-semibold text-[#0d2b1e]">
+									{formatDeadline(remainingSeconds)} remaining
+								</span>
+							</div>
+
+							{/* Verification Rail Tabs */}
+							<div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+								<button
+									type="button"
+									onClick={() => setVerifyMode("bank")}
+									className={cn(
+										"p-3 rounded-lg border text-left transition-colors",
+										verifyMode === "bank"
+											? "border-[#1a9e5c] bg-[#f0f7f3]"
+											: "border-[#d1e8dc] bg-white hover:bg-[#fbfdfc]",
+									)}
+								>
+									<div className="flex items-center justify-between">
+										<CreditCard
+											size={15}
+											className={
+												verifyMode === "bank"
+													? "text-[#1a9e5c]"
+													: "text-[#7aaa92]"
+											}
+										/>
+										<span className="text-[10px] font-mono text-[#1a9e5c]">
+											Recommended
+										</span>
+									</div>
+									<div className="text-xs font-semibold text-[#0d2b1e] mt-1.5">
+										Instant Bank Checkout
+									</div>
+									<div className="text-[11px] text-[#7aaa92] mt-0.5">
+										Verified NGN bank transfer or card payment
+									</div>
+								</button>
+
+								<button
+									type="button"
+									onClick={() => {
+										setVerifyMode("zk");
+										setZkDone(false);
+									}}
+									className={cn(
+										"p-3 rounded-lg border text-left transition-colors",
+										verifyMode === "zk"
+											? "border-[#1a9e5c] bg-[#f0f7f3]"
+											: "border-[#d1e8dc] bg-white hover:bg-[#fbfdfc]",
+									)}
+								>
+									<div className="flex items-center justify-between">
+										<Fingerprint
+											size={15}
+											className={
+												verifyMode === "zk"
+													? "text-[#1a9e5c]"
+													: "text-[#7aaa92]"
+											}
+										/>
+										<span className="text-[10px] font-mono text-[#7aaa92]">
+											Zero-Knowledge
+										</span>
+									</div>
+									<div className="text-xs font-semibold text-[#0d2b1e] mt-1.5">
+										Cryptographic Proof
+									</div>
+									<div className="text-[11px] text-[#7aaa92] mt-0.5">
+										Direct bank session verification
+									</div>
+								</button>
+							</div>
+
+							{verifyMode === "bank" && (
+								<div className="p-4 rounded-lg border border-[#d1e8dc] bg-[#fbfdfc] space-y-3 text-xs">
+									<div className="flex items-center justify-between">
+										<span className="text-[#7aaa92]">Beneficiary Bank</span>
+										<span className="font-medium text-[#0d2b1e]">
+											{lifecycleTrade?.bankName ?? selectedBank}
+										</span>
+									</div>
+									<div className="flex items-center justify-between">
+										<span className="text-[#7aaa92]">Exact Amount Due</span>
+										<span className="font-mono font-semibold text-[#0d2b1e]">
+											₦{rawNgn.toLocaleString("en-NG")}
+										</span>
+									</div>
+
+									<div className="flex flex-col sm:flex-row gap-2 pt-1">
+										<button
+											type="button"
+											onClick={() => void handleFlutterwaveCheckout()}
+											disabled={redirectingBank}
+											className="flex-1 py-2.5 px-3 rounded-lg bg-[#1a9e5c] hover:bg-[#15854c] text-white font-semibold text-xs flex items-center justify-center gap-1.5 disabled:opacity-60"
+										>
+											<span>
+												{redirectingBank
+													? "Opening Payment..."
+													: "Proceed to Payment"}
+											</span>
+											<ExternalLink size={13} />
+										</button>
+
+										<Link
+											href={`/bank-checkout?tradeId=${encodeURIComponent(
+												activeTradeId,
+											)}&bank=${encodeURIComponent(
+												lifecycleTrade?.bankName ?? selectedBank,
+											)}&amountNgn=${encodeURIComponent(
+												String(Math.round(rawNgn)),
+											)}&amountUsdc=${encodeURIComponent(
+												usdcAmount,
+											)}&returnTo=/trade`}
+											className="py-2.5 px-3 rounded-lg border border-[#d1e8dc] bg-white text-[#0d2b1e] hover:bg-[#f0f7f3] font-medium text-xs text-center"
+										>
+											Open Settlement Portal
+										</Link>
+
+										<button
+											type="button"
+											onClick={() => void handleCancelTradeInWidget()}
+											disabled={actionBusy === "cancel_trade"}
+											className="py-2.5 px-3 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 font-medium text-xs flex items-center justify-center gap-1.5 disabled:opacity-50"
+										>
+											<span>Cancel Trade</span>
+										</button>
+									</div>
+								</div>
+							)}
+
+							{verifyMode === "zk" && !zkDone && (
+								<ZKProofPanel
+									tradeId={activeTradeId}
+									amountNgn={ngnInput}
+									bankName={lifecycleTrade?.bankName ?? selectedBank}
+									accountNo={lifecycleTrade?.sellerAccountNumber || ""}
+									usdcAmount={usdcAmount}
+									onComplete={handleZkComplete}
+								/>
+							)}
+
+							{canProceedStep1 && (
+								<div className="p-3 rounded-lg bg-[#f0f7f3] border border-[#1a9e5c]/30 flex items-center justify-between gap-2 text-xs">
+									<div className="flex items-center gap-2 min-w-0">
+										<CheckCircle
+											size={15}
+											className="text-[#1a9e5c] shrink-0"
+										/>
+										<div className="truncate">
+											<span className="font-semibold text-[#0d2b1e]">
+												Payment Verification Recorded
+											</span>
+											{verifiedProof?.proofId && (
+												<span className="ml-2 font-mono text-[11px] text-[#3d6b55]">
+													({verifiedProof.proofId.slice(0, 10)}…)
+												</span>
+											)}
+										</div>
+									</div>
+								</div>
+							)}
+
+							<div className="flex gap-2 pt-1">
+								<button
+									type="button"
+									onClick={() => setStep(0)}
+									className="flex-1 py-2 rounded-lg border border-[#d1e8dc] text-[#3d6b55] text-xs font-medium hover:bg-[#f0f7f3]"
+								>
+									Back
+								</button>
+								<button
+									type="button"
+									onClick={() => setStep(2)}
+									className="flex-1 py-2 rounded-lg bg-[#1a9e5c] hover:bg-[#15854c] text-white text-xs font-semibold"
+								>
+									Proceed to Settlement
+								</button>
+							</div>
+						</div>
+					)}
+
+					{/* ── STEP 2: Authoritative Lifecycle & Escrow Settlement ── */}
+					{step === 2 && (
+						<div className="space-y-4">
+							<div className="p-3.5 rounded-lg border border-[#d1e8dc] bg-[#fbfdfc] space-y-2.5 text-xs">
+								<div className="flex items-center justify-between">
+									<span className="text-[#7aaa92]">
+										Authoritative Lifecycle State
+									</span>
+									<span className="px-2 py-0.5 rounded font-mono text-[11px] font-semibold bg-[#f0f7f3] text-[#1a9e5c] border border-[#d1e8dc]">
+										{lifecycleTrade?.lifecycleState ?? "AWAITING_PAYMENT"}
+									</span>
+								</div>
+
+								<div className="flex items-center justify-between">
+									<span className="text-[#7aaa92]">
+										Seller Principal Locked
+									</span>
+									<span className="font-mono font-semibold text-[#0d2b1e]">
+										{usdcAmount} USDC
+									</span>
+								</div>
+
+								<div className="flex items-center justify-between">
+									<span className="text-[#7aaa92]">Buyer Payment Status</span>
+									<span className="font-mono text-[#0d2b1e]">
+										{lifecycleTrade?.paymentState ??
+											(canProceedStep1 ? "CONFIRMED" : "INITIATED")}
+									</span>
+								</div>
+
+								<div className="flex items-center justify-between">
+									<span className="text-[#7aaa92]">Seller Payout Status</span>
+									<span className="font-mono text-[#0d2b1e]">
+										{lifecycleTrade?.payoutState ?? "NOT_STARTED"}
+									</span>
+								</div>
+
+								<div className="flex items-center justify-between">
+									<span className="text-[#7aaa92]">Arc Escrow Operation</span>
+									<span className="font-mono text-[#1a9e5c]">
+										{lifecycleTrade?.escrowState ?? "LOCKED"}
+									</span>
 								</div>
 							</div>
-							<div className="flex items-center gap-1.5">
-								<span className="text-sm font-mono text-[#3d6b55]">₦</span>
-								<input
-									type="text"
-									value={ngnInput}
-									onChange={(e) => setNgnInput(e.target.value)}
-									className="w-full bg-transparent font-mono text-base font-semibold text-[#0d2b1e] focus:outline-none min-w-0"
-								/>
-							</div>
-						</div>
 
-						<div className="p-3 rounded-lg border border-[#d1e8dc] bg-[#fbfdfc]">
-							<div className="flex items-center justify-between text-[11px] text-[#7aaa92] mb-1">
-								<span>You Receive (Seller Escrowed)</span>
-								<span className="font-mono">
-									Max {activeOffer?.availableUsdc ?? maxOfferUsdc.toFixed(2)} USDC
-								</span>
-							</div>
-							<div className="font-mono text-base font-semibold text-[#1a9e5c] truncate">
-								{usdcAmount} USDC
-							</div>
-						</div>
-					</div>
-
-					{/* Immutable Trade Parameters Grid */}
-					<div className="grid grid-cols-2 gap-2.5 text-xs">
-						<div className="p-2.5 rounded-lg border border-[#d1e8dc] bg-[#fbfdfc]">
-							<div className="text-[11px] text-[#7aaa92]">Counterparty Seller</div>
-							<div className="font-mono font-medium text-[#0d2b1e] mt-0.5 truncate">
-								{activeOffer?.peerHandle ?? lifecycleTrade?.sellerHandle ?? "Peer Seller"}
-							</div>
-						</div>
-
-						<div className="p-2.5 rounded-lg border border-[#d1e8dc] bg-[#fbfdfc]">
-							<div className="text-[11px] text-[#7aaa92]">Exchange Rate</div>
-							<div className="font-mono font-medium text-[#0d2b1e] mt-0.5">
-								1 USDC = ₦{activeRate.toLocaleString("en-NG")}
-							</div>
-						</div>
-
-						<div className="p-2.5 rounded-lg border border-[#d1e8dc] bg-[#fbfdfc]">
-							<div className="text-[11px] text-[#7aaa92]">Settlement Bank Rail</div>
-							<div className="font-medium text-[#0d2b1e] mt-0.5 truncate">
-								{activeOffer?.bankName ?? lifecycleTrade?.bankName ?? selectedBank}
-							</div>
-						</div>
-					</div>
-
-					{/* Fee & Deadline Notice */}
-					<div className="p-3 rounded-lg bg-[#f0f7f3] border border-[#d1e8dc] flex flex-wrap items-center justify-between gap-2 text-xs text-[#3d6b55]">
-						<span>Protocol Fee (0.5%) + Est. Arc Gas (~0.0031 USDC)</span>
-						<span className="font-mono font-semibold text-[#0d2b1e]">
-							{platformFee} USDC · 20-min Payment Window
-						</span>
-					</div>
-
-					{queuedOrderInfo && (
-						<div className="p-3.5 rounded-lg border border-amber-300 bg-amber-50/70 space-y-2.5 text-xs">
-							<div className="flex items-center justify-between">
-								<span className="font-semibold text-[#0d2b1e]">
-									FIFO Queue Position #{queuedOrderInfo.queuePosition} ({queuedOrderInfo.queueRef})
-								</span>
-								<span className="font-mono text-[11px] text-amber-800">
-									Est. wait ~{Math.max(1, Math.ceil(queuedOrderInfo.estimatedWaitSeconds / 60))}m
-								</span>
-							</div>
-							<p className="text-[11px] text-[#3d6b55]">
-								Reserved {queuedOrderInfo.requestedUsdc} USDC of seller inventory. Only one active buyer slot can pay a seller at a time. You may cancel while queued with zero penalty.
-							</p>
-							<div className="flex flex-wrap gap-2">
-								{queuedOrderInfo.queuePosition === 1 && (
-									<button
-										type="button"
-										disabled={actionBusy !== null}
-										onClick={() => void handleActivateQueueInWidget(queuedOrderInfo.queueRef)}
-										className="px-3 py-1.5 rounded-lg bg-[#1a9e5c] hover:bg-[#15854c] text-white font-semibold text-xs"
-									>
-										{actionBusy === "activate_queue"
-											? "Activating..."
-											: "Activate Order & Proceed to Payment"}
-									</button>
-								)}
+							{/* Action Controls for Payout & Escrow Release */}
+							<div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
 								<button
 									type="button"
 									disabled={actionBusy !== null}
-									onClick={() => void handleCancelQueueInWidget(queuedOrderInfo.queueRef)}
-									className="px-3 py-1.5 rounded-lg border border-red-200 bg-white hover:bg-red-50 text-red-700 font-medium text-xs"
+									onClick={() => void handleLifecycleAction("confirm_payout")}
+									className="py-2 px-3 rounded-lg border border-[#d1e8dc] bg-white hover:bg-[#f0f7f3] text-[#0d2b1e] text-xs font-medium disabled:opacity-50"
 								>
-									{actionBusy === "cancel_queue" ? "Cancelling..." : "Cancel Queued Request"}
+									{actionBusy === "confirm_payout"
+										? "Confirming Payout..."
+										: "Confirm Seller Payout"}
 								</button>
-							</div>
-						</div>
-					)}
-
-					<button
-						type="button"
-						onClick={() => void handleCreateEscrowOrder()}
-						disabled={creatingOrder}
-						className="w-full py-2.5 px-4 rounded-lg bg-[#1a9e5c] hover:bg-[#15854c] text-white font-semibold text-xs transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
-					>
-						<span>
-							{creatingOrder
-								? "Reserving Seller Escrow Inventory..."
-								: `Reserve ${usdcAmount} USDC & Proceed to Payment (0 USDC Bond)`}
-						</span>
-						<ArrowRight size={14} />
-					</button>
-				</div>
-			)}
-
-			{/* ── STEP 1: Fiat Payment & Cryptographic Verification ── */}
-			{step === 1 && (
-				<div className="space-y-4">
-					{/* 20-Minute Payment Deadline Bar */}
-					<div className="p-3 rounded-lg border border-[#d1e8dc] bg-[#fbfdfc] flex flex-wrap items-center justify-between gap-2 text-xs">
-						<div className="flex items-center gap-2 text-[#3d6b55]">
-							<Clock size={14} className="text-[#1a9e5c]" />
-							<span>Buyer Payment Window</span>
-						</div>
-						<span className="font-mono font-semibold text-[#0d2b1e]">
-							{formatDeadline(remainingSeconds)} remaining
-						</span>
-					</div>
-
-					{/* Verification Rail Tabs */}
-					<div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-						<button
-							type="button"
-							onClick={() => setVerifyMode("bank")}
-							className={cn(
-								"p-3 rounded-lg border text-left transition-colors",
-								verifyMode === "bank"
-									? "border-[#1a9e5c] bg-[#f0f7f3]"
-									: "border-[#d1e8dc] bg-white hover:bg-[#fbfdfc]",
-							)}
-						>
-							<div className="flex items-center justify-between">
-								<CreditCard
-									size={15}
-									className={verifyMode === "bank" ? "text-[#1a9e5c]" : "text-[#7aaa92]"}
-								/>
-								<span className="text-[10px] font-mono text-[#1a9e5c]">Recommended</span>
-							</div>
-							<div className="text-xs font-semibold text-[#0d2b1e] mt-1.5">
-								Instant Bank Checkout
-							</div>
-							<div className="text-[11px] text-[#7aaa92] mt-0.5">
-								Verified NGN bank transfer or card payment
-							</div>
-						</button>
-
-						<button
-							type="button"
-							onClick={() => {
-								setVerifyMode("zk");
-								setZkDone(false);
-							}}
-							className={cn(
-								"p-3 rounded-lg border text-left transition-colors",
-								verifyMode === "zk"
-									? "border-[#1a9e5c] bg-[#f0f7f3]"
-									: "border-[#d1e8dc] bg-white hover:bg-[#fbfdfc]",
-							)}
-						>
-							<div className="flex items-center justify-between">
-								<Fingerprint
-									size={15}
-									className={verifyMode === "zk" ? "text-[#1a9e5c]" : "text-[#7aaa92]"}
-								/>
-								<span className="text-[10px] font-mono text-[#7aaa92]">Zero-Knowledge</span>
-							</div>
-							<div className="text-xs font-semibold text-[#0d2b1e] mt-1.5">
-								Cryptographic Proof
-							</div>
-							<div className="text-[11px] text-[#7aaa92] mt-0.5">
-								Direct bank session verification
-							</div>
-						</button>
-					</div>
-
-					{verifyMode === "bank" && (
-						<div className="p-4 rounded-lg border border-[#d1e8dc] bg-[#fbfdfc] space-y-3 text-xs">
-							<div className="flex items-center justify-between">
-								<span className="text-[#7aaa92]">Beneficiary Bank</span>
-								<span className="font-medium text-[#0d2b1e]">
-									{lifecycleTrade?.bankName ?? selectedBank}
-								</span>
-							</div>
-							<div className="flex items-center justify-between">
-								<span className="text-[#7aaa92]">Exact Amount Due</span>
-								<span className="font-mono font-semibold text-[#0d2b1e]">
-									₦{rawNgn.toLocaleString("en-NG")}
-								</span>
-							</div>
-
-							<div className="flex flex-col sm:flex-row gap-2 pt-1">
-								<button
-									type="button"
-									onClick={() => void handleFlutterwaveCheckout()}
-									disabled={redirectingBank}
-									className="flex-1 py-2.5 px-3 rounded-lg bg-[#1a9e5c] hover:bg-[#15854c] text-white font-semibold text-xs flex items-center justify-center gap-1.5 disabled:opacity-60"
-								>
-									<span>
-										{redirectingBank
-											? "Opening Payment..."
-											: "Proceed to Payment"}
-									</span>
-									<ExternalLink size={13} />
-								</button>
-
-								<Link
-									href={`/bank-checkout?tradeId=${encodeURIComponent(
-										activeTradeId,
-									)}&bank=${encodeURIComponent(
-										lifecycleTrade?.bankName ?? selectedBank,
-									)}&amountNgn=${encodeURIComponent(
-										String(Math.round(rawNgn)),
-									)}&amountUsdc=${encodeURIComponent(
-										usdcAmount,
-									)}&returnTo=/trade`}
-									className="py-2.5 px-3 rounded-lg border border-[#d1e8dc] bg-white text-[#0d2b1e] hover:bg-[#f0f7f3] font-medium text-xs text-center"
-								>
-									Open Settlement Portal
-								</Link>
 
 								<button
 									type="button"
-									onClick={() => void handleCancelTradeInWidget()}
-									disabled={actionBusy === "cancel_trade"}
-									className="py-2.5 px-3 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 font-medium text-xs flex items-center justify-center gap-1.5 disabled:opacity-50"
+									disabled={actionBusy !== null}
+									onClick={() => void handleLifecycleAction("release_escrow")}
+									className="py-2 px-3 rounded-lg bg-[#1a9e5c] hover:bg-[#15854c] text-white text-xs font-semibold disabled:opacity-50"
 								>
-									<span>Cancel Trade</span>
+									{actionBusy === "release_escrow"
+										? "Releasing USDC..."
+										: "Release Escrow on Arc"}
+								</button>
+							</div>
+
+							<div className="flex gap-2">
+								<button
+									type="button"
+									onClick={() => setStep(1)}
+									className="flex-1 py-2 rounded-lg border border-[#d1e8dc] text-[#3d6b55] text-xs font-medium hover:bg-[#f0f7f3]"
+								>
+									Back
+								</button>
+								<button
+									type="button"
+									onClick={() => setStep(3)}
+									className="flex-1 py-2 rounded-lg border border-[#1a9e5c] text-[#1a9e5c] hover:bg-[#f0f7f3] text-xs font-semibold"
+								>
+									View Audit Trail & Dispute
 								</button>
 							</div>
 						</div>
 					)}
 
-					{verifyMode === "zk" && !zkDone && (
-						<ZKProofPanel
-							tradeId={activeTradeId}
-							amountNgn={ngnInput}
-							bankName={lifecycleTrade?.bankName ?? selectedBank}
-							accountNo={lifecycleTrade?.sellerAccountNumber || ""}
-							usdcAmount={usdcAmount}
-							onComplete={handleZkComplete}
-						/>
-					)}
-
-					{canProceedStep1 && (
-						<div className="p-3 rounded-lg bg-[#f0f7f3] border border-[#1a9e5c]/30 flex items-center justify-between gap-2 text-xs">
-							<div className="flex items-center gap-2 min-w-0">
-								<CheckCircle size={15} className="text-[#1a9e5c] shrink-0" />
-								<div className="truncate">
-									<span className="font-semibold text-[#0d2b1e]">
-										Payment Verification Recorded
+					{/* ── STEP 3: Real Server Audit Trail & Dispute Control ── */}
+					{step === 3 && (
+						<div className="space-y-4">
+							<div className="rounded-lg border border-[#d1e8dc] bg-[#fbfdfc] p-3">
+								<div className="flex items-center justify-between mb-2">
+									<span className="text-xs font-semibold text-[#0d2b1e]">
+										Immutable Trade Audit Log (#{activeTradeId})
 									</span>
-									{verifiedProof?.proofId && (
-										<span className="ml-2 font-mono text-[11px] text-[#3d6b55]">
-											({verifiedProof.proofId.slice(0, 10)}…)
-										</span>
-									)}
+									<span className="text-[10px] font-mono text-[#7aaa92]">
+										{(lifecycleTrade?.auditLog ?? []).length} events
+									</span>
 								</div>
+
+								{(lifecycleTrade?.auditLog ?? []).length === 0 ? (
+									<div className="py-6 text-center text-xs text-[#7aaa92]">
+										No state transitions recorded yet for Trade #{activeTradeId}
+										.
+									</div>
+								) : (
+									<div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+										{(lifecycleTrade?.auditLog ?? []).map((ev) => (
+											<div
+												key={ev.id}
+												className="p-2.5 rounded border border-[#d1e8dc] bg-white text-xs flex items-start justify-between gap-2"
+											>
+												<div className="min-w-0">
+													<div className="font-mono font-medium text-[#0d2b1e] truncate">
+														{ev.eventType}
+													</div>
+													<div className="text-[11px] text-[#7aaa92] mt-0.5">
+														{ev.previousState ? `${ev.previousState} → ` : ""}
+														<span className="font-mono text-[#1a9e5c]">
+															{ev.newState}
+														</span>{" "}
+														· {ev.actorRole}
+													</div>
+												</div>
+												<span className="text-[10px] font-mono text-[#7aaa92] shrink-0">
+													{new Date(ev.createdAt).toLocaleTimeString([], {
+														hour: "2-digit",
+														minute: "2-digit",
+													})}
+												</span>
+											</div>
+										))}
+									</div>
+								)}
+							</div>
+
+							<div className="flex flex-col sm:flex-row gap-2">
+								<button
+									type="button"
+									onClick={() => setStep(2)}
+									className="flex-1 py-2 rounded-lg border border-[#d1e8dc] text-[#3d6b55] text-xs font-medium hover:bg-[#f0f7f3]"
+								>
+									Back to Settlement
+								</button>
+
+								<button
+									type="button"
+									disabled={actionBusy !== null}
+									onClick={() =>
+										void handleLifecycleAction("hold_payout", {
+											reason:
+												"Manual dispute / arbitration requested from trading terminal.",
+										})
+									}
+									className="flex-1 py-2 px-3 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-medium flex items-center justify-center gap-1.5"
+								>
+									<AlertTriangle size={13} />
+									<span>Place Trade on Hold / Dispute</span>
+								</button>
 							</div>
 						</div>
 					)}
-
-					<div className="flex gap-2 pt-1">
-						<button
-							type="button"
-							onClick={() => setStep(0)}
-							className="flex-1 py-2 rounded-lg border border-[#d1e8dc] text-[#3d6b55] text-xs font-medium hover:bg-[#f0f7f3]"
-						>
-							Back
-						</button>
-						<button
-							type="button"
-							onClick={() => setStep(2)}
-							className="flex-1 py-2 rounded-lg bg-[#1a9e5c] hover:bg-[#15854c] text-white text-xs font-semibold"
-						>
-							Proceed to Settlement
-						</button>
-					</div>
-				</div>
-			)}
-
-			{/* ── STEP 2: Authoritative Lifecycle & Escrow Settlement ── */}
-			{step === 2 && (
-				<div className="space-y-4">
-					<div className="p-3.5 rounded-lg border border-[#d1e8dc] bg-[#fbfdfc] space-y-2.5 text-xs">
-						<div className="flex items-center justify-between">
-							<span className="text-[#7aaa92]">Authoritative Lifecycle State</span>
-							<span className="px-2 py-0.5 rounded font-mono text-[11px] font-semibold bg-[#f0f7f3] text-[#1a9e5c] border border-[#d1e8dc]">
-								{lifecycleTrade?.lifecycleState ?? "AWAITING_PAYMENT"}
-							</span>
-						</div>
-
-						<div className="flex items-center justify-between">
-							<span className="text-[#7aaa92]">Seller Principal Locked</span>
-							<span className="font-mono font-semibold text-[#0d2b1e]">
-								{usdcAmount} USDC
-							</span>
-						</div>
-
-						<div className="flex items-center justify-between">
-							<span className="text-[#7aaa92]">Buyer Payment Status</span>
-							<span className="font-mono text-[#0d2b1e]">
-								{lifecycleTrade?.paymentState ?? (canProceedStep1 ? "CONFIRMED" : "INITIATED")}
-							</span>
-						</div>
-
-						<div className="flex items-center justify-between">
-							<span className="text-[#7aaa92]">Seller Payout Status</span>
-							<span className="font-mono text-[#0d2b1e]">
-								{lifecycleTrade?.payoutState ?? "NOT_STARTED"}
-							</span>
-						</div>
-
-						<div className="flex items-center justify-between">
-							<span className="text-[#7aaa92]">Arc Escrow Operation</span>
-							<span className="font-mono text-[#1a9e5c]">
-								{lifecycleTrade?.escrowState ?? "LOCKED"}
-							</span>
-						</div>
-					</div>
-
-					{/* Action Controls for Payout & Escrow Release */}
-					<div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-						<button
-							type="button"
-							disabled={actionBusy !== null}
-							onClick={() => void handleLifecycleAction("confirm_payout")}
-							className="py-2 px-3 rounded-lg border border-[#d1e8dc] bg-white hover:bg-[#f0f7f3] text-[#0d2b1e] text-xs font-medium disabled:opacity-50"
-						>
-							{actionBusy === "confirm_payout"
-								? "Confirming Payout..."
-								: "Confirm Seller Payout"}
-						</button>
-
-						<button
-							type="button"
-							disabled={actionBusy !== null}
-							onClick={() => void handleLifecycleAction("release_escrow")}
-							className="py-2 px-3 rounded-lg bg-[#1a9e5c] hover:bg-[#15854c] text-white text-xs font-semibold disabled:opacity-50"
-						>
-							{actionBusy === "release_escrow"
-								? "Releasing USDC..."
-								: "Release Escrow on Arc"}
-						</button>
-					</div>
-
-					<div className="flex gap-2">
-						<button
-							type="button"
-							onClick={() => setStep(1)}
-							className="flex-1 py-2 rounded-lg border border-[#d1e8dc] text-[#3d6b55] text-xs font-medium hover:bg-[#f0f7f3]"
-						>
-							Back
-						</button>
-						<button
-							type="button"
-							onClick={() => setStep(3)}
-							className="flex-1 py-2 rounded-lg border border-[#1a9e5c] text-[#1a9e5c] hover:bg-[#f0f7f3] text-xs font-semibold"
-						>
-							View Audit Trail & Dispute
-						</button>
-					</div>
-				</div>
-			)}
-
-			{/* ── STEP 3: Real Server Audit Trail & Dispute Control ── */}
-			{step === 3 && (
-				<div className="space-y-4">
-					<div className="rounded-lg border border-[#d1e8dc] bg-[#fbfdfc] p-3">
-						<div className="flex items-center justify-between mb-2">
-							<span className="text-xs font-semibold text-[#0d2b1e]">
-								Immutable Trade Audit Log (#{activeTradeId})
-							</span>
-							<span className="text-[10px] font-mono text-[#7aaa92]">
-								{(lifecycleTrade?.auditLog ?? []).length} events
-							</span>
-						</div>
-
-						{(lifecycleTrade?.auditLog ?? []).length === 0 ? (
-							<div className="py-6 text-center text-xs text-[#7aaa92]">
-								No state transitions recorded yet for Trade #{activeTradeId}.
-							</div>
-						) : (
-							<div className="space-y-2 max-h-52 overflow-y-auto pr-1">
-								{(lifecycleTrade?.auditLog ?? []).map((ev) => (
-									<div
-										key={ev.id}
-										className="p-2.5 rounded border border-[#d1e8dc] bg-white text-xs flex items-start justify-between gap-2"
-									>
-										<div className="min-w-0">
-											<div className="font-mono font-medium text-[#0d2b1e] truncate">
-												{ev.eventType}
-											</div>
-											<div className="text-[11px] text-[#7aaa92] mt-0.5">
-												{ev.previousState ? `${ev.previousState} → ` : ""}
-												<span className="font-mono text-[#1a9e5c]">{ev.newState}</span> ·{" "}
-												{ev.actorRole}
-											</div>
-										</div>
-										<span className="text-[10px] font-mono text-[#7aaa92] shrink-0">
-											{new Date(ev.createdAt).toLocaleTimeString([], {
-												hour: "2-digit",
-												minute: "2-digit",
-											})}
-										</span>
-									</div>
-								))}
-							</div>
-						)}
-					</div>
-
-					<div className="flex flex-col sm:flex-row gap-2">
-						<button
-							type="button"
-							onClick={() => setStep(2)}
-							className="flex-1 py-2 rounded-lg border border-[#d1e8dc] text-[#3d6b55] text-xs font-medium hover:bg-[#f0f7f3]"
-						>
-							Back to Settlement
-						</button>
-
-						<button
-							type="button"
-							disabled={actionBusy !== null}
-							onClick={() =>
-								void handleLifecycleAction("hold_payout", {
-									reason: "Manual dispute / arbitration requested from trading terminal.",
-								})
-							}
-							className="flex-1 py-2 px-3 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-medium flex items-center justify-center gap-1.5"
-						>
-							<AlertTriangle size={13} />
-							<span>Place Trade on Hold / Dispute</span>
-						</button>
-					</div>
-				</div>
-			)}
 				</>
 			)}
 		</div>

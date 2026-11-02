@@ -13,6 +13,7 @@ import {
 	Lock,
 } from "lucide-react";
 import TradingWidget from "@/components/trading/TradingWidget";
+import { BankSearchSelect } from "@/components/shared";
 import {
 	arcTestnet,
 	USDC_ADDRESS,
@@ -27,7 +28,9 @@ export default function TradePage() {
 
 	const [peerOffers, setPeerOffers] = useState<PeerTradeOffer[]>([]);
 	const [transactions, setTransactions] = useState<UserTransaction[]>([]);
-	const [selectedOffer, setSelectedOffer] = useState<PeerTradeOffer | null>(null);
+	const [selectedOffer, setSelectedOffer] = useState<PeerTradeOffer | null>(
+		null,
+	);
 	const [loading, setLoading] = useState(true);
 	const [search, setSearch] = useState("");
 	const [bankFilter, setBankFilter] = useState("all");
@@ -52,7 +55,9 @@ export default function TradePage() {
 			return parseFloat(formatUsdc(erc20BalanceRaw));
 		}
 		if (nativeBalance && typeof nativeBalance.value === "bigint") {
-			const parsed = parseFloat(formatUnits(nativeBalance.value, nativeBalance.decimals));
+			const parsed = parseFloat(
+				formatUnits(nativeBalance.value, nativeBalance.decimals),
+			);
 			return Number.isFinite(parsed) ? parsed : 0;
 		}
 		return 0;
@@ -91,7 +96,11 @@ export default function TradePage() {
 
 	const filteredOffers = useMemo(() => {
 		return peerOffers.filter((offer) => {
-			if (bankFilter !== "all" && offer.bankName !== bankFilter) return false;
+			if (bankFilter !== "all") {
+				const bf = bankFilter.toLowerCase();
+				const ob = offer.bankName.toLowerCase();
+				if (ob !== bf && !ob.includes(bf) && !bf.includes(ob)) return false;
+			}
 			if (search.trim()) {
 				const q = search.toLowerCase();
 				return (
@@ -104,15 +113,9 @@ export default function TradePage() {
 		});
 	}, [bankFilter, peerOffers, search]);
 
-	const uniqueBanks = useMemo(() => {
-		const set = new Set<string>();
-		for (const o of peerOffers) set.add(o.bankName);
-		return Array.from(set);
-	}, [peerOffers]);
-
 	return (
-		<div className="min-h-screen bg-[#f5f9f7]">
-			<div className="max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-5">
+		<div className="min-h-screen bg-[#edf2ee] py-6 sm:py-10 px-3 sm:px-6">
+			<div className="max-w-[1380px] w-full mx-auto space-y-6">
 				{/* Top Header Strip */}
 				<div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[#d1e8dc]">
 					<div>
@@ -130,7 +133,8 @@ export default function TradePage() {
 							</h1>
 						</div>
 						<p className="text-xs text-[#7aaa92] mt-0.5">
-							Live peer-to-peer USDC/NGN exchange with automated escrow settlement
+							Live peer-to-peer USDC/NGN exchange with automated escrow
+							settlement
 						</p>
 					</div>
 
@@ -162,7 +166,10 @@ export default function TradePage() {
 							className="p-2 rounded-lg border border-[#d1e8dc] bg-white text-[#3d6b55] hover:bg-[#f0f7f3] transition-colors"
 							title="Refresh order book"
 						>
-							<RefreshCw size={13} className={loading ? "animate-spin text-[#1a9e5c]" : ""} />
+							<RefreshCw
+								size={13}
+								className={loading ? "animate-spin text-[#1a9e5c]" : ""}
+							/>
 						</button>
 					</div>
 				</div>
@@ -172,30 +179,26 @@ export default function TradePage() {
 					{/* Left Column: Live Order Book & User Active Escrows */}
 					<div className="lg:col-span-7 space-y-5">
 						{/* Live Peer Order Book Card */}
-						<div className="rounded-lg border border-[#d1e8dc] bg-white overflow-hidden">
-							<div className="p-4 border-b border-[#d1e8dc] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+						<div className="rounded-xl border border-[#d6e2dc] bg-white p-4 sm:p-5 shadow-sm space-y-4">
+							<div className="border-b border-[#eef2ee] pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
 								<div>
-									<h2 className="text-xs font-semibold text-[#0d2b1e]">
+									<h2 className="text-sm font-semibold text-[#0d2b1e]">
 										Open Peer Liquidity Offers ({filteredOffers.length})
 									</h2>
-									<p className="text-[11px] text-[#7aaa92]">
-										Select an offer to load its immutable terms into the execution terminal
+									<p className="text-xs text-[#7aaa92]">
+										Select an offer to load its immutable terms into the
+										execution terminal
 									</p>
 								</div>
 
 								<div className="flex flex-wrap items-center gap-2">
-									<select
+									<BankSearchSelect
 										value={bankFilter}
-										onChange={(e) => setBankFilter(e.target.value)}
-										className="px-2.5 py-1.5 rounded-lg border border-[#d1e8dc] bg-[#fbfdfc] text-xs text-[#0d2b1e] focus:outline-none"
-									>
-										<option value="all">All Banks</option>
-										{uniqueBanks.map((b) => (
-											<option key={b} value={b}>
-												{b}
-											</option>
-										))}
-									</select>
+										onChange={setBankFilter}
+										allowAll
+										allLabel="All Banks"
+										compact
+									/>
 
 									<div className="relative">
 										<Search
@@ -207,7 +210,7 @@ export default function TradePage() {
 											value={search}
 											onChange={(e) => setSearch(e.target.value)}
 											placeholder="Filter handle or ID..."
-											className="pl-7 pr-3 py-1.5 rounded-lg border border-[#d1e8dc] bg-[#fbfdfc] text-xs text-[#0d2b1e] placeholder:text-[#7aaa92] focus:outline-none focus:border-[#1a9e5c] w-40 sm:w-44"
+											className="pl-7 pr-3 py-1.5 rounded-lg border border-[#d1e8dc] bg-[#fbfdfc] text-xs text-[#0d2b1e] placeholder:text-[#7aaa92] focus:outline-none focus:border-[#1a9e5c] w-36 sm:w-44"
 										/>
 									</div>
 								</div>
@@ -215,7 +218,8 @@ export default function TradePage() {
 
 							{filteredOffers.length === 0 ? (
 								<div className="p-8 text-center text-xs text-[#7aaa92]">
-									No open peer offers match your filter. Publish a new offer from your dashboard.
+									No open peer offers match your filter. Publish a new offer
+									from your dashboard.
 								</div>
 							) : (
 								<div className="divide-y divide-[#d1e8dc]/60">
@@ -223,7 +227,8 @@ export default function TradePage() {
 										const isSelected = selectedOffer?.tradeId === offer.tradeId;
 										const isOwnOffer =
 											Boolean(address) &&
-											offer.peerAddress.toLowerCase() === address?.toLowerCase();
+											offer.peerAddress.toLowerCase() ===
+												address?.toLowerCase();
 
 										return (
 											<div
@@ -249,13 +254,16 @@ export default function TradePage() {
 														</span>
 														{offer.sellerBusy && (
 															<span className="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-50 text-amber-800 border border-amber-200">
-																Active Slot Busy · Queue: {offer.queueDepth ?? 0}
+																Active Slot Busy · Queue:{" "}
+																{offer.queueDepth ?? 0}
 															</span>
 														)}
 													</div>
 													<div className="text-[11px] text-[#7aaa92]">
-														{offer.completionRate} completion · {offer.completedTrades} settled ·{" "}
-														{offer.avgReleaseTime} avg release · Partial fills enabled
+														{offer.completionRate} completion ·{" "}
+														{offer.completedTrades} settled ·{" "}
+														{offer.avgReleaseTime} avg release · Partial fills
+														enabled
 													</div>
 												</div>
 
@@ -265,7 +273,8 @@ export default function TradePage() {
 															{offer.availableUsdc} USDC
 														</div>
 														<div className="text-[11px] font-mono text-[#7aaa92]">
-															{offer.ngnAmount} @ ₦{offer.rateNgn.toLocaleString("en-NG")}
+															{offer.ngnAmount} @ ₦
+															{offer.rateNgn.toLocaleString("en-NG")}
 														</div>
 													</div>
 
@@ -323,7 +332,9 @@ export default function TradePage() {
 													<span className="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-50 text-amber-700 border border-amber-200">
 														{tx.lifecycleState ?? "AWAITING_PAYMENT"}
 													</span>
-													<span className="text-[#7aaa92]">· {tx.bankName}</span>
+													<span className="text-[#7aaa92]">
+														· {tx.bankName}
+													</span>
 												</div>
 												<div className="text-[11px] text-[#7aaa92] mt-0.5">
 													{tx.usdcAmount} USDC · {tx.ngnAmount}
@@ -358,7 +369,8 @@ export default function TradePage() {
 									<span>Seller-Funded Escrow</span>
 								</div>
 								<p className="text-[11px] text-[#7aaa92] mt-1 leading-relaxed">
-									Sellers lock 100% of available USDC inventory on Arc before listing for instant buyer settlement.
+									Sellers lock 100% of available USDC inventory on Arc before
+									listing for instant buyer settlement.
 								</p>
 							</div>
 
@@ -368,7 +380,8 @@ export default function TradePage() {
 									<span>20-Minute Window</span>
 								</div>
 								<p className="text-[11px] text-[#7aaa92] mt-1 leading-relaxed">
-									Every initiated trade has an immutable 20-minute payment deadline and automatic late-payment protection.
+									Every initiated trade has an immutable 20-minute payment
+									deadline and automatic late-payment protection.
 								</p>
 							</div>
 
@@ -378,7 +391,8 @@ export default function TradePage() {
 									<span>Gated Release</span>
 								</div>
 								<p className="text-[11px] text-[#7aaa92] mt-1 leading-relaxed">
-									Escrow release requires both verified buyer payment and confirmed seller fiat payout.
+									Escrow release requires both verified buyer payment and
+									confirmed seller fiat payout.
 								</p>
 							</div>
 						</div>

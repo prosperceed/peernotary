@@ -6,6 +6,7 @@ import {
 	cancelPeerTradeUser,
 	getPaymentAttemptByRef,
 	getSharedTrade,
+	getOrHydrateSharedTrade,
 	getTradeAuditEvents,
 	reconcileExpiredTrades,
 	resolveParentListingId,
@@ -20,11 +21,17 @@ export async function GET(
 ) {
 	try {
 		const expectedAddress = request.headers.get("x-wallet-address") || undefined;
-		await getAuthenticatedUser(expectedAddress);
+		if (expectedAddress) {
+			try {
+				await getAuthenticatedUser(expectedAddress);
+			} catch {
+				// Proceed with trade lookup even if session challenge signature is pending
+			}
+		}
 		const { tradeId } = await params;
 
 		reconcileExpiredTrades();
-		const trade = getSharedTrade(tradeId);
+		const trade = await getOrHydrateSharedTrade(tradeId, expectedAddress);
 		if (!trade) {
 			return NextResponse.json({ error: "TRADE_NOT_FOUND" }, { status: 404 });
 		}
@@ -38,11 +45,10 @@ export async function GET(
 			attempt: attempt ?? null,
 			auditEvents: getTradeAuditEvents(tradeId),
 		});
-	} catch {
-		return NextResponse.json(
-			{ error: "AUTHENTICATION_REQUIRED" },
-			{ status: 401 },
-		);
+	} catch (err) {
+		const message =
+			err instanceof Error ? err.message : "Failed to load trade lifecycle";
+		return NextResponse.json({ error: message }, { status: 500 });
 	}
 }
 

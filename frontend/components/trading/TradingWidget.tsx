@@ -628,13 +628,17 @@ export default function TradingWidget({
 			const targetTradeId =
 				data.activeTradeId || data.allocatedTradeId || activeTradeId;
 			setQueuedOrderInfo(null);
-			await fetchTradeLifecycle(targetTradeId);
 			onTradeUpdated?.();
-			setFeedback({
-				type: "success",
-				text: `Trade #${targetTradeId} allocated (${usdcAmount} USDC) in AWAITING_PAYMENT. Complete payment within 20 minutes.`,
+
+			const qs = new URLSearchParams({
+				tradeId: targetTradeId,
+				bank: selectedBank,
+				amountNgn: String(Math.round(rawNgn)),
+				amountUsdc: usdcAmount,
+				accountNo: lifecycleTrade?.sellerAccountNumber || "",
+				returnTo: "/trade",
 			});
-			setStep(1);
+			router.push(`/bank-checkout?${qs.toString()}`);
 		} catch (err) {
 			setFeedback({
 				type: "error",

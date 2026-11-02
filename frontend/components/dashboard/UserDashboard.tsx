@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
 	LayoutDashboard,
 	Layers,
@@ -119,6 +120,7 @@ export default function UserDashboard() {
 	const { signMessageAsync } = useSignMessage();
 	const { switchChainAsync } = useSwitchChain();
 	const escrow = useEscrow();
+	const router = useRouter();
 
 	const [mounted, setMounted] = useState(false);
 	const [checkingSession, setCheckingSession] = useState(true);
@@ -196,7 +198,7 @@ export default function UserDashboard() {
 	const [releasingTradeId, setReleasingTradeId] = useState<string | null>(null);
 
 	const [offerSide, setOfferSide] = useState<"sell" | "buy">("sell");
-	const [offerUsdc, setOfferUsdc] = useState("250.00");
+	const [offerUsdc, setOfferUsdc] = useState("");
 	const [offerBank, setOfferBank] = useState("GTBank");
 	const [offerAccountNo, setOfferAccountNo] = useState("");
 	const [creatingOffer, setCreatingOffer] = useState(false);
@@ -675,10 +677,17 @@ export default function UserDashboard() {
 					text: `Seller is currently completing another trade. Your request for ${data.queueEntry.requestedUsdc} USDC is queued at Position #${data.queueEntry.queuePosition}.`,
 				});
 			} else {
-				setActionFeedback({
-					type: "success",
-					text: `Order #${data.activeTradeId ?? offer.tradeId} activated for ${requestedNumeric.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 6 })} USDC. Complete payment within 20 minutes.`,
-				});
+				const targetTradeId = data.activeTradeId ?? offer.tradeId;
+				await refetchNative();
+				await refetchErc20();
+				router.push(
+					`/bank-checkout?tradeId=${encodeURIComponent(
+						targetTradeId,
+					)}&bank=${encodeURIComponent(
+						offer.bankName,
+					)}&returnTo=/dashboard`,
+				);
+				return;
 			}
 			await refetchNative();
 			await refetchErc20();
@@ -2475,24 +2484,31 @@ export default function UserDashboard() {
 							className="space-y-4"
 						>
 							<div>
-								<label className="block text-xs font-semibold text-[#0d2b1e] mb-1">
-									USDC Amount
-								</label>
+								<div className="flex items-center justify-between mb-1">
+									<label className="block text-xs font-semibold text-[#0d2b1e]">
+										USDC Amount
+									</label>
+									<span className="text-[11px] font-mono text-[#1a9e5c]">
+										1 USDC = ₦{RATE.toLocaleString("en-NG")}
+									</span>
+								</div>
 								<div className="relative">
 									<input
 										type="text"
 										value={offerUsdc}
 										onChange={(e) => setOfferUsdc(e.target.value)}
 										className="w-full px-4 py-2.5 rounded-2xl border border-[#d1e8dc] text-xs font-mono text-[#0d2b1e] focus:outline-none focus:border-[#1a9e5c]"
-										placeholder="250.00"
+										placeholder="Enter USDC amount"
 									/>
 									<span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-mono text-[#7aaa92]">
-										≈ ₦
-										{Math.round(
-											parseNumericUsdc(offerUsdc) * RATE,
-										).toLocaleString("en-NG")}
+										{offerUsdc.trim()
+											? `≈ ₦${Math.round(parseNumericUsdc(offerUsdc) * RATE).toLocaleString("en-NG")}`
+											: `1 USDC = ₦${RATE.toLocaleString("en-NG")}`}
 									</span>
 								</div>
+								<p className="mt-1 text-[11px] text-[#7aaa92]">
+									1 USDC = ₦{RATE.toLocaleString("en-NG")}
+								</p>
 							</div>
 
 							<div className="grid grid-cols-2 gap-3">

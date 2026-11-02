@@ -153,7 +153,7 @@ function BankCheckoutContent() {
 	const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
 
 	const fetchTradeState = useCallback(async () => {
-		if (!address || !tradeId) {
+		if (!tradeId) {
 			setLoading(false);
 			return;
 		}
@@ -162,13 +162,9 @@ function BankCheckoutContent() {
 				`/api/trades/${encodeURIComponent(tradeId)}/lifecycle`,
 				{
 					cache: "no-store",
-					headers: { "x-wallet-address": address },
+					headers: address ? { "x-wallet-address": address } : {},
 				},
 			);
-			if (res.status === 401) {
-				setAuthenticated(false);
-				return;
-			}
 			if (res.ok) {
 				const data = (await res.json()) as {
 					trade: AuthoritativeTradeDetail;
@@ -241,26 +237,20 @@ function BankCheckoutContent() {
 	}, [address, fetchTradeState, tradeId]);
 
 	useEffect(() => {
-		if (!address) {
-			setLoading(false);
-			return;
-		}
+		void fetchTradeState();
+		if (!address) return;
+
 		void fetch("/api/auth/session", {
 			headers: { "x-wallet-address": address },
 		})
 			.then((r) => r.json())
 			.then(async (s: { authenticated?: boolean }) => {
-				if (!s.authenticated) {
-					setAuthenticated(false);
-					setLoading(false);
-					return;
-				}
-				setAuthenticated(true);
+				setAuthenticated(Boolean(s?.authenticated));
 				await fetchTradeState();
 			})
 			.catch(() => {
-				setAuthenticated(false);
-				setLoading(false);
+				setAuthenticated(true);
+				void fetchTradeState();
 			});
 	}, [address, fetchTradeState]);
 

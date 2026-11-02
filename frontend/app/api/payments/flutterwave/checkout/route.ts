@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth/wallet";
 import { initializeFlutterwaveStandardCheckout } from "@/lib/payments/flutterwaveServer";
-import { getSharedTrade } from "@/lib/trades/tradeStore";
+import { getSharedTrade, getOrHydrateSharedTrade } from "@/lib/trades/tradeStore";
 
 export async function POST(request: NextRequest) {
 	try {
@@ -12,9 +12,11 @@ export async function POST(request: NextRequest) {
 		};
 
 		const tradeId = body.tradeId?.trim();
-		if (!tradeId || !/^[1-9][0-9]{0,38}$/.test(tradeId)) {
+		if (!tradeId || !/^[a-zA-Z0-9_-]{1,64}$/.test(tradeId)) {
 			return NextResponse.json({ error: "INVALID_TRADE_ID" }, { status: 400 });
 		}
+
+		await getOrHydrateSharedTrade(tradeId, user.walletAddress);
 
 		const originUrl =
 			process.env.NEXT_PUBLIC_APP_URL ?? request.nextUrl.origin;

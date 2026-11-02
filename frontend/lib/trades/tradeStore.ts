@@ -656,7 +656,120 @@ export function getActivePeerOffers(): PeerTradeOffer[] {
 }
 
 export function getSharedTrade(tradeId: string): SharedTrade | undefined {
-	return sharedTradesMap.get(tradeId);
+	if (!tradeId) return undefined;
+	const direct = sharedTradesMap.get(tradeId);
+	if (direct) return direct;
+
+	const inv = sellerInventoryMap.get(tradeId);
+	if (inv?.activeSlotTradeId) {
+		const slotTrade = sharedTradesMap.get(inv.activeSlotTradeId);
+		if (slotTrade) return slotTrade;
+	}
+
+	const parentId = childTradeToParentListingMap.get(tradeId);
+	if (parentId) {
+		const parentTrade = sharedTradesMap.get(parentId);
+		if (parentTrade) return parentTrade;
+	}
+
+	for (const [id, t] of sharedTradesMap.entries()) {
+		if (
+			id.toLowerCase() === tradeId.toLowerCase() ||
+			t.tradeId.toLowerCase() === tradeId.toLowerCase()
+		) {
+			return t;
+		}
+	}
+
+	return undefined;
+}
+
+export async function getOrHydrateSharedTrade(
+	tradeId: string,
+	address?: string,
+): Promise<SharedTrade | undefined> {
+	let trade = getSharedTrade(tradeId);
+	if (trade) return trade;
+
+	if (address) {
+		await hydrateUserTradesFromSupabase(address);
+		trade = getSharedTrade(tradeId);
+		if (trade) return trade;
+	}
+
+	try {
+		const rows = await supabaseServerSelect<{
+			trade_id: string;
+			seller_address: string;
+			buyer_address: string | null;
+			side: "sell" | "buy";
+			usdc_amount_units: number;
+			fiat_amount_minor: number;
+			fiat_currency: string;
+			exchange_rate_minor: number;
+			seller_bank_code: string;
+			seller_bank_name: string;
+			seller_account_masked: string;
+			lifecycle_state: TradeLifecycleState;
+			payment_state: PaymentState;
+			payout_state: PayoutState;
+			refund_state: RefundState;
+			escrow_state: EscrowOperationState;
+			version: number;
+			created_at: string;
+		}>(
+			"trades",
+			`trade_id=eq.${encodeURIComponent(tradeId)}&limit=1`,
+		);
+
+		if (rows.length > 0) {
+			const row = rows[0];
+			const usdcAmt = formatUnitsToUsdcString(row.usdc_amount_units);
+			const ngnAmt = `₦${(row.fiat_amount_minor / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
+			const shared: SharedTrade = {
+				id: row.trade_id,
+				tradeId: row.trade_id,
+				sellerAddress: row.seller_address.toLowerCase(),
+				buyerAddress: row.buyer_address
+					? row.buyer_address.toLowerCase()
+					: undefined,
+				side: row.side || "sell",
+				usdcAmount: usdcAmt,
+				usdcAmountUnits: row.usdc_amount_units,
+				ngnAmount: ngnAmt,
+				fiatAmountMinor: row.fiat_amount_minor,
+				fiatCurrency: row.fiat_currency || "NGN",
+				rateNgn: row.exchange_rate_minor
+					? row.exchange_rate_minor / 100
+					: RATE,
+				bankName: row.seller_bank_name || "Bank Transfer",
+				bankCode: row.seller_bank_code || "058",
+				accountMasked: row.seller_account_masked || "******",
+				requiredCollateralUsdc: "0.00",
+				status:
+					row.lifecycle_state === "COMPLETED"
+						? "completed"
+						: row.lifecycle_state === "CANCELLED" ||
+							  row.lifecycle_state === "DISPUTED"
+							? "disputed"
+							: "escrow",
+				lifecycleState: row.lifecycle_state,
+				paymentState: row.payment_state,
+				payoutState: row.payout_state,
+				refundState: row.refund_state,
+				escrowState: row.escrow_state,
+				termsLocked: true,
+				version: row.version || 1,
+				createdAt: row.created_at || "Recent",
+			};
+			sharedTradesMap.set(row.trade_id, shared);
+			return shared;
+		}
+	} catch {
+		// Ignore hydration failure
+	}
+
+	return undefined;
 }
 
 export function getTradeAuditEvents(tradeId: string): TradeAuditEventItem[] {

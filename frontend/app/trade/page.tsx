@@ -283,18 +283,34 @@ export default function TradePage() {
 															Your Published Offer
 														</span>
 													) : (
-														<button
-															type="button"
-															onClick={() => setSelectedOffer(offer)}
-															className={cn(
-																"px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
-																isSelected
-																	? "bg-[#1a9e5c] text-white"
-																	: "border border-[#1a9e5c] text-[#1a9e5c] hover:bg-[#f0f7f3]",
-															)}
-														>
-															{isSelected ? "Selected" : "Select Offer"}
-														</button>
+														<div className="flex items-center gap-2">
+															<button
+																type="button"
+																onClick={() => setSelectedOffer(offer)}
+																className={cn(
+																	"px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+																	isSelected
+																		? "bg-[#1a9e5c] text-white"
+																		: "border border-[#1a9e5c] text-[#1a9e5c] hover:bg-[#f0f7f3]",
+																)}
+															>
+																{isSelected ? "Selected" : "Customize"}
+															</button>
+															<Link
+																href={`/bank-checkout?tradeId=${encodeURIComponent(
+																	offer.tradeId,
+																)}&bank=${encodeURIComponent(
+																	offer.bankName,
+																)}&amountNgn=${encodeURIComponent(
+																	offer.ngnAmount.replace(/[^0-9]/g, ""),
+																)}&amountUsdc=${encodeURIComponent(
+																	offer.availableUsdc,
+																)}&returnTo=/trade`}
+																className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#1a9e5c] hover:bg-[#15854c] text-white transition-all shadow-sm"
+															>
+																Buy Now
+															</Link>
+														</div>
 													)}
 												</div>
 											</div>

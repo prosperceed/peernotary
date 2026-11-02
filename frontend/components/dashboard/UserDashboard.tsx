@@ -86,7 +86,7 @@ function parseNumericUsdc(val: string): number {
 
 export function DashboardSkeleton() {
 	return (
-		<div className="rounded-[32px] border border-[#e5ebe7] bg-white p-6 sm:p-8 shadow-xl space-y-6 animate-pulse">
+		<div className="rounded-none sm:rounded-[32px] border-0 sm:border border-[#e5ebe7] bg-transparent sm:bg-white p-2.5 sm:p-8 shadow-none sm:shadow-xl space-y-6 animate-pulse">
 			<div className="flex items-center justify-between pb-4 border-b border-[#eef2ee]">
 				<div className="h-7 w-36 bg-[#e2f0e8] rounded-full" />
 				<div className="flex gap-2">
@@ -1194,7 +1194,7 @@ export default function UserDashboard() {
 	}
 
 	return (
-		<div className="rounded-[36px] bg-[#fbfdfc] border border-[#dce7e1] p-4 sm:p-7 shadow-[0_4px_24px_rgba(13,43,30,0.06)] flex flex-col md:flex-row gap-6 relative">
+		<div className="rounded-none sm:rounded-[36px] bg-transparent sm:bg-[#fbfdfc] border-0 sm:border border-[#dce7e1] p-2 sm:p-7 shadow-none sm:shadow-[0_4px_24px_rgba(13,43,30,0.06)] flex flex-col md:flex-row gap-6 relative">
 			{/* Left Slim Vertical Icon Dock */}
 			<aside className="hidden md:flex flex-col justify-between items-center py-2 shrink-0 border-r border-[#e8f0eb] pr-5">
 				<div className="flex flex-col items-center gap-7">

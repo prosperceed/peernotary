@@ -1139,7 +1139,7 @@ function BankCheckoutContent() {
 
 export default function BankCheckoutPage() {
 	return (
-		<div className="min-h-screen bg-[#edf2ee] text-[#0d2b1e] py-8 px-4 sm:px-6">
+		<div className="min-h-screen bg-[#f5f9f7] text-[#0d2b1e] py-8 px-4 sm:px-6">
 			<Suspense fallback={<CheckoutSkeleton />}>
 				<BankCheckoutContent />
 			</Suspense>

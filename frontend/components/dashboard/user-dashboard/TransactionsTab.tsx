@@ -96,8 +96,14 @@ export function TransactionsTab({
 									<td className="py-3 px-4 text-[#0d2b1e]">
 										<div>{tx.counterparty}</div>
 										<div className="text-[10px] text-[#7aaa92] font-mono">
-											{tx.counterpartyAddress.slice(0, 6)}...
-											{tx.counterpartyAddress.slice(-4)}
+											{tx.counterpartyAddress ? (
+												<>
+													{tx.counterpartyAddress.slice(0, 6)}...
+													{tx.counterpartyAddress.slice(-4)}
+												</>
+											) : (
+												tx.counterparty
+											)}
 										</div>
 									</td>
 									<td className="py-3 px-4 text-[#0d2b1e]">{tx.bankName}</td>

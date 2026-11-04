@@ -117,13 +117,15 @@ const tradeAuditStore = new Map<string, TradeAuditEventItem[]>();
 const activePeerOffers: PeerTradeOffer[] = [...initialPeerOffers];
 
 export function syncTradeToSupabase(trade: SharedTrade): void {
+	const parentListingRef =
+		childTradeToParentListingMap.get(trade.tradeId) || null;
 	void supabaseServerUpsert(
 		"trades",
 		{
 			trade_id: trade.tradeId,
 			seller_address: trade.sellerAddress.toLowerCase(),
 			buyer_address: trade.buyerAddress ? trade.buyerAddress.toLowerCase() : null,
-			side: trade.side,
+			side: trade.side || "sell",
 			usdc_amount_units: trade.usdcAmountUnits,
 			buyer_collateral_usdc_units: 0,
 			platform_fee_bps: 100,
@@ -131,16 +133,25 @@ export function syncTradeToSupabase(trade: SharedTrade): void {
 			fiat_currency: trade.fiatCurrency || "NGN",
 			fiat_amount_minor: trade.fiatAmountMinor,
 			exchange_rate_minor: Math.round(trade.rateNgn * 100),
-			seller_bank_code: trade.bankCode,
-			seller_bank_name: trade.bankName,
-			seller_account_masked: trade.accountMasked,
-			seller_account_hash: trade.accountMasked,
+			seller_bank_code: trade.bankCode || "058",
+			seller_bank_name: trade.bankName || "Bank Transfer",
+			seller_account_masked: trade.accountMasked || "******",
+			seller_account_hash: trade.accountMasked || trade.tradeId,
 			lifecycle_state: trade.lifecycleState,
 			payment_state: trade.paymentState,
 			payout_state: trade.payoutState,
 			refund_state: trade.refundState,
 			escrow_state: trade.escrowState,
-			version: trade.version,
+			terms_locked: trade.termsLocked ?? true,
+			payment_deadline_at: trade.paymentDeadlineAt || null,
+			chain_id: 5042002,
+			escrow_contract_address:
+				process.env.ESCROW_ADDRESS ||
+				"0x5042f1114C6F272f5909f16510399986EF0D734D",
+			release_tx_hash: trade.txHash || null,
+			proof_id_bytes32: trade.proofId || null,
+			parent_listing_ref: parentListingRef,
+			version: trade.version || 1,
 			created_at: new Date().toISOString(),
 		},
 		{ onConflict: "trade_id" },
@@ -200,6 +211,137 @@ export function persistPaymentAttemptToSupabase(
 	);
 }
 
+export async function hydrateListingsFromSupabase(): Promise<void> {
+	try {
+		const rows = await supabaseServerSelect<{
+			listing_ref: string;
+			seller_address: string;
+			total_escrowed_usdc_units: number;
+			available_usdc_units: number;
+			allocated_active_usdc_units: number;
+			reserved_queued_usdc_units: number;
+			settled_usdc_units: number;
+			exchange_rate_minor: number;
+			fiat_currency: string;
+			seller_bank_code: string;
+			seller_bank_name: string;
+			deposit_tx_hash: string | null;
+			status: string;
+			created_at: string;
+		}>(
+			"seller_listings",
+			"status=neq.DEPLETED&order=created_at.desc&limit=50",
+		);
+
+		for (const row of rows) {
+			const rate = row.exchange_rate_minor
+				? row.exchange_rate_minor / 100
+				: RATE;
+			const totalUnits = Number(row.total_escrowed_usdc_units);
+			const availUnits = Number(row.available_usdc_units);
+			const allocUnits = Number(row.allocated_active_usdc_units || 0);
+			const queuedUnits = Number(row.reserved_queued_usdc_units || 0);
+			const filledUnits = Number(row.settled_usdc_units || 0);
+			const sellerAddr = row.seller_address.toLowerCase();
+
+			sellerInventoryMap.set(row.listing_ref, {
+				listingTradeId: row.listing_ref,
+				sellerAddress: sellerAddr,
+				totalDepositedUnits: totalUnits,
+				availableUnits: availUnits,
+				allocatedUnits: allocUnits,
+				reservedQueuedUnits: queuedUnits,
+				filledUnits: filledUnits,
+				rateNgn: rate,
+				bankName: row.seller_bank_name || "Bank Transfer",
+			});
+
+			const formattedTotal = formatUnitsToUsdcString(totalUnits);
+			const formattedAvail = formatUnitsToUsdcString(availUnits);
+			const formattedAlloc = formatUnitsToUsdcString(allocUnits);
+			const formattedQueued = formatUnitsToUsdcString(queuedUnits);
+			const formattedFilled = formatUnitsToUsdcString(filledUnits);
+
+			const existingOffer = activePeerOffers.find(
+				(o) => o.tradeId === row.listing_ref,
+			);
+			if (existingOffer) {
+				existingOffer.availableUsdc = formattedAvail;
+				existingOffer.availableUsdcUnits = availUnits;
+				existingOffer.allocatedUsdc = formattedAlloc;
+				existingOffer.reservedQueuedUsdc = formattedQueued;
+				existingOffer.filledUsdc = formattedFilled;
+				existingOffer.rateNgn = rate;
+				existingOffer.bankName = row.seller_bank_name || "Bank Transfer";
+				existingOffer.sellerBusy = allocUnits > 0;
+			} else if (availUnits > 0 || allocUnits > 0) {
+				const maxNgn = Math.round((availUnits / 1_000_000) * rate);
+				activePeerOffers.unshift({
+					tradeId: row.listing_ref,
+					peerAddress: sellerAddr,
+					peerHandle: shortAddressOrUsername(sellerAddr),
+					side: "sell",
+					totalDepositedUsdc: formattedTotal,
+					availableUsdc: formattedAvail,
+					availableUsdcUnits: availUnits,
+					allocatedUsdc: formattedAlloc,
+					reservedQueuedUsdc: formattedQueued,
+					filledUsdc: formattedFilled,
+					ngnAmount: `₦${maxNgn.toLocaleString("en-NG")}`,
+					rateNgn: rate,
+					minLimitUsdc: "0.01",
+					maxLimitUsdc: formattedAvail,
+					requiredCollateralUsdc: "0.00",
+					bankName: row.seller_bank_name || "Bank Transfer",
+					completionRate: "99.4%",
+					completedTrades: 1,
+					avgReleaseTime: "54s",
+					createdAt: "Active",
+					sellerBusy: allocUnits > 0,
+					queueDepth: 0,
+					estimatedWaitSeconds: 0,
+				});
+			}
+
+			if (!sharedTradesMap.has(row.listing_ref)) {
+				const fiatMinor = Math.round(
+					(totalUnits / 1_000_000) * rate * 100,
+				);
+				sharedTradesMap.set(row.listing_ref, {
+					id: row.listing_ref,
+					tradeId: row.listing_ref,
+					sellerAddress: sellerAddr,
+					side: "sell",
+					usdcAmount: formattedTotal,
+					usdcAmountUnits: totalUnits,
+					ngnAmount: `₦${(fiatMinor / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`,
+					fiatAmountMinor: fiatMinor,
+					fiatCurrency: row.fiat_currency || "NGN",
+					rateNgn: rate,
+					bankName: row.seller_bank_name || "Bank Transfer",
+					bankCode: row.seller_bank_code || "058",
+					accountMasked: "******",
+					requiredCollateralUsdc: "0.00",
+					status: "escrow",
+					lifecycleState: "OPEN",
+					paymentState: "UNPAID",
+					payoutState: "NOT_STARTED",
+					refundState: "NONE",
+					escrowState: "FUNDED",
+					termsLocked: false,
+					txHash: row.deposit_tx_hash || undefined,
+					version: 1,
+					createdAt: row.created_at || "Recent",
+				});
+			}
+
+			syncOfferFromInventory(row.listing_ref);
+		}
+	} catch {
+		// Ignore hydration failure
+	}
+}
+
 export async function hydrateUserTradesFromSupabase(
 	address: string,
 ): Promise<void> {
@@ -222,6 +364,11 @@ export async function hydrateUserTradesFromSupabase(
 			payout_state: PayoutState;
 			refund_state: RefundState;
 			escrow_state: EscrowOperationState;
+			payment_deadline_at?: string | null;
+			release_tx_hash?: string | null;
+			initiate_tx_hash?: string | null;
+			proof_id_bytes32?: string | null;
+			terms_locked?: boolean;
 			version: number;
 			created_at: string;
 		}>(
@@ -230,48 +377,153 @@ export async function hydrateUserTradesFromSupabase(
 		);
 
 		for (const row of rows) {
-			if (!sharedTradesMap.has(row.trade_id)) {
-				const usdcAmt = formatUnitsToUsdcString(row.usdc_amount_units);
-				const ngnAmt = `₦${(row.fiat_amount_minor / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
-				const shared: SharedTrade = {
-					id: row.trade_id,
-					tradeId: row.trade_id,
-					sellerAddress: row.seller_address.toLowerCase(),
-					buyerAddress: row.buyer_address
-						? row.buyer_address.toLowerCase()
-						: undefined,
-					side: row.side || "sell",
-					usdcAmount: usdcAmt,
-					usdcAmountUnits: row.usdc_amount_units,
-					ngnAmount: ngnAmt,
-					fiatAmountMinor: row.fiat_amount_minor,
-					fiatCurrency: row.fiat_currency || "NGN",
-					rateNgn: row.exchange_rate_minor
-						? row.exchange_rate_minor / 100
-						: RATE,
-					bankName: row.seller_bank_name || "Bank Transfer",
-					bankCode: row.seller_bank_code || "058",
-					accountMasked: row.seller_account_masked || "******",
-					requiredCollateralUsdc: "0.00",
-					status:
-						row.lifecycle_state === "COMPLETED"
-							? "completed"
-							: row.lifecycle_state === "CANCELLED" ||
-								  row.lifecycle_state === "DISPUTED"
-								? "disputed"
+			const sAddr = row.seller_address.toLowerCase();
+			const bAddr = row.buyer_address
+				? row.buyer_address.toLowerCase()
+				: undefined;
+			const usdcAmt = formatUnitsToUsdcString(row.usdc_amount_units);
+			const ngnAmt = `₦${(row.fiat_amount_minor / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
+			const rate = row.exchange_rate_minor
+				? row.exchange_rate_minor / 100
+				: RATE;
+			const uiStatus = mapLifecycleToUiStatus(row.lifecycle_state);
+			const txHash = row.release_tx_hash || row.initiate_tx_hash || "0x0";
+
+			const shared: SharedTrade = {
+				id: row.trade_id,
+				tradeId: row.trade_id,
+				sellerAddress: sAddr,
+				buyerAddress: bAddr,
+				side: row.side || "sell",
+				usdcAmount: usdcAmt,
+				usdcAmountUnits: row.usdc_amount_units,
+				ngnAmount: ngnAmt,
+				fiatAmountMinor: row.fiat_amount_minor,
+				fiatCurrency: row.fiat_currency || "NGN",
+				rateNgn: rate,
+				bankName: row.seller_bank_name || "Bank Transfer",
+				bankCode: row.seller_bank_code || "058",
+				accountMasked: row.seller_account_masked || "******",
+				requiredCollateralUsdc: "0.00",
+				status:
+					row.lifecycle_state === "COMPLETED"
+						? "completed"
+						: row.lifecycle_state === "CANCELLED" ||
+							  row.lifecycle_state === "DISPUTED"
+							? "disputed"
+							: row.lifecycle_state === "OPEN"
+								? "open"
 								: "escrow",
+				lifecycleState: row.lifecycle_state,
+				paymentState: row.payment_state,
+				payoutState: row.payout_state,
+				refundState: row.refund_state,
+				escrowState: row.escrow_state,
+				paymentDeadlineAt: row.payment_deadline_at || undefined,
+				txHash: txHash !== "0x0" ? txHash : undefined,
+				proofId: row.proof_id_bytes32 || undefined,
+				termsLocked: row.terms_locked ?? true,
+				version: row.version || 1,
+				createdAt: row.created_at || "Recent",
+			};
+			sharedTradesMap.set(row.trade_id, shared);
+
+			// Populate seller ledger
+			const sellerLedger = getUserLedger(sAddr);
+			const existingSellerTx = sellerLedger.find(
+				(t) => t.tradeId === row.trade_id,
+			);
+			if (existingSellerTx) {
+				existingSellerTx.status = uiStatus;
+				existingSellerTx.lifecycleState = row.lifecycle_state;
+				existingSellerTx.paymentState = row.payment_state;
+				existingSellerTx.payoutState = row.payout_state;
+				existingSellerTx.refundState = row.refund_state;
+				existingSellerTx.escrowState = row.escrow_state;
+				if (row.payment_deadline_at)
+					existingSellerTx.paymentDeadlineAt = row.payment_deadline_at;
+				if (txHash !== "0x0") existingSellerTx.txHash = txHash;
+				if (row.proof_id_bytes32)
+					existingSellerTx.proofId = row.proof_id_bytes32;
+			} else {
+				sellerLedger.push({
+					id: `TX-${row.trade_id}-S`,
+					tradeId: row.trade_id,
+					type: row.side === "buy" ? "buy" : "sell",
+					role: row.side === "buy" ? "buyer" : "seller",
+					counterparty: bAddr
+						? shortAddressOrUsername(bAddr)
+						: "Open Peer Market",
+					counterpartyAddress:
+						bAddr || "0x5042f1114C6F272f5909f16510399986EF0D734D",
+					usdcAmount: usdcAmt,
+					ngnAmount: ngnAmt,
+					bankName: row.seller_bank_name || "Bank Transfer",
+					verificationMethod: "On-Chain Escrow",
+					status: uiStatus,
 					lifecycleState: row.lifecycle_state,
 					paymentState: row.payment_state,
 					payoutState: row.payout_state,
 					refundState: row.refund_state,
 					escrowState: row.escrow_state,
-					termsLocked: true,
-					version: row.version || 1,
-					createdAt: row.created_at || "Recent",
-				};
-				sharedTradesMap.set(row.trade_id, shared);
-				syncBothUserLedgers(shared);
+					paymentDeadlineAt: row.payment_deadline_at || undefined,
+					txHash,
+					proofId: row.proof_id_bytes32 || undefined,
+					timestamp:
+						row.lifecycle_state === "COMPLETED"
+							? "Settled"
+							: row.lifecycle_state.replace(/_/g, " "),
+				});
 			}
+
+			// Populate buyer ledger if buyer is set
+			if (bAddr) {
+				const buyerLedger = getUserLedger(bAddr);
+				const existingBuyerTx = buyerLedger.find(
+					(t) => t.tradeId === row.trade_id,
+				);
+				if (existingBuyerTx) {
+					existingBuyerTx.status = uiStatus;
+					existingBuyerTx.lifecycleState = row.lifecycle_state;
+					existingBuyerTx.paymentState = row.payment_state;
+					existingBuyerTx.payoutState = row.payout_state;
+					existingBuyerTx.refundState = row.refund_state;
+					existingBuyerTx.escrowState = row.escrow_state;
+					if (row.payment_deadline_at)
+						existingBuyerTx.paymentDeadlineAt = row.payment_deadline_at;
+					if (txHash !== "0x0") existingBuyerTx.txHash = txHash;
+					if (row.proof_id_bytes32)
+						existingBuyerTx.proofId = row.proof_id_bytes32;
+				} else {
+					buyerLedger.push({
+						id: `TX-${row.trade_id}-B`,
+						tradeId: row.trade_id,
+						type: row.side === "sell" ? "buy" : "sell",
+						role: row.side === "sell" ? "buyer" : "seller",
+						counterparty: shortAddressOrUsername(sAddr),
+						counterpartyAddress: sAddr,
+						usdcAmount: usdcAmt,
+						ngnAmount: ngnAmt,
+						bankName: row.seller_bank_name || "Bank Transfer",
+						verificationMethod: "Flutterwave Checkout",
+						status: uiStatus,
+						lifecycleState: row.lifecycle_state,
+						paymentState: row.payment_state,
+						payoutState: row.payout_state,
+						refundState: row.refund_state,
+						escrowState: row.escrow_state,
+						paymentDeadlineAt: row.payment_deadline_at || undefined,
+						txHash,
+						proofId: row.proof_id_bytes32 || undefined,
+						timestamp:
+							row.lifecycle_state === "COMPLETED"
+								? "Settled"
+								: row.lifecycle_state.replace(/_/g, " "),
+					});
+				}
+			}
+
+			syncBothUserLedgers(shared);
 		}
 	} catch {
 		// Ignore hydration failure
@@ -726,6 +978,10 @@ export async function getOrHydrateSharedTrade(
 			const row = rows[0];
 			const usdcAmt = formatUnitsToUsdcString(row.usdc_amount_units);
 			const ngnAmt = `₦${(row.fiat_amount_minor / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
+			const rate = row.exchange_rate_minor
+				? row.exchange_rate_minor / 100
+				: RATE;
+
 			const shared: SharedTrade = {
 				id: row.trade_id,
 				tradeId: row.trade_id,
@@ -817,7 +1073,7 @@ export function createPeerOffer(
 	const formattedNgn = `₦${Math.round(params.usdcAmount * RATE).toLocaleString("en-NG")}`;
 	const rawAcct = params.accountNumber?.replace(/\D/g, "") || "";
 	const accountMasked =
-		rawAcct.length >= 4 ? `******${rawAcct.slice(-4)}` : "—";
+		rawAcct.length >= 4 ? `******${rawAcct.slice(-4)}` : "******";
 
 	const sellerLedger = getUserLedger(sAddr);
 
@@ -1321,6 +1577,7 @@ function releaseSellerSlotAndAdvanceQueue(tradeId: string, completed: boolean) {
 	}
 
 	syncOfferFromInventory(parentListingId);
+	syncListingToSupabase(inv);
 }
 
 export function createOrReuseCheckoutAttempt(

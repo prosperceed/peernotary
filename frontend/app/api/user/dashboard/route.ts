@@ -13,6 +13,7 @@ import {
 	getUserLedger,
 	getUserQueueEntries,
 	getUserTrustSummary,
+	hydrateListingsFromSupabase,
 	hydrateUserTradesFromSupabase,
 	reconcileExpiredTrades,
 	submitGuarantorCommitment,
@@ -22,8 +23,20 @@ import {
 
 export async function GET(request: NextRequest) {
 	try {
+		await hydrateListingsFromSupabase();
+
 		const expectedAddress = request.headers.get("x-wallet-address") || undefined;
-		const user = await getAuthenticatedUser(expectedAddress);
+		let user;
+		try {
+			user = await getAuthenticatedUser(expectedAddress);
+		} catch {
+			return NextResponse.json({
+				authenticated: false,
+				peerOffers: getActivePeerOffers(),
+				transactions: [],
+			});
+		}
+
 		const current = user.walletAddress.toLowerCase();
 
 		reconcileExpiredTrades();

@@ -15,12 +15,26 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
 	try {
 		const body: unknown = await request.json();
-		if (!body || typeof body !== "object" || Array.isArray(body) || typeof (body as Record<string, unknown>).address !== "string") {
+		if (
+			!body ||
+			typeof body !== "object" ||
+			Array.isArray(body) ||
+			typeof (body as Record<string, unknown>).address !== "string"
+		) {
 			return NextResponse.json({ error: "MALFORMED_REQUEST" }, { status: 400 });
 		}
-		return NextResponse.json(await createWalletChallenge((body as { address: string }).address, request.headers.get("host") ?? undefined));
+		const address = (body as { address: string }).address.trim();
+		return NextResponse.json(
+			await createWalletChallenge(address, request.headers.get("host") ?? undefined),
+		);
 	} catch (error) {
 		console.error("auth nonce POST error", error);
-		return NextResponse.json({ error: "CHALLENGE_FAILED", message: error instanceof Error ? error.message : "Unknown challenge failure" }, { status: 400 });
+		return NextResponse.json(
+			{
+				error: "CHALLENGE_FAILED",
+				message: error instanceof Error ? error.message : "Unknown challenge failure",
+			},
+			{ status: 400 },
+		);
 	}
 }

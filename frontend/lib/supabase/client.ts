@@ -159,7 +159,23 @@ export async function supabaseWalletSignin(params: {
 	});
 
 	if (!challengeRes.ok) {
-		throw new Error("Could not initialize sign-in request. Please try again.");
+		let message = "Could not initialize sign-in request. Please try again.";
+		try {
+			const errData = (await challengeRes.json()) as {
+				message?: string;
+				error?: string;
+			};
+			if (errData?.message) {
+				message = errData.message;
+			} else if (errData?.error) {
+				message = errData.error;
+			} else {
+				message = `Sign-in initialization failed with HTTP ${challengeRes.status}. Please try again.`;
+			}
+		} catch {
+			message = `Sign-in initialization failed with HTTP ${challengeRes.status}. Please check your connection or restart the dev server.`;
+		}
+		throw new Error(message);
 	}
 
 	const challenge = (await challengeRes.json()) as {
@@ -184,7 +200,21 @@ export async function supabaseWalletSignin(params: {
 	});
 
 	if (!verifyRes.ok) {
-		throw new Error("Signature verification failed. Please sign in again.");
+		let message = "Signature verification failed. Please sign in again.";
+		try {
+			const errData = (await verifyRes.json()) as {
+				message?: string;
+				error?: string;
+			};
+			if (errData?.message) {
+				message = errData.message;
+			} else if (errData?.error) {
+				message = errData.error;
+			}
+		} catch {
+			// ignore
+		}
+		throw new Error(message);
 	}
 
 	const verified = (await verifyRes.json()) as {

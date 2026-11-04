@@ -75,7 +75,7 @@ const CHAIN_ID = Number(
 	process.env.AUTH_CHAIN_ID ?? process.env.ARC_CHAIN_ID ?? "5042002",
 );
 const RATE_LIMIT_WINDOW_MS = 60 * 1_000;
-const RATE_LIMIT_MAX = 40;
+const RATE_LIMIT_MAX = 120;
 
 const RESERVED_USERNAMES = new Set([
 	"admin",

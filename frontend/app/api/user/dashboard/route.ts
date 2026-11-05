@@ -166,6 +166,7 @@ export async function POST(request: NextRequest) {
 			status?: "completed" | "escrow" | "disputed" | "pending";
 			txHash?: string;
 			proofId?: string;
+			rateNgn?: number;
 		};
 
 		if (body.action === "create_offer" && body.usdcAmount && body.bankName) {
@@ -182,6 +183,7 @@ export async function POST(request: NextRequest) {
 					side: body.side,
 					txHash: body.txHash,
 					tradeId: body.tradeId,
+					rateNgn: typeof body.rateNgn === "number" && body.rateNgn > 0 ? body.rateNgn : undefined,
 				});
 
 				return NextResponse.json({

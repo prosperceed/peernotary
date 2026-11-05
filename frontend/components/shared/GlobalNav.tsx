@@ -22,6 +22,7 @@ import {
 } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { cn } from "@/lib/utils";
+import { useMonierateRate } from "@/hooks/useMonierateRate";
 import {
 	arcTestnet,
 	switchToArcTestnet,
@@ -34,8 +35,7 @@ import {
 } from "@/lib/supabase/client";
 import type { View } from "@/types";
 
-const TICKER_ITEMS = [
-	"1 USDC = ₦1,630",
+const DEFAULT_TICKER_ITEMS = [
 	"ARC/USDC +2.4%",
 	"TVL: $4.2M",
 	"Gas: 0.0031 USDC",
@@ -44,19 +44,27 @@ const TICKER_ITEMS = [
 ];
 
 function LiveTicker() {
+	const { rate, rateData } = useMonierateRate();
 	const [index, setIndex] = useState(0);
 	const [fading, setFading] = useState(false);
+
+	const formattedRate = `1 USDC = ₦${rate.toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+	const tickerItems = [
+		formattedRate,
+		...(rateData?.change24hText ? [`USDC/NGN 24h ${rateData.change24hText}`] : []),
+		...DEFAULT_TICKER_ITEMS,
+	];
 
 	useEffect(() => {
 		const interval = setInterval(() => {
 			setFading(true);
 			setTimeout(() => {
-				setIndex((i) => (i + 1) % TICKER_ITEMS.length);
+				setIndex((i) => (i + 1) % tickerItems.length);
 				setFading(false);
 			}, 300);
 		}, 2800);
 		return () => clearInterval(interval);
-	}, []);
+	}, [tickerItems.length]);
 
 	return (
 		<div className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-full border border-[#d1e8dc] bg-[#f0f7f3]">
@@ -67,7 +75,7 @@ function LiveTicker() {
 					fading ? "opacity-0" : "opacity-100",
 				)}
 			>
-				{TICKER_ITEMS[index]}
+				{tickerItems[index % tickerItems.length]}
 			</span>
 		</div>
 	);

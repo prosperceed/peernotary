@@ -44,6 +44,7 @@ import {
 } from "@/lib/web3/arcConfig";
 import { supabaseWalletSignin } from "@/lib/supabase/client";
 import { cn, RATE } from "@/lib/utils";
+import { useMonierateRate } from "@/hooks/useMonierateRate";
 import type {
 	TradeStep,
 	VerifyMode,
@@ -309,6 +310,7 @@ export default function TradingWidget({
 	const { connectAsync } = useConnect();
 	const { signMessageAsync } = useSignMessage();
 	const escrow = useEscrow();
+	const { rate: monierateRate } = useMonierateRate();
 
 	// View mode: "market" (browse peer activities) or "terminal" (order execution)
 	const [widgetTab, setWidgetTab] = useState<"market" | "terminal">("terminal");
@@ -503,7 +505,7 @@ export default function TradingWidget({
 	};
 
 	const activeTradeId = lifecycleTrade?.tradeId ?? activeOffer?.tradeId ?? "";
-	const activeRate = lifecycleTrade?.rateNgn ?? activeOffer?.rateNgn ?? RATE;
+	const activeRate = lifecycleTrade?.rateNgn ?? activeOffer?.rateNgn ?? (monierateRate || RATE);
 	const maxOfferUsdc =
 		parseFloat(
 			(activeOffer?.availableUsdc ?? lifecycleTrade?.usdcAmount ?? "0").replace(

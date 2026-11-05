@@ -2,6 +2,7 @@
 
 import { BankSearchSelect } from "@/components/shared";
 import { RATE } from "@/lib/utils";
+import { useMonierateRate } from "@/hooks/useMonierateRate";
 
 function parseNumericUsdc(val: string): number {
 	return parseFloat(val.replace(/,/g, "")) || 0;
@@ -28,6 +29,8 @@ export function CreateOfferTab({
 	creatingOffer,
 	onSubmit,
 }: CreateOfferTabProps) {
+	const { rate } = useMonierateRate();
+	const activeRate = rate || RATE;
 	return (
 		<div className="max-w-md mx-auto rounded-[32px] border border-[#e5ebe7] bg-white p-7 space-y-5 shadow-xl">
 			<div>
@@ -57,8 +60,8 @@ export function CreateOfferTab({
 						/>
 						<span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-mono text-[#7aaa92]">
 							{offerUsdc.trim()
-								? `≈ ₦${Math.round(parseNumericUsdc(offerUsdc) * RATE).toLocaleString("en-NG")}`
-								: `1 USDC = ₦${RATE.toLocaleString("en-NG")}`}
+								? `≈ ₦${Math.round(parseNumericUsdc(offerUsdc) * activeRate).toLocaleString("en-NG")}`
+								: `1 USDC = ₦${activeRate.toLocaleString("en-NG", { minimumFractionDigits: 2 })}`}
 						</span>
 					</div>
 				</div>
@@ -94,9 +97,9 @@ export function CreateOfferTab({
 
 				<div className="p-3.5 rounded-2xl bg-[#fbfdfc] border border-[#d1e8dc] text-xs space-y-1">
 					<div className="flex justify-between text-[#7aaa92]">
-						<span>Platform Peg</span>
+						<span>Platform Peg (Monierate Live)</span>
 						<span className="font-mono font-bold text-[#0d2b1e]">
-							1 USDC = ₦{RATE.toLocaleString("en-NG")}
+							1 USDC = ₦{activeRate.toLocaleString("en-NG", { minimumFractionDigits: 2 })}
 						</span>
 					</div>
 				</div>

@@ -38,6 +38,7 @@ import {
 	supabaseWalletSignOut,
 } from "@/lib/supabase/client";
 import { cn, RATE } from "@/lib/utils";
+import { useMonierateRate } from "@/hooks/useMonierateRate";
 import type {
 	PeerTradeOffer,
 	QueueEntryItem,
@@ -108,6 +109,9 @@ export default function UserDashboard() {
 		text: string;
 	} | null>(null);
 	const previousAddressRef = useRef<string | undefined>(undefined);
+
+	const { rate: monierateRate } = useMonierateRate();
+	const activeRate = monierateRate || RATE;
 
 	useEffect(() => {
 		setMounted(true);
@@ -422,13 +426,13 @@ export default function UserDashboard() {
 
 		return {
 			walletUsdc,
-			walletNgn: Math.round(walletUsdc * RATE),
+			walletNgn: Math.round(walletUsdc * activeRate),
 			lockedEscrowUsdc,
 			totalVolumeUsdc,
-			totalVolumeNgn: Math.round(totalVolumeUsdc * RATE),
+			totalVolumeNgn: Math.round(totalVolumeUsdc * activeRate),
 			completedCount,
 		};
-	}, [transactions, walletUsdc]);
+	}, [transactions, walletUsdc, activeRate]);
 
 	const handleTakePeerOffer = async (offer: PeerTradeOffer) => {
 		if (address && offer.peerAddress.toLowerCase() === address.toLowerCase()) {
@@ -553,7 +557,7 @@ export default function UserDashboard() {
 			});
 			return;
 		}
-		if (numeric * RATE < 1) {
+		if (numeric * activeRate < 1) {
 			setActionFeedback({
 				type: "error",
 				text: "Converted NGN amount must be at least ₦1.00.",
@@ -596,6 +600,7 @@ export default function UserDashboard() {
 					usdcAmount: numeric.toString(),
 					bankName: offerBank,
 					accountNumber: offerAccountNo.trim(),
+					rateNgn: activeRate,
 					txHash,
 					tradeId: onChainTradeId,
 				}),
@@ -639,7 +644,7 @@ export default function UserDashboard() {
 		try {
 			const cleanNgn =
 				Number(trade.ngnAmount.replace(/[^0-9]/g, "")) ||
-				Math.round(parseNumericUsdc(trade.usdcAmount) * RATE);
+				Math.round(parseNumericUsdc(trade.usdcAmount) * activeRate);
 
 			const sessionRes = await fetch(`/api/tlsn/trades/${tradeId}/verify`, {
 				method: "POST",

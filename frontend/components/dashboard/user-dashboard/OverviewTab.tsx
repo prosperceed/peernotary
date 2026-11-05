@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { ArrowUpRight, ShieldCheck, Star } from "lucide-react";
-import { RATE } from "@/lib/utils";
+import { cn, RATE } from "@/lib/utils";
+import { useMonierateRate } from "@/hooks/useMonierateRate";
 import type { PeerTradeOffer, UserTransaction } from "@/types";
 
 interface OverviewTabProps {
@@ -28,6 +29,12 @@ export function OverviewTab({
 	onViewEscrows,
 	onRebalance,
 }: OverviewTabProps) {
+	const { rate, rateData } = useMonierateRate();
+	const liveRate = rate || RATE;
+	const competitor1 = rateData?.competitors?.[0];
+	const competitor2 = rateData?.competitors?.[1];
+	const isPositive = (rateData?.change24h ?? 0) >= 0;
+
 	const userOffers = peerOffers.filter(
 		(o) => o.peerAddress.toLowerCase() === address?.toLowerCase(),
 	);
@@ -200,7 +207,8 @@ export function OverviewTab({
 							<span className="text-xs font-semibold text-[#0d2b1e]">
 								Spread Edge
 							</span>
-							<span className="rounded-full bg-[#f0f7f3] border border-[#d1e8dc] px-3 py-0.5 text-[10px] font-semibold text-[#1a9e5c]">
+							<span className="rounded-full bg-[#f0f7f3] border border-[#d1e8dc] px-3 py-0.5 text-[10px] font-semibold text-[#1a9e5c] flex items-center gap-1.5">
+								<span className="w-1.5 h-1.5 rounded-full bg-[#1a9e5c] animate-pulse" />
 								Auto-Peg ✓
 							</span>
 						</div>
@@ -212,8 +220,8 @@ export function OverviewTab({
 								<div className="absolute top-1/2 -translate-y-1/2 left-[65%] w-3.5 h-3.5 rounded-full bg-[#0d2b1e] border-2 border-white shadow-sm" />
 							</div>
 							<div className="flex items-center justify-between text-[10px] text-[#7aaa92] pt-2">
-								<span>Our Ad +₦0.00</span>
-								<span>Rank 2: +₦5.00</span>
+								<span>{competitor1 ? `${competitor1.name} ${competitor1.formattedDiff}` : "Our Ad +₦0.00"}</span>
+								<span>{competitor2 ? `Rank 2 (${competitor2.name}): ${competitor2.formattedDiff}` : "Rank 2: -₦2.98"}</span>
 								<span>Rank 1: Best Rate</span>
 							</div>
 						</div>
@@ -221,15 +229,17 @@ export function OverviewTab({
 						<div className="flex items-center justify-between pt-1">
 							<div className="flex items-baseline gap-2">
 								<span className="font-mono text-lg font-bold text-[#0d2b1e]">
-									₦ {RATE.toLocaleString("en-NG")}.00
+									₦ {liveRate.toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
 								</span>
-								<span className="text-[10px] font-bold text-[#1a9e5c]">
-									+0.85%
+								<span className={cn("text-[10px] font-bold", isPositive ? "text-[#1a9e5c]" : "text-rose-600")}>
+									{rateData?.change24hText ?? "+0.85%"}
 								</span>
 							</div>
-							<span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#e8f7ee] text-[#1a9e5c]">
-								Rank 1
-							</span>
+							<div className="flex items-center gap-1.5">
+								<span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#e8f7ee] text-[#1a9e5c]">
+									Rank 1
+								</span>
+							</div>
 						</div>
 					</div>
 				</div>

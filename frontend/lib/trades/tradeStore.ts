@@ -1056,6 +1056,7 @@ export function createPeerOffer(
 		side?: "sell" | "buy";
 		txHash?: string;
 		tradeId?: string;
+		rateNgn?: number;
 	},
 ): { offer: PeerTradeOffer; transaction: UserTransaction } {
 	const sAddr = sellerAddress.toLowerCase();
@@ -1064,13 +1065,17 @@ export function createPeerOffer(
 	if (usdcUnits <= 0) {
 		throw new Error("AMOUNT_MUST_BE_POSITIVE");
 	}
-	const fiatMinor = Math.round((usdcUnits * RATE * 100) / 1_000_000);
+	const effectiveRate =
+		typeof params.rateNgn === "number" && params.rateNgn > 0
+			? params.rateNgn
+			: RATE;
+	const fiatMinor = Math.round((usdcUnits * effectiveRate * 100) / 1_000_000);
 	if (fiatMinor < 100) {
 		throw new Error("BELOW_PROVIDER_MINIMUM_NGN");
 	}
 
 	const formattedUsdc = formatUnitsToUsdcString(usdcUnits);
-	const formattedNgn = `₦${Math.round(params.usdcAmount * RATE).toLocaleString("en-NG")}`;
+	const formattedNgn = `₦${Math.round(params.usdcAmount * effectiveRate).toLocaleString("en-NG")}`;
 	const rawAcct = params.accountNumber?.replace(/\D/g, "") || "";
 	const accountMasked =
 		rawAcct.length >= 4 ? `******${rawAcct.slice(-4)}` : "******";
@@ -1085,7 +1090,7 @@ export function createPeerOffer(
 		allocatedUnits: 0,
 		reservedQueuedUnits: 0,
 		filledUnits: 0,
-		rateNgn: RATE,
+		rateNgn: effectiveRate,
 		bankName: params.bankName,
 	});
 
@@ -1101,7 +1106,7 @@ export function createPeerOffer(
 		reservedQueuedUsdc: "0.00",
 		filledUsdc: "0.00",
 		ngnAmount: formattedNgn,
-		rateNgn: RATE,
+		rateNgn: effectiveRate,
 		minLimitUsdc: "0.01",
 		maxLimitUsdc: formattedUsdc,
 		requiredCollateralUsdc: "0.00",
@@ -1128,7 +1133,7 @@ export function createPeerOffer(
 		ngnAmount: formattedNgn,
 		fiatAmountMinor: fiatMinor,
 		fiatCurrency: "NGN",
-		rateNgn: RATE,
+		rateNgn: effectiveRate,
 		bankName: params.bankName,
 		bankCode: bankToCode(params.bankName),
 		accountMasked,

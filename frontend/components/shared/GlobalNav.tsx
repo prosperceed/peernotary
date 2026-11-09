@@ -296,6 +296,7 @@ function WalletButton({
 					<span className="sm:hidden leading-none">
 						{busy ? "Connecting…" : "Connect"}
 					</span>
+					</span>
 
 					{/* Subtle right arrow that appears on hover */}
 					<ChevronDown
@@ -795,15 +796,6 @@ export default function GlobalNav() {
 	const navLinks: { label: string; view: View; source: string }[] = [
 		{ label: "Home", view: "home", source: "/" },
 		{ label: "Trading Portal", view: "trade", source: "/trade" },
-		...(isAuthed
-			? [
-					{
-						label: "Dashboard",
-						view: "dashboard" as const,
-						source: "/dashboard",
-					},
-				]
-			: []),
 		{ label: "Dashboard", view: "dashboard", source: "/dashboard" },
 		{ label: "Developer Portal", view: "dev", source: "/dev" },
 	];
@@ -833,7 +825,6 @@ export default function GlobalNav() {
 					<LiveTicker />
 				</div>
 
-				{/* Center: Nav links */}
 				{/* Center: Desktop Nav links */}
 				<nav className="hidden md:flex items-center gap-1">
 					{navLinks.map(({ label, view, source }) => (
@@ -846,8 +837,6 @@ export default function GlobalNav() {
 					))}
 				</nav>
 
-				{/* Right: Wallet */}
-				<div className="shrink-0">
 				{/* Right: Mobile Nav Trigger & Wallet Button */}
 				<div className="flex items-center gap-2 shrink-0">
 					<MobileNavButton
@@ -856,28 +845,6 @@ export default function GlobalNav() {
 					/>
 					<WalletButton onAuthChange={setIsAuthed} />
 				</div>
-			</div>
-
-			{/* Mobile nav row */}
-			<div className="md:hidden flex items-center gap-1 px-4 pb-2.5 border-t border-[#d1e8dc] pt-2">
-				{navLinks.map(({ label, view, source }) => (
-					<Link
-						key={view}
-						href={source}
-						className={cn(
-							"flex-1 py-1.5 rounded-lg text-[11px] font-medium text-center transition-all",
-							currentView === view
-								? "bg-[#f0f7f3] text-[#1a9e5c] border border-[#d1e8dc]"
-								: "text-[#7aaa92] hover:text-[#3d6b55]",
-						)}
-					>
-						{view === "trade"
-							? "P2P Trade"
-							: view === "dev"
-								? "Dev Portal"
-								: label}
-					</Link>
-				))}
 			</div>
 		</header>
 	);

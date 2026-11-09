@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import {
-	Zap,
 	Wallet,
 	ChevronDown,
 	Copy,
@@ -12,10 +11,8 @@ import {
 	LogOut,
 	AlertTriangle,
 	LayoutDashboard,
-	Home,
-	ArrowLeftRight,
-	Code,
 	Menu,
+	X,
 } from "lucide-react";
 import {
 	useAccount,
@@ -550,7 +547,6 @@ function MobileNavButton({
 	const [open, setOpen] = useState(false);
 	const ref = useRef<HTMLDivElement>(null);
 	const pathname = usePathname();
-	const { rate } = useMonierateRate();
 
 	useEffect(() => {
 		setOpen(false);
@@ -566,183 +562,56 @@ function MobileNavButton({
 		return () => document.removeEventListener("mousedown", handler);
 	}, []);
 
-	const navMeta: Record<
-		View,
-		{ label: string; short: string; description: string; icon: React.ReactNode }
-	> = {
-		home: {
-			label: "Home",
-			short: "Home",
-			description: "Protocol rates & overview",
-			icon: <Home size={12} className="text-[#1a9e5c]" />,
-		},
-		trade: {
-			label: "Trading Portal",
-			short: "Trade",
-			description: "Instant P2P escrow settlement",
-			icon: <ArrowLeftRight size={12} className="text-[#1a9e5c]" />,
-		},
-		dashboard: {
-			label: "User Dashboard",
-			short: "Dashboard",
-			description: "Active orders & merchant desk",
-			icon: <LayoutDashboard size={12} className="text-[#1a9e5c]" />,
-		},
-		dev: {
-			label: "Developer Portal",
-			short: "Dev",
-			description: "TLSNotary verifier & SDK",
-			icon: <Code size={12} className="text-[#1a9e5c]" />,
-		},
-	};
-
-	const currentMeta = navMeta[currentView] ?? {
-		label: "Menu",
-		short: "Menu",
-		description: "Platform navigation",
-		icon: <Menu size={12} className="text-[#1a9e5c]" />,
-	};
-
-	const formattedRate = `1 USDC = ₦${rate.toLocaleString("en-NG", {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2,
-	})}`;
-
 	return (
 		<div className="relative md:hidden" ref={ref}>
-			{/* Trigger button */}
 			<button
 				onClick={() => setOpen((v) => !v)}
 				className={cn(
-					"group flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2 rounded-xl",
-					"border border-[#d1e8dc] bg-white",
-					"shadow-sm shadow-[#22c972]/5",
-					"transition-all duration-200",
-					"hover:bg-[#f0f7f3] hover:border-[#1a9e5c]/40 hover:shadow-md hover:shadow-[#22c972]/15 hover:-translate-y-px",
-					"active:scale-[0.97] active:translate-y-0",
-					open && "bg-[#f0f7f3] border-[#1a9e5c]/40 shadow-md shadow-[#22c972]/10",
-					"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#22c972]/40",
+					"flex items-center justify-center w-9 h-9 rounded-xl",
+					"border border-[#d1e8dc] bg-white text-[#0d2b1e]",
+					"shadow-sm shadow-[#22c972]/5 transition-all duration-200",
+					"hover:bg-[#f0f7f3] hover:border-[#1a9e5c]/40",
+					"active:scale-[0.97]",
+					open && "bg-[#f0f7f3] border-[#1a9e5c]/40 text-[#1a9e5c]",
 				)}
 				aria-haspopup="true"
 				aria-expanded={open}
-				aria-label="Navigation menu"
+				aria-label="Toggle navigation menu"
 			>
-				{/* Avatar / Icon badge */}
-				<span className="relative flex items-center justify-center w-6 h-6 rounded-lg bg-[#f0f7f3] border border-[#d1e8dc] group-hover:border-[#1a9e5c]/30 transition-all duration-200 shrink-0">
-					{currentMeta.icon}
-					{/* Online dot */}
-					<span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#22c972] border border-white" />
-				</span>
-
-				{/* View label */}
-				<span className="text-xs font-semibold text-[#0d2b1e] leading-none">
-					{currentMeta.short}
-				</span>
-
-				{/* Chevron */}
-				<ChevronDown
-					size={12}
-					className={cn(
-						"text-[#7aaa92] transition-transform duration-200",
-						open && "rotate-180",
-					)}
-				/>
+				{open ? <X size={16} /> : <Menu size={16} />}
 			</button>
 
-			{/* Dropdown panel */}
 			{open && (
 				<div
 					className={cn(
-						"fixed top-[60px] right-4 sm:absolute sm:top-full sm:right-0 sm:mt-2 z-50",
-						"w-64 max-w-[calc(100vw-32px)] rounded-2xl overflow-hidden",
+						"absolute right-0 top-full mt-2 z-50",
+						"w-48 rounded-2xl overflow-hidden p-1.5 space-y-0.5",
 						"bg-white border border-[#d1e8dc]",
 						"shadow-xl shadow-[#22c972]/8",
 						"dropdown-enter",
 					)}
 				>
-					{/* Header */}
-					<div className="px-4 py-3 border-b border-[#d1e8dc] bg-[#f8fcfa]">
-						<div className="flex items-center gap-2.5 mb-2">
-							{/* Avatar */}
-							<div className="relative w-8 h-8 rounded-xl bg-gradient-to-br from-[#1a9e5c] to-[#22c972] flex items-center justify-center shrink-0 shadow-sm shadow-[#22c972]/20">
-								<Zap size={14} className="text-white" strokeWidth={2.5} />
-								<span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[#22c972] border-2 border-white" />
-							</div>
-							<div className="min-w-0">
-								<div className="text-[11px] font-semibold text-[#0d2b1e] leading-none mb-0.5">
-									PeerNotary Menu
-								</div>
-								<div className="font-mono text-[10px] text-[#7aaa92] truncate">
-									Decentralized P2P Escrow
-								</div>
-							</div>
-						</div>
-
-						{/* Rate badge */}
-						<div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#f0f7f3] border border-[#d1e8dc]">
-							<span className="w-1.5 h-1.5 rounded-full bg-[#22c972] animate-pulse shrink-0" />
-							<span className="text-[10px] text-[#1a9e5c] font-mono font-medium">
-								{formattedRate}
-							</span>
-							<span className="ml-auto text-[9px] font-mono text-[#7aaa92]">
-								Arc #{arcTestnet.id}
-							</span>
-						</div>
-					</div>
-
-					{/* Navigation Links */}
-					<div className="p-2 space-y-0.5">
-						{navLinks.map(({ label, view, source }) => {
-							const isActive = currentView === view;
-							const meta = navMeta[view];
-							return (
-								<Link
-									key={view}
-									href={source}
-									onClick={() => setOpen(false)}
-									className={cn(
-										"w-full flex items-center justify-between px-3 py-2.5 rounded-xl",
-										"transition-all duration-150 active:scale-[0.98]",
-										isActive
-											? "bg-[#f0f7f3] text-[#1a9e5c] font-semibold border border-[#d1e8dc]"
-											: "text-[#0d2b1e] hover:bg-[#f0f7f3] hover:text-[#1a9e5c] font-medium",
-									)}
-								>
-									<div className="flex items-center gap-3 min-w-0">
-										<span
-											className={cn(
-												"w-7 h-7 rounded-lg flex items-center justify-center shrink-0 border transition-colors",
-												isActive
-													? "bg-white border-[#d1e8dc] text-[#1a9e5c]"
-													: "bg-[#f8fcfa] border-[#e5ebe7] text-[#7aaa92]",
-											)}
-										>
-											{meta?.icon ?? <Menu size={12} className="text-[#1a9e5c]" />}
-										</span>
-										<div className="text-left min-w-0">
-											<div
-												className={cn(
-													"text-xs leading-none mb-0.5",
-													isActive
-														? "font-bold text-[#1a9e5c]"
-														: "font-semibold text-[#0d2b1e]",
-												)}
-											>
-												{label}
-											</div>
-											<div className="text-[10px] text-[#7aaa92] truncate">
-												{meta?.description ?? "Navigate to view"}
-											</div>
-										</div>
-									</div>
-
-									{isActive && (
-										<span className="w-1.5 h-1.5 rounded-full bg-[#1a9e5c] shrink-0 ml-2" />
-									)}
-								</Link>
-							);
-						})}
-					</div>
+					{navLinks.map(({ label, view, source }) => {
+						const isActive = currentView === view;
+						return (
+							<Link
+								key={view}
+								href={source}
+								onClick={() => setOpen(false)}
+								className={cn(
+									"w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150",
+									isActive
+										? "bg-[#f0f7f3] text-[#1a9e5c] border border-[#d1e8dc]"
+										: "text-[#0d2b1e] hover:bg-[#f0f7f3] hover:text-[#1a9e5c]",
+								)}
+							>
+								<span>{label}</span>
+								{isActive && (
+									<span className="w-1.5 h-1.5 rounded-full bg-[#1a9e5c] shrink-0" />
+								)}
+							</Link>
+						);
+					})}
 				</div>
 			)}
 		</div>

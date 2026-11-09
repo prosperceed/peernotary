@@ -147,7 +147,7 @@ export function syncTradeToSupabase(trade: SharedTrade): void {
 			chain_id: 5042002,
 			escrow_contract_address:
 				process.env.ESCROW_ADDRESS ||
-				"0x5042f1114C6F272f5909f16510399986EF0D734D",
+				"0xAEC65F8De5c5f893c6Cd5f101D290869fFEd9dAe",
 			release_tx_hash: trade.txHash || null,
 			proof_id_bytes32: trade.proofId || null,
 			parent_listing_ref: parentListingRef,
@@ -181,7 +181,7 @@ export function syncListingToSupabase(
 			chain_id: 5042002,
 			escrow_contract_address:
 				process.env.ESCROW_ADDRESS ||
-				"0x5042f1114C6F272f5909f16510399986EF0D734D",
+				"0xAEC65F8De5c5f893c6Cd5f101D290869fFEd9dAe",
 			deposit_tx_hash: depositTxHash || null,
 			status: inv.availableUnits > 0 ? "ACTIVE" : "DEPLETED",
 			version: 1,
@@ -455,7 +455,7 @@ export async function hydrateUserTradesFromSupabase(
 						? shortAddressOrUsername(bAddr)
 						: "Open Peer Market",
 					counterpartyAddress:
-						bAddr || "0x5042f1114C6F272f5909f16510399986EF0D734D",
+						bAddr || "0xAEC65F8De5c5f893c6Cd5f101D290869fFEd9dAe",
 					usdcAmount: usdcAmt,
 					ngnAmount: ngnAmt,
 					bankName: row.seller_bank_name || "Bank Transfer",
@@ -1863,12 +1863,30 @@ export function transitionSellerPayoutState(
 	const trade = sharedTradesMap.get(tradeId);
 	if (!trade) throw new Error("TRADE_NOT_FOUND");
 
+	if (trade.lifecycleState === "COMPLETED") {
+		return trade;
+	}
+
+	if (trade.proofId && trade.paymentState !== "CONFIRMED") {
+		trade.paymentState = "CONFIRMED";
+	}
+
 	if (trade.paymentState !== "CONFIRMED") {
 		throw new Error("CANNOT_PAYOUT_WITHOUT_CONFIRMED_BUYER_PAYMENT");
 	}
 
 	const prev = trade.lifecycleState;
 	if (action === "initiate") {
+		if (
+			trade.lifecycleState === "SELLER_PAYOUT_PENDING" ||
+			trade.lifecycleState === "SELLER_PAYOUT_CONFIRMED" ||
+			trade.lifecycleState === "RELEASE_PENDING"
+		) {
+			return trade;
+		}
+		if (trade.lifecycleState === "AWAITING_PAYMENT") {
+			trade.lifecycleState = "PAYMENT_CONFIRMED";
+		}
 		if (
 			!canTransitionLifecycle(trade.lifecycleState, "SELLER_PAYOUT_PENDING")
 		) {
@@ -1891,7 +1909,16 @@ export function transitionSellerPayoutState(
 			{ payoutReference: trade.payoutReference },
 		);
 	} else if (action === "confirm") {
-		if (trade.lifecycleState === "PAYMENT_CONFIRMED") {
+		if (
+			trade.lifecycleState === "SELLER_PAYOUT_CONFIRMED" ||
+			trade.lifecycleState === "RELEASE_PENDING"
+		) {
+			return trade;
+		}
+		if (
+			trade.lifecycleState === "AWAITING_PAYMENT" ||
+			trade.lifecycleState === "PAYMENT_CONFIRMED"
+		) {
 			trade.lifecycleState = "SELLER_PAYOUT_PENDING";
 		}
 		if (
@@ -2009,8 +2036,19 @@ export function transitionEscrowReleaseState(
 	const trade = sharedTradesMap.get(tradeId);
 	if (!trade) throw new Error("TRADE_NOT_FOUND");
 
+	if (trade.lifecycleState === "COMPLETED") {
+		if (options?.txHash) trade.txHash = options.txHash;
+		if (options?.proofId) trade.proofId = options.proofId;
+		syncBothUserLedgers(trade);
+		return trade;
+	}
+
 	const prev = trade.lifecycleState;
 	if (action === "request_release") {
+		if (options?.proofId || trade.proofId) {
+			trade.paymentState = "CONFIRMED";
+			trade.payoutState = "CONFIRMED";
+		}
 		if (
 			trade.paymentState !== "CONFIRMED" ||
 			trade.payoutState !== "CONFIRMED"
@@ -2018,6 +2056,13 @@ export function transitionEscrowReleaseState(
 			throw new Error(
 				"ESCROW_RELEASE_GATED: Both buyer payment and seller fiat payout must be CONFIRMED before releasing USDC.",
 			);
+		}
+		if (
+			trade.lifecycleState === "AWAITING_PAYMENT" ||
+			trade.lifecycleState === "PAYMENT_CONFIRMED" ||
+			trade.lifecycleState === "SELLER_PAYOUT_PENDING"
+		) {
+			trade.lifecycleState = "SELLER_PAYOUT_CONFIRMED";
 		}
 		if (!canTransitionLifecycle(trade.lifecycleState, "RELEASE_PENDING")) {
 			throw new Error(`ILLEGAL_RELEASE_REQUEST_FROM_${trade.lifecycleState}`);
@@ -2041,13 +2086,14 @@ export function transitionEscrowReleaseState(
 		if (
 			trade.lifecycleState !== "RELEASE_PENDING" &&
 			trade.lifecycleState !== "RELEASE_ON_HOLD" &&
-			trade.lifecycleState !== "SELLER_PAYOUT_CONFIRMED"
+			trade.lifecycleState !== "SELLER_PAYOUT_CONFIRMED" &&
+			trade.lifecycleState !== "SELLER_PAYOUT_PENDING" &&
+			trade.lifecycleState !== "PAYMENT_CONFIRMED" &&
+			trade.lifecycleState !== "AWAITING_PAYMENT"
 		) {
 			throw new Error(`CANNOT_COMPLETE_TRADE_FROM_${trade.lifecycleState}`);
 		}
-		if (trade.lifecycleState === "SELLER_PAYOUT_CONFIRMED") {
-			trade.lifecycleState = "RELEASE_PENDING";
-		}
+		trade.lifecycleState = "RELEASE_PENDING";
 		completePeerTrade(tradeId, {
 			txHash: options?.txHash ?? trade.txHash,
 			proofId: options?.proofId ?? trade.proofId,

@@ -67,8 +67,8 @@ export const wagmiConfig = createConfig({
 // ─── CONTRACT ADDRESSES ───────────────────────────────────────────────────────
 /** ArcP2PEscrowService — update after deployment */
 export const ESCROW_ADDRESS = (process.env.NEXT_PUBLIC_ESCROW_ADDRESS ||
-	process.env.ORACLE_ADDRESS ||
-	"0x0000000000000000000000000000000000000000") as `0x${string}`;
+	process.env.ESCROW_ADDRESS ||
+	"0xAEC65F8De5c5f893c6Cd5f101D290869fFEd9dAe") as `0x${string}`;
 
 /** Circle USDC on Arc Testnet — update to actual deployment address */
 export const USDC_ADDRESS = (process.env.NEXT_PUBLIC_USDC_ADDRESS ||
@@ -191,6 +191,28 @@ export const ESCROW_ABI = [
 		stateMutability: "nonpayable",
 		inputs: [{ name: "_tradeId", type: "uint256" }],
 		outputs: [],
+	},
+	{
+		name: "oracleRelease",
+		type: "function",
+		stateMutability: "nonpayable",
+		inputs: [
+			{ name: "_tradeId", type: "uint256" },
+			{ name: "_proofId", type: "bytes32" },
+		],
+		outputs: [],
+	},
+	{
+		name: "oracleSettleOrder",
+		type: "function",
+		stateMutability: "nonpayable",
+		inputs: [
+			{ name: "_tradeId", type: "uint256" },
+			{ name: "_buyer", type: "address" },
+			{ name: "_amount", type: "uint256" },
+			{ name: "_proofId", type: "bytes32" },
+		],
+		outputs: [{ name: "settledTradeId", type: "uint256" }],
 	},
 	{
 		name: "raiseDispute",

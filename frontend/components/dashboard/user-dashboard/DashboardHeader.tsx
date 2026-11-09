@@ -19,7 +19,7 @@ export function DashboardHeader({
 }: DashboardHeaderProps) {
 	return (
 		<header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-1">
-			<div>
+			<div className="hidden md:block">
 				<h1 className="text-xl font-bold tracking-tight text-[#0d2b1e]">
 					Secure, Automated P2P
 				</h1>

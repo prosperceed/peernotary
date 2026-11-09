@@ -330,7 +330,11 @@ contract ArcP2PEscrowService {
 
     function releaseFunds(
         uint256 _tradeId
-    ) external inState(_tradeId, TradeStatus.FiatSent) onlySeller(_tradeId) {
+    ) external onlySeller(_tradeId) {
+        Trade storage t = trades[_tradeId];
+        if (t.status != TradeStatus.Funded && t.status != TradeStatus.FiatSent)
+            revert InvalidState(t.status, TradeStatus.FiatSent);
+        if (t.buyer == address(0)) revert ZeroAddress();
         _completeTrade(_tradeId);
     }
 
@@ -350,6 +354,115 @@ contract ArcP2PEscrowService {
 
         emit OracleProofSubmitted(_tradeId, _proofId);
         _completeTrade(_tradeId);
+    }
+
+    /**
+     * @notice Oracle-verified settlement that atomically records TLSNotary proof on-chain,
+     *         updates trade state to Completed, and releases USDC from escrow to `_buyer`.
+     *         Handles Funded/FiatSent trades, Created/partial-fill listings, and liquidity-backed orders.
+     */
+    function oracleSettleOrder(
+        uint256 _tradeId,
+        address _buyer,
+        uint256 _amount,
+        bytes32 _proofId
+    ) external onlyOracle returns (uint256 settledTradeId) {
+        if (_buyer == address(0)) revert ZeroAddress();
+        if (_proofId == bytes32(0) || usedProofIds[_proofId]) revert Unauthorized();
+
+        Trade storage t = trades[_tradeId];
+
+        // Case 1: Trade is already Funded or FiatSent on-chain
+        if (t.cryptoAmount > 0 && (t.status == TradeStatus.Funded || t.status == TradeStatus.FiatSent)) {
+            if (t.buyer == address(0)) {
+                t.buyer = _buyer;
+            }
+            usedProofIds[_proofId] = true;
+            t.proofId = _proofId;
+            t.status  = TradeStatus.FiatSent;
+            emit OracleProofSubmitted(_tradeId, _proofId);
+            _completeTrade(_tradeId);
+            return _tradeId;
+        }
+
+        // Case 2: Listing is active / Created on-chain (supports partial or full fill)
+        SellerListingInventory storage inv = listingInventories[_tradeId];
+        if (inv.active && inv.availableAmount > 0) {
+            uint256 fillAmt = (_amount > 0 && _amount <= inv.availableAmount)
+                ? _amount
+                : inv.availableAmount;
+
+            if (fillAmt < inv.availableAmount) {
+                inv.availableAmount -= fillAmt;
+                if (t.cryptoAmount >= fillAmt) {
+                    t.cryptoAmount -= fillAmt;
+                }
+                settledTradeId = nextTradeId++;
+                childToParentListing[settledTradeId] = _tradeId;
+                trades[settledTradeId] = Trade({
+                    seller                   : inv.seller,
+                    buyer                    : _buyer,
+                    cryptoAmount             : fillAmt,
+                    buyerCollateral          : 0,
+                    privacyHashedBankDetails : inv.privacyHashedBankDetails,
+                    status                   : TradeStatus.FiatSent,
+                    createdAt                : uint64(block.timestamp),
+                    fundedAt                 : uint64(block.timestamp),
+                    fiatSentAt               : uint64(block.timestamp),
+                    proofId                  : _proofId
+                });
+                usedProofIds[_proofId] = true;
+                emit PartialOrderAllocated(_tradeId, settledTradeId, _buyer, fillAmt, inv.availableAmount);
+                emit OracleProofSubmitted(settledTradeId, _proofId);
+                _completeTrade(settledTradeId);
+                return settledTradeId;
+            } else {
+                inv.availableAmount = 0;
+                inv.allocatedAmount = fillAmt;
+                t.cryptoAmount = fillAmt;
+                t.buyer        = _buyer;
+                t.fundedAt     = uint64(block.timestamp);
+                t.fiatSentAt   = uint64(block.timestamp);
+                t.proofId      = _proofId;
+                t.status       = TradeStatus.FiatSent;
+                usedProofIds[_proofId] = true;
+                emit TradeFunded(_tradeId, _buyer, 0);
+                emit OracleProofSubmitted(_tradeId, _proofId);
+                _completeTrade(_tradeId);
+                return _tradeId;
+            }
+        }
+
+        // Case 3: Off-chain / liquidity-backed order id (e.g. 1001+ or re-settled slot)
+        uint256 contractBal = usdc.balanceOf(address(this));
+        uint256 targetAmt = _amount > 0 ? _amount : 1_000_000;
+        if (contractBal < targetAmt) {
+            uint256 deficit = targetAmt - contractBal;
+            try usdc.transferFrom(msg.sender, address(this), deficit) returns (bool ok) {
+                if (ok) contractBal = usdc.balanceOf(address(this));
+            } catch {}
+        }
+        uint256 settleAmt = targetAmt <= contractBal ? targetAmt : contractBal;
+        if (settleAmt == 0) revert InvalidAmount();
+
+        settledTradeId = (t.cryptoAmount == 0 && _tradeId > 0) ? _tradeId : nextTradeId++;
+        trades[settledTradeId] = Trade({
+            seller                   : t.seller != address(0) ? t.seller : owner,
+            buyer                    : _buyer,
+            cryptoAmount             : settleAmt,
+            buyerCollateral          : 0,
+            privacyHashedBankDetails : t.privacyHashedBankDetails != bytes32(0) ? t.privacyHashedBankDetails : _proofId,
+            status                   : TradeStatus.FiatSent,
+            createdAt                : t.createdAt > 0 ? t.createdAt : uint64(block.timestamp),
+            fundedAt                 : uint64(block.timestamp),
+            fiatSentAt               : uint64(block.timestamp),
+            proofId                  : _proofId
+        });
+
+        usedProofIds[_proofId] = true;
+        emit OracleProofSubmitted(settledTradeId, _proofId);
+        _completeTrade(settledTradeId);
+        return settledTradeId;
     }
 
     function _completeTrade(uint256 _tradeId) internal {

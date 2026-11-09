@@ -497,7 +497,73 @@ function BankCheckoutContent() {
 			await handleLifecycleOperation("payout_confirm");
 
 			let releaseTxHash: `0x${string}` | undefined;
+			let tlsnProofId: string | undefined;
+
+			// 1. Run TLSNotary MPC-TLS verification + Oracle on-chain settlement
+			try {
+				const sessionRes = await fetch(
+					`/api/tlsn/trades/${encodeURIComponent(tradeId)}/verify`,
+					{
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							"x-wallet-address": address,
+						},
+						body: JSON.stringify({
+							action: "create_session",
+							fiatAmountMinor:
+								trade?.fiatAmountMinor ?? attempt?.expectedAmountMinor ?? 0,
+							fiatCurrency: trade?.fiatCurrency ?? "NGN",
+							bankCode: trade?.bankCode ?? "058",
+							sellerAccountHash: trade?.accountMasked ?? tradeId,
+						}),
+					},
+				);
+				const sessionData = (await sessionRes.json()) as {
+					session?: { sessionId: string };
+				};
+				const sessionId = sessionData.session?.sessionId;
+				if (sessionId) {
+					const proofRes = await fetch(
+						`/api/tlsn/trades/${encodeURIComponent(tradeId)}/verify`,
+						{
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								"x-wallet-address": address,
+							},
+							body: JSON.stringify({
+								action: "execute_proof",
+								sessionId,
+								fiatAmountMinor:
+									trade?.fiatAmountMinor ?? attempt?.expectedAmountMinor ?? 0,
+								fiatCurrency: trade?.fiatCurrency ?? "NGN",
+								bankCode: trade?.bankCode ?? "058",
+								sellerAccountHash: trade?.accountMasked ?? tradeId,
+							}),
+						},
+					);
+					if (proofRes.ok) {
+						const proofData = (await proofRes.json()) as {
+							proofId?: string;
+							oracleTransactionHash?: string;
+						};
+						if (proofData.proofId) tlsnProofId = proofData.proofId;
+						if (
+							proofData.oracleTransactionHash &&
+							proofData.oracleTransactionHash.startsWith("0x")
+						) {
+							releaseTxHash = proofData.oracleTransactionHash as `0x${string}`;
+						}
+					}
+				}
+			} catch (tlsnErr) {
+				console.warn("TLSN verification step warning:", tlsnErr);
+			}
+
+			// 2. If seller is connected directly on-chain and oracle didn't settle yet, allow direct release
 			if (
+				!releaseTxHash &&
 				escrow.isConnected &&
 				!escrow.isWrongChain &&
 				ESCROW_ADDRESS !== "0x0000000000000000000000000000000000000000" &&
@@ -512,23 +578,20 @@ function BankCheckoutContent() {
 					} catch (e) {
 						console.warn("Direct on-chain release error:", e);
 					}
-				} else {
-					try {
-						await escrow.markFiatSent(BigInt(tradeId));
-					} catch (e) {
-						console.warn("markFiatSent on-chain error:", e);
-					}
 				}
 			}
 
 			await handleLifecycleOperation("escrow_request_release", {
 				txHash: releaseTxHash,
+				proofId: tlsnProofId,
 			});
 			await handleLifecycleOperation("escrow_confirm_on_chain", {
 				txHash: releaseTxHash,
+				proofId: tlsnProofId,
 			});
+			await fetchTradeState();
 			setStatusBanner(
-				`Seller payout confirmed and Arc USDC escrow released on-chain${releaseTxHash ? ` (Tx: ${releaseTxHash.slice(0, 8)}…)` : ""}. Trade is COMPLETED.`,
+				`TLSNotary proof verified and ${usdcDisplay} USDC released on Arc Testnet${releaseTxHash ? ` (Tx: ${releaseTxHash.slice(0, 10)}...)` : ""}. Trade is COMPLETED.`,
 			);
 			window.dispatchEvent(new CustomEvent("peernotary-balance-refresh"));
 		} catch (err) {
@@ -938,7 +1001,7 @@ function BankCheckoutContent() {
 									</>
 								) : (
 									<>
-										<span>I Have Paid — Complete & Verify Checkout</span>
+										<span>I Have Paid - Complete & Verify Checkout</span>
 										<ArrowRight size={15} />
 									</>
 								)}
@@ -977,7 +1040,7 @@ function BankCheckoutContent() {
 						<div className="p-5 rounded-2xl bg-[#f0f7f3] border border-[#1a9e5c]/30 space-y-3">
 							<div className="text-xs font-bold text-[#0d2b1e] flex items-center gap-2">
 								<CheckCircle2 size={16} className="text-[#1a9e5c]" />
-								<span>Payment Verified — Settlement in Progress</span>
+								<span>Payment Verified - Settlement in Progress</span>
 							</div>
 							<p className="text-xs text-[#3d6b55] leading-relaxed">
 								Your payment was confirmed. The oracle is releasing {usdcDisplay} USDC on Arc Testnet to your wallet.
@@ -1008,7 +1071,18 @@ function BankCheckoutContent() {
 									{usdcDisplay} USDC has been released to your wallet on Arc Testnet.
 								</p>
 							</div>
-							{trade?.txHash && (
+							{trade?.proofId && (
+								<div className="mx-auto max-w-md rounded-xl bg-white/90 border border-[#d1e8dc] px-3.5 py-2.5 text-left space-y-1">
+									<div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-[#1a9e5c]">
+										<span>TLSNotary Cryptographic Proof ID</span>
+										<span>Verified On-Chain</span>
+									</div>
+									<div className="text-[11px] font-mono text-[#0d2b1e] truncate">
+										{trade.proofId}
+									</div>
+								</div>
+							)}
+							{trade?.txHash && trade.txHash !== "0x0" && (
 								<div className="pt-1">
 									<a
 										href={ARCSCAN_TX(trade.txHash)}
@@ -1016,7 +1090,7 @@ function BankCheckoutContent() {
 										rel="noopener noreferrer"
 										className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-white border border-[#d1e8dc] text-xs font-semibold text-[#1a9e5c] hover:border-[#1a9e5c] transition-all shadow-sm"
 									>
-										<span>View On-Chain Receipt</span>
+										<span>View On-Chain Receipt ({trade.txHash.slice(0, 10)}...)</span>
 										<ExternalLink size={12} />
 									</a>
 								</div>

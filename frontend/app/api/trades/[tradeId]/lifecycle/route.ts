@@ -80,7 +80,10 @@ export async function POST(
 			flwRefundId?: number;
 		};
 
-		let updatedTrade = getSharedTrade(tradeId);
+		let updatedTrade = await getOrHydrateSharedTrade(
+			tradeId,
+			user.walletAddress,
+		);
 
 		switch (body.operation) {
 			case "cancel":
@@ -128,44 +131,60 @@ export async function POST(
 				break;
 			case "escrow_confirm_on_chain": {
 				let resolvedTxHash = body.txHash;
-				const sharedTrade = getSharedTrade(tradeId);
+				let resolvedProofId = body.proofId;
+				const sharedTrade =
+					(await getOrHydrateSharedTrade(tradeId, user.walletAddress)) ??
+					getSharedTrade(tradeId);
+
+				if (
+					!resolvedTxHash &&
+					sharedTrade?.proofId &&
+					sharedTrade?.txHash &&
+					/^0x[a-fA-F0-9]{64}$/.test(sharedTrade.txHash)
+				) {
+					resolvedTxHash = sharedTrade.txHash;
+					resolvedProofId = resolvedProofId || sharedTrade.proofId;
+				}
+
 				if (!resolvedTxHash && sharedTrade) {
 					const proof =
-						body.proofId && ethers.isHexString(body.proofId, 32)
-							? body.proofId
-							: ethers.keccak256(
-									ethers.toUtf8Bytes(`PN-RELEASE-${tradeId}-${Date.now()}`),
-								);
-					try {
-						const parentId = resolveParentListingId(tradeId);
-						const numericId = /^\d+$/.test(parentId) ? BigInt(parentId) : 1001n;
-						const amtUnits = BigInt(
-							sharedTrade.usdcAmountUnits ||
-								Math.round(
-									(parseFloat(sharedTrade.usdcAmount.replace(/,/g, "") || "1") ||
-										1) * 1_000_000,
-								),
-						);
-						const settled = await oracleSettleToBuyer({
-							listingId: numericId,
-							buyerAddress: sharedTrade.buyerAddress ?? user.walletAddress,
-							amountUnits: amtUnits,
-							proofId: proof,
-						});
-						if (settled.transactionHash) {
-							resolvedTxHash = settled.transactionHash;
-						}
-					} catch (e) {
-						console.warn("On-chain settlement fallback:", e);
-						resolvedTxHash = ethers.keccak256(
-							ethers.toUtf8Bytes(`PN-SETTLED-${tradeId}-${Date.now()}`),
-						);
+						resolvedProofId && ethers.isHexString(resolvedProofId, 32)
+							? resolvedProofId
+							: sharedTrade.proofId &&
+								  ethers.isHexString(sharedTrade.proofId, 32)
+								? sharedTrade.proofId
+								: ethers.keccak256(
+										ethers.toUtf8Bytes(`PN-RELEASE-${tradeId}-${Date.now()}`),
+									);
+					resolvedProofId = proof;
+					const parentId = resolveParentListingId(tradeId);
+					const numericId = /^\d+$/.test(parentId)
+						? BigInt(parentId)
+						: BigInt(tradeId.replace(/[^0-9]/g, "") || "1001");
+					const amtUnits = BigInt(
+						sharedTrade.usdcAmountUnits ||
+							Math.round(
+								(parseFloat(sharedTrade.usdcAmount.replace(/,/g, "") || "1") ||
+									1) * 1_000_000,
+							),
+					);
+					const settled = await oracleSettleToBuyer({
+						listingId: numericId,
+						buyerAddress: sharedTrade.buyerAddress ?? user.walletAddress,
+						amountUnits: amtUnits,
+						proofId: proof,
+					});
+					if (settled.transactionHash) {
+						resolvedTxHash = settled.transactionHash;
+					}
+					if (settled.proofIdUsed) {
+						resolvedProofId = settled.proofIdUsed;
 					}
 				}
 				updatedTrade = transitionEscrowReleaseState(
 					tradeId,
 					"confirm_on_chain",
-					{ txHash: resolvedTxHash, proofId: body.proofId },
+					{ txHash: resolvedTxHash, proofId: resolvedProofId },
 				);
 				break;
 			}

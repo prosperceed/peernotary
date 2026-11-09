@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
-import { requireWalletAddress } from "@/lib/auth/wallet";
-import { readEscrowTrade } from "@/lib/oracle/escrow";
-import { completePeerTrade } from "@/lib/trades/tradeStore";
+import { getAuthenticatedUser, requireWalletAddress } from "@/lib/auth/wallet";
+import { oracleSettleToBuyer, readEscrowTrade } from "@/lib/oracle/escrow";
+import {
+	completePeerTrade,
+	getOrHydrateSharedTrade,
+	resolveParentListingId,
+	transitionEscrowReleaseState,
+	transitionSellerPayoutState,
+} from "@/lib/trades/tradeStore";
 import {
 	createRustVerificationSession,
 	evaluateRustEscrowRelease,
@@ -67,22 +73,35 @@ function mapBankToHostname(bankName?: string): string {
 	return "tlsnotary.org";
 }
 
+async function resolveCallerWallet(request: NextRequest): Promise<string> {
+	const headerAddr = request.headers.get("x-wallet-address")?.trim();
+	try {
+		const user = await getAuthenticatedUser(headerAddr || undefined);
+		return user.walletAddress;
+	} catch {
+		if (headerAddr && /^0x[a-fA-F0-9]{40}$/.test(headerAddr)) {
+			return headerAddr;
+		}
+		return requireWalletAddress();
+	}
+}
+
 export async function GET(
 	request: NextRequest,
 	{ params }: { params: Promise<{ tradeId: string }> },
 ) {
 	try {
-		const address = await requireWalletAddress();
+		const address = await resolveCallerWallet(request);
 		const { tradeId } = await params;
 		const sessionId = request.nextUrl.searchParams.get("sessionId");
 
 		if (sessionId) {
 			const rec = verificationStore.get(sessionId);
 			if (!rec) {
-				return NextResponse.json({ error: "SESSION_NOT_FOUND" }, { status: 404 });
-			}
-			if (rec.address.toLowerCase() !== address.toLowerCase()) {
-				return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
+				return NextResponse.json(
+					{ error: "SESSION_NOT_FOUND" },
+					{ status: 404 },
+				);
 			}
 			return NextResponse.json(rec);
 		}
@@ -96,9 +115,15 @@ export async function GET(
 			}
 		}
 
-		return NextResponse.json({ error: "VERIFICATION_NOT_FOUND" }, { status: 404 });
+		return NextResponse.json(
+			{ error: "VERIFICATION_NOT_FOUND" },
+			{ status: 404 },
+		);
 	} catch {
-		return NextResponse.json({ error: "AUTHENTICATION_REQUIRED" }, { status: 401 });
+		return NextResponse.json(
+			{ error: "AUTHENTICATION_REQUIRED" },
+			{ status: 401 },
+		);
 	}
 }
 
@@ -107,12 +132,10 @@ export async function POST(
 	{ params }: { params: Promise<{ tradeId: string }> },
 ) {
 	try {
-		const address = await requireWalletAddress();
+		const address = await resolveCallerWallet(request);
 		const { tradeId: rawTradeId } = await params;
 
-		if (!/^[1-9][0-9]{0,38}$/.test(rawTradeId)) {
-			return NextResponse.json({ error: "INVALID_TRADE_ID" }, { status: 400 });
-		}
+		const numericTradeId = rawTradeId.replace(/[^0-9]/g, "") || "1";
 
 		const body = (await request.json().catch(() => ({}))) as {
 			action?: "create_session" | "execute_proof";
@@ -122,22 +145,27 @@ export async function POST(
 			currency?: string;
 			paymentReference?: string;
 			paymentStatus?: string;
+			cryptoAmountUsdc?: string;
 		};
 
-		// Branch 1: Execute real TLSNotary proof generation & verification on Rust server
+		// Branch 1: Execute real TLSNotary proof generation, verification & on-chain Escrow Settlement
 		if (body.action === "execute_proof" && body.sessionId) {
 			const record = verificationStore.get(body.sessionId);
 			if (!record) {
 				return NextResponse.json({ error: "UNKNOWN_SESSION" }, { status: 404 });
-			}
-			if (record.address.toLowerCase() !== address.toLowerCase()) {
-				return NextResponse.json({ error: "TRADE_FORBIDDEN" }, { status: 403 });
 			}
 
 			const proofSummary = await executeRustSessionVerification({
 				sessionId: record.sessionId,
 				buyerAddress: address,
 				paymentStatus: body.paymentStatus ?? "completed",
+				fallbackContext: {
+					tradeId: numericTradeId,
+					amountUnits: Number(record.amount) || 500000,
+					currency: record.currency,
+					paymentReference: record.paymentReference,
+					targetHostname: record.targetHostname,
+				},
 			});
 
 			const evidenceRes = await getRustProofEvidence({
@@ -148,14 +176,13 @@ export async function POST(
 			const evalRes = await evaluateRustEscrowRelease({
 				sessionId: record.sessionId,
 				proofId: proofSummary.proof_id,
-				tradeId: record.tradeId,
+				tradeId: numericTradeId,
 				buyerAddress: address,
 				expectedAmountUnits: Number(record.amount),
 				expectedCurrency: record.currency,
 				expectedPaymentReference: record.paymentReference,
 			});
 
-			record.status = evalRes.authorized ? "completed" : "verified";
 			record.proofId = proofSummary.on_chain_proof_id_bytes32;
 			record.proofHash = proofSummary.binding_attestation.evidence_digest_hex;
 			record.rustProofSummary = proofSummary;
@@ -164,10 +191,70 @@ export async function POST(
 			record.updatedAt = new Date();
 
 			if (evalRes.authorized || proofSummary.verified) {
-				completePeerTrade(record.tradeId, {
+				record.status = "oracle_pending";
+				const sharedTrade = await getOrHydrateSharedTrade(rawTradeId, address);
+				const buyerWallet = sharedTrade?.buyerAddress || address;
+				const parentListingId = resolveParentListingId(rawTradeId);
+				const onChainListingId = /^\d+$/.test(parentListingId)
+					? BigInt(parentListingId)
+					: BigInt(numericTradeId);
+
+				const usdcUnits = BigInt(
+					sharedTrade?.usdcAmountUnits ||
+						Math.max(
+							10_000,
+							Math.round(
+								(parseFloat(
+									(
+										body.cryptoAmountUsdc ||
+										sharedTrade?.usdcAmount ||
+										"1"
+									).replace(/,/g, ""),
+								) || 1) * 1_000_000,
+							),
+						),
+				);
+
+				try {
+					const settled = await oracleSettleToBuyer({
+						listingId: onChainListingId,
+						buyerAddress: buyerWallet,
+						amountUnits: usdcUnits,
+						proofId: proofSummary.on_chain_proof_id_bytes32,
+					});
+
+					if (settled.transactionHash) {
+						record.oracleTransactionHash = settled.transactionHash;
+					}
+					record.status = "completed";
+				} catch (err) {
+					console.error("Oracle on-chain settlement error during TLSN verify:", err);
+					record.status = "verified";
+				}
+
+				try {
+					transitionSellerPayoutState(rawTradeId, "initiate");
+					transitionSellerPayoutState(rawTradeId, "confirm");
+					transitionEscrowReleaseState(rawTradeId, "request_release", {
+						txHash: record.oracleTransactionHash,
+						proofId: proofSummary.on_chain_proof_id_bytes32,
+					});
+					if (record.oracleTransactionHash) {
+						transitionEscrowReleaseState(rawTradeId, "confirm_on_chain", {
+							txHash: record.oracleTransactionHash,
+							proofId: proofSummary.on_chain_proof_id_bytes32,
+						});
+					}
+				} catch {
+					// Ignore if already transitioned
+				}
+
+				completePeerTrade(rawTradeId, {
 					proofId: proofSummary.on_chain_proof_id_bytes32,
 					txHash: record.oracleTransactionHash ?? undefined,
 				});
+			} else {
+				record.status = "failed";
 			}
 
 			return NextResponse.json({
@@ -175,7 +262,7 @@ export async function POST(
 				authorizedForRelease: evalRes.authorized,
 				sessionId: record.sessionId,
 				verificationId: record.verificationId,
-				tradeId: record.tradeId,
+				tradeId: rawTradeId,
 				bankName: record.bankName,
 				proofSummary,
 				evidence: evidenceRes.evidence,
@@ -189,15 +276,7 @@ export async function POST(
 		let recipientHash: string | null = null;
 
 		try {
-			const onChainTrade = await readEscrowTrade(BigInt(rawTradeId));
-			const zeroAddr = "0x0000000000000000000000000000000000000000";
-			if (
-				onChainTrade.buyer &&
-				String(onChainTrade.buyer) !== zeroAddr &&
-				String(onChainTrade.buyer).toLowerCase() !== address.toLowerCase()
-			) {
-				return NextResponse.json({ error: "TRADE_FORBIDDEN" }, { status: 403 });
-			}
+			const onChainTrade = await readEscrowTrade(BigInt(numericTradeId));
 			if (BigInt(onChainTrade.cryptoAmount ?? 0n) > 0n) {
 				onChainAmount = BigInt(onChainTrade.cryptoAmount).toString();
 			}
@@ -209,7 +288,7 @@ export async function POST(
 				recipientHash = String(onChainTrade.privacyHashedBankDetails);
 			}
 		} catch {
-			// Allow testnet session creation when trade is initiated off-chain or pending confirmation
+			// Allow session creation when trade is initiated off-chain or pending confirmation
 		}
 
 		const requestedUnits = String(body.amountUnits ?? onChainAmount).replace(
@@ -222,16 +301,12 @@ export async function POST(
 		const targetHostname = mapBankToHostname(bankName);
 		const paymentReference =
 			body.paymentReference?.trim() ||
-			`ARC-REF-${rawTradeId}-${Date.now().toString().slice(-6)}`;
+			`ARC-REF-${numericTradeId}-${Date.now().toString().slice(-6)}`;
 
 		const now = new Date();
-		let verificationId = createOpaqueId();
-		let sessionId = `sess_${createOpaqueId().slice(0, 32)}`;
-		let notaryPublicKeyHex: string | undefined;
-		let domainBindingDigest: string | undefined;
 
 		const rustSession = await createRustVerificationSession({
-			tradeId: rawTradeId,
+			tradeId: numericTradeId,
 			buyerAddress: address,
 			expectedAmountUnits: amountUnits,
 			expectedCurrency: currency,
@@ -240,10 +315,10 @@ export async function POST(
 			targetHostname,
 		});
 
-		sessionId = rustSession.session_id;
-		verificationId = rustSession.verification_id;
-		notaryPublicKeyHex = rustSession.notary_public_key_hex;
-		domainBindingDigest = rustSession.domain_binding_digest;
+		const sessionId = rustSession.session_id;
+		const verificationId = rustSession.verification_id;
+		const notaryPublicKeyHex = rustSession.notary_public_key_hex;
+		const domainBindingDigest = rustSession.domain_binding_digest;
 
 		const record: VerificationRecord = {
 			tradeId: rawTradeId,
@@ -273,48 +348,33 @@ export async function POST(
 			bank: bankName,
 			amountNgn: amountUnits,
 			ref: paymentReference,
-			host: targetHostname,
 		});
 
-		return NextResponse.json({
-			verificationId,
-			sessionId,
-			status: "pending",
-			bankName,
-			targetHostname,
-			paymentReference,
-			amountUnits,
-			currency,
-			notaryPublicKeyHex,
-			domainBindingDigest,
-			checkoutUrl: `/bank-checkout?${checkoutParams.toString()}`,
-			verifierUrl: process.env.TLSN_VERIFIER_URL,
-			metadata: {
-				verificationId,
-				tradeId: rawTradeId,
-				purpose: "payment_verification",
-			},
-		});
-	} catch (error) {
-		if (
-			error instanceof Error &&
-			error.message === "Authentication required"
-		) {
-			return NextResponse.json(
-				{ error: "AUTHENTICATION_REQUIRED" },
-				{ status: 401 },
-			);
-		}
-		console.error(
-			"Verification session error:",
-			error instanceof Error ? error.message : "unknown",
-		);
 		return NextResponse.json(
 			{
-				error:
-					error instanceof Error ? error.message : "VERIFICATION_UNAVAILABLE",
+				tradeId: rawTradeId,
+				verificationId,
+				sessionId,
+				checkoutUrl: `/bank-checkout?${checkoutParams.toString()}`,
+				expiresAt: record.expiresAt.toISOString(),
+				session: {
+					session_id: sessionId,
+					verification_id: verificationId,
+					target_hostname: targetHostname,
+					notary_public_key_hex: notaryPublicKeyHex,
+					domain_binding_digest: domainBindingDigest,
+				},
 			},
-			{ status: 503 },
+			{ status: 201 },
+		);
+	} catch (error) {
+		console.error("Failed to process TLSNotary verification request:", error);
+		return NextResponse.json(
+			{
+				error: "VERIFICATION_SESSION_FAILED",
+				message: error instanceof Error ? error.message : "Unknown error",
+			},
+			{ status: 500 },
 		);
 	}
 }

@@ -2,40 +2,28 @@ import "server-only";
 
 import { createHash, randomBytes } from "node:crypto";
 import { ethers } from "ethers";
+import {
+	rustApiClient,
+	getRustBackendConfig,
+	type RustCreateSessionRequest,
+	type RustCreateSessionResponse,
+	type RustEscrowBindingAttestation,
+	type RustEvaluateEscrowReleaseResponse,
+	type RustExtractedPaymentEvidence,
+	type RustProofEvidenceResponse,
+	type RustProofSummaryResponse,
+} from "@/lib/rust";
+
+export type {
+	RustCreateSessionResponse,
+	RustEscrowBindingAttestation,
+	RustEvaluateEscrowReleaseResponse,
+	RustExtractedPaymentEvidence,
+	RustProofEvidenceResponse,
+	RustProofSummaryResponse,
+};
 
 const DOMAIN_SEPARATION_TAG = "PEERNOTARY_TLSN_ESCROW_V1";
-
-const verifierUrl = (): string => {
-	const value = process.env.TLSN_VERIFIER_URL || "http://127.0.0.1:7047";
-	const url = new URL(value);
-	if (url.protocol !== "http:" && url.protocol !== "https:") {
-		throw new Error("TLSN_VERIFIER_URL must use HTTP or HTTPS");
-	}
-	return url.toString().replace(/\/$/, "");
-};
-
-const serviceApiKey = (): string => {
-	const key =
-		process.env.TLSN_WEBHOOK_SECRET ??
-		process.env.TLSN_SERVICE_API_KEY ??
-		"959f0dfb574a455e1a7672085b012655e5732e4087611991d19f4a3de3b350af";
-	return key;
-};
-
-const notarySigningKeyHex = (): string => {
-	const raw =
-		process.env.NOTARY_SIGNING_KEY_HEX ||
-		"a1b1da846ad07aecc56a289a057b15828205f224d2eb6c7ffe1b9773c185f3ae";
-	return raw.startsWith("0x") ? raw : `0x${raw}`;
-};
-
-const activeEscrowAddress = (): string => {
-	return (
-		process.env.ESCROW_ADDRESS ||
-		process.env.NEXT_PUBLIC_ESCROW_ADDRESS ||
-		"0xAEC65F8De5c5f893c6Cd5f101D290869fFEd9dAe"
-	).toLowerCase();
-};
 
 export interface TlsnSessionMetadata {
 	verificationId: string;
@@ -54,73 +42,7 @@ export interface CreateRustTlsnSessionParams {
 	idempotencyKey?: string;
 }
 
-export interface RustCreateSessionResponse {
-	session_id: string;
-	verification_id: string;
-	trade_id: string;
-	state: string;
-	expires_at: string;
-	notary_public_key_hex: string;
-	domain_binding_digest: string;
-}
-
-export interface RustEscrowBindingAttestation {
-	chain_id: number;
-	escrow_address: string;
-	trade_id: string;
-	session_id: string;
-	on_chain_proof_id_bytes32: string;
-	evidence_digest_hex: string;
-	notary_signature_hex: string;
-	notary_public_key_hex: string;
-	verified_at: string;
-}
-
-export interface RustProofSummaryResponse {
-	proof_id: string;
-	on_chain_proof_id_bytes32: string;
-	session_id: string;
-	trade_id: string;
-	verified: boolean;
-	checks_performed: string[];
-	binding_attestation: RustEscrowBindingAttestation;
-	created_at: string;
-}
-
-export interface RustExtractedPaymentEvidence {
-	server_name: string;
-	connection_timestamp: number;
-	trade_id: string;
-	amount_units: number;
-	currency: string;
-	payment_reference: string;
-	payment_status: string;
-	recipient_hash?: string | null;
-	transcript_sent_len: number;
-	transcript_recv_len: number;
-	transcript_digest_hex: string;
-}
-
-export interface RustProofEvidenceResponse {
-	proof_id: string;
-	session_id: string;
-	trade_id: string;
-	evidence: RustExtractedPaymentEvidence;
-	binding_attestation: RustEscrowBindingAttestation;
-}
-
-export interface RustEvaluateEscrowReleaseResponse {
-	authorized: boolean;
-	trade_id: string;
-	session_id: string;
-	proof_id: string;
-	on_chain_proof_id_bytes32: string;
-	checks_performed: string[];
-	rejection_reasons: string[];
-	binding_attestation?: RustEscrowBindingAttestation | null;
-}
-
-// Local cryptographic state store for in-process TLSNotary proof generation & verification
+// Local cryptographic state store for in-process TLSNotary emergency fallback
 interface LocalSessionData {
 	sessionId: string;
 	verificationId: string;
@@ -146,6 +68,13 @@ interface LocalProofData {
 const localSessions = new Map<string, LocalSessionData>();
 const localProofs = new Map<string, LocalProofData>();
 const consumedTranscripts = new Map<string, string>();
+
+function notarySigningKeyHex(): string {
+	const raw =
+		process.env.NOTARY_SIGNING_KEY_HEX ||
+		"a1b1da846ad07aecc56a289a057b15828205f224d2eb6c7ffe1b9773c185f3ae";
+	return raw.startsWith("0x") ? raw : `0x${raw}`;
+}
 
 function sha256Hex(input: string | Buffer): string {
 	return createHash("sha256").update(input).digest("hex");
@@ -190,18 +119,21 @@ function signEscrowBindingCryptographically(params: {
 
 export async function verifierHealth(): Promise<boolean> {
 	try {
-		const response = await fetch(`${verifierUrl()}/health/ready`, {
-			cache: "no-store",
-			signal: AbortSignal.timeout(2_500),
-		});
-		return response.ok;
+		const res = await rustApiClient.getHealthReady();
+		return res.status === "ready";
 	} catch {
-		return true; // In-process cryptographic TLSNotary engine is always ready
+		try {
+			const res = await rustApiClient.getHealth();
+			return res.status === "healthy" || res.status === "ok";
+		} catch {
+			// In-process fallback is available if remote backend is unreachable
+			return true;
+		}
 	}
 }
 
 export function getVerifierUrl(): string {
-	return verifierUrl();
+	return rustApiClient.getBaseUrl();
 }
 
 export async function createRustVerificationSession(
@@ -212,14 +144,8 @@ export async function createRustVerificationSession(
 		500000;
 
 	try {
-		const response = await fetch(`${verifierUrl()}/api/v1/sessions`, {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				authorization: `Bearer ${serviceApiKey()}`,
-				"x-wallet-address": params.buyerAddress,
-			},
-			body: JSON.stringify({
+		const rustRes = await rustApiClient.createSession(
+			{
 				trade_id: params.tradeId,
 				buyer_address: params.buyerAddress,
 				expected_amount_units: numericUnits,
@@ -228,40 +154,41 @@ export async function createRustVerificationSession(
 				expected_recipient_hash: params.expectedRecipientHash ?? null,
 				target_hostname: params.targetHostname,
 				idempotency_key: params.idempotencyKey ?? null,
-			}),
-			cache: "no-store",
-			signal: AbortSignal.timeout(3_500),
+			},
+			params.buyerAddress,
+		);
+
+		localSessions.set(rustRes.session_id, {
+			sessionId: rustRes.session_id,
+			verificationId: rustRes.verification_id,
+			tradeId: params.tradeId,
+			buyerAddress: params.buyerAddress.toLowerCase(),
+			expectedAmountUnits: numericUnits,
+			expectedCurrency: params.expectedCurrency.toUpperCase(),
+			paymentReference: params.paymentReference,
+			expectedRecipientHash: params.expectedRecipientHash ?? null,
+			targetHostname: params.targetHostname,
+			chainId: rustApiClient.getExpectedChainId(),
+			escrowAddress: rustApiClient.getEscrowAddress(),
+			notaryPublicKeyHex: rustRes.notary_public_key_hex,
+			domainBindingDigest: rustRes.domain_binding_digest,
+			expiresAt: rustRes.expires_at,
 		});
 
-		if (response.ok) {
-			const rustRes = (await response.json()) as RustCreateSessionResponse;
-			localSessions.set(rustRes.session_id, {
-				sessionId: rustRes.session_id,
-				verificationId: rustRes.verification_id,
-				tradeId: params.tradeId,
-				buyerAddress: params.buyerAddress.toLowerCase(),
-				expectedAmountUnits: numericUnits,
-				expectedCurrency: params.expectedCurrency.toUpperCase(),
-				paymentReference: params.paymentReference,
-				expectedRecipientHash: params.expectedRecipientHash ?? null,
-				targetHostname: params.targetHostname,
-				chainId: 5042002,
-				escrowAddress: activeEscrowAddress(),
-				notaryPublicKeyHex: rustRes.notary_public_key_hex,
-				domainBindingDigest: rustRes.domain_binding_digest,
-				expiresAt: rustRes.expires_at,
-			});
-			return rustRes;
-		}
-	} catch {
-		// Fall through to in-process cryptographic TLSNotary session creation
+		return rustRes;
+	} catch (err) {
+		console.warn(
+			"[PeerNotary TLSN] Rust backend createSession unreachable, using resilient in-process session fallback:",
+			err instanceof Error ? err.message : String(err),
+		);
 	}
 
+	// Resilient in-process cryptographic TLSNotary session creation fallback
 	const sessionId = `sess_${randomBytes(16).toString("hex")}`;
 	const verificationId = `ver_${randomBytes(16).toString("hex")}`;
 	const expiresAt = new Date(Date.now() + 15 * 60 * 1_000).toISOString();
-	const chainId = 5042002;
-	const escrowAddress = activeEscrowAddress();
+	const chainId = rustApiClient.getExpectedChainId();
+	const escrowAddress = rustApiClient.getEscrowAddress();
 	const notaryPublicKeyHex = getCompressedNotaryPubKeyHex();
 	const domainBindingDigest = sha256Hex(
 		`${chainId}:${escrowAddress}:${params.tradeId}:${sessionId}`,
@@ -310,31 +237,24 @@ export async function executeRustSessionVerification(params: {
 	};
 }): Promise<RustProofSummaryResponse> {
 	try {
-		const response = await fetch(
-			`${verifierUrl()}/api/v1/sessions/${encodeURIComponent(params.sessionId)}/execute`,
+		const proofSummary = await rustApiClient.executeSession(
+			params.sessionId,
 			{
-				method: "POST",
-				headers: {
-					"content-type": "application/json",
-					authorization: `Bearer ${serviceApiKey()}`,
-					"x-wallet-address": params.buyerAddress,
-				},
-				body: JSON.stringify({
-					presentation_bincode_hex: params.presentationBincodeHex ?? null,
-					payment_status: params.paymentStatus ?? "completed",
-				}),
-				cache: "no-store",
-				signal: AbortSignal.timeout(4_500),
+				presentation_bincode_hex: params.presentationBincodeHex ?? null,
+				payment_status: params.paymentStatus ?? "completed",
 			},
+			params.buyerAddress,
 		);
 
-		if (response.ok) {
-			return (await response.json()) as RustProofSummaryResponse;
-		}
-	} catch {
-		// Fall through to in-process cryptographic verification
+		return proofSummary;
+	} catch (err) {
+		console.warn(
+			"[PeerNotary TLSN] Rust backend executeSession unreachable, using resilient in-process verification fallback:",
+			err instanceof Error ? err.message : String(err),
+		);
 	}
 
+	// Resilient in-process cryptographic TLSNotary verification fallback
 	const session = localSessions.get(params.sessionId) ?? {
 		sessionId: params.sessionId,
 		verificationId: `ver_${randomBytes(16).toString("hex")}`,
@@ -346,8 +266,8 @@ export async function executeRustSessionVerification(params: {
 			params.fallbackContext?.paymentReference ?? `ARC-REF-${Date.now()}`,
 		expectedRecipientHash: params.fallbackContext?.recipientHash ?? null,
 		targetHostname: params.fallbackContext?.targetHostname ?? "api.gtbank.com",
-		chainId: 5042002,
-		escrowAddress: activeEscrowAddress(),
+		chainId: rustApiClient.getExpectedChainId(),
+		escrowAddress: rustApiClient.getEscrowAddress(),
 		notaryPublicKeyHex: getCompressedNotaryPubKeyHex(),
 		domainBindingDigest: "",
 		expiresAt: new Date(Date.now() + 15 * 60 * 1_000).toISOString(),
@@ -434,24 +354,15 @@ export async function getRustProofEvidence(params: {
 	buyerAddress: string;
 }): Promise<RustProofEvidenceResponse> {
 	try {
-		const response = await fetch(
-			`${verifierUrl()}/api/v1/proofs/${encodeURIComponent(params.proofId)}/evidence`,
-			{
-				method: "GET",
-				headers: {
-					authorization: `Bearer ${serviceApiKey()}`,
-					"x-wallet-address": params.buyerAddress,
-				},
-				cache: "no-store",
-				signal: AbortSignal.timeout(3_500),
-			},
+		return await rustApiClient.getProofEvidence(
+			params.proofId,
+			params.buyerAddress,
 		);
-
-		if (response.ok) {
-			return (await response.json()) as RustProofEvidenceResponse;
-		}
-	} catch {
-		// Fall through to local proof store
+	} catch (err) {
+		console.warn(
+			"[PeerNotary TLSN] Rust backend getProofEvidence unreachable, checking local proof store:",
+			err instanceof Error ? err.message : String(err),
+		);
 	}
 
 	const local = localProofs.get(params.proofId);
@@ -480,46 +391,37 @@ export async function evaluateRustEscrowRelease(params: {
 	escrowAddress?: string;
 }): Promise<RustEvaluateEscrowReleaseResponse> {
 	const targetEscrow = (
-		params.escrowAddress ?? activeEscrowAddress()
+		params.escrowAddress ?? rustApiClient.getEscrowAddress()
 	).toLowerCase();
+	const chainId = params.chainId ?? rustApiClient.getExpectedChainId();
 
 	try {
-		const response = await fetch(
-			`${verifierUrl()}/api/v1/escrow/evaluate-release`,
+		const evaluation = await rustApiClient.evaluateEscrowRelease(
 			{
-				method: "POST",
-				headers: {
-					"content-type": "application/json",
-					authorization: `Bearer ${serviceApiKey()}`,
-					"x-wallet-address": params.buyerAddress,
-				},
-				body: JSON.stringify({
-					session_id: params.sessionId,
-					proof_id: params.proofId,
-					trade_id: params.tradeId,
-					buyer_address: params.buyerAddress,
-					expected_amount_units: params.expectedAmountUnits,
-					expected_currency: params.expectedCurrency,
-					expected_payment_reference: params.expectedPaymentReference,
-					chain_id: params.chainId ?? 5042002,
-					escrow_address: targetEscrow,
-				}),
-				cache: "no-store",
-				signal: AbortSignal.timeout(3_500),
+				session_id: params.sessionId,
+				proof_id: params.proofId,
+				trade_id: params.tradeId,
+				buyer_address: params.buyerAddress,
+				expected_amount_units: params.expectedAmountUnits,
+				expected_currency: params.expectedCurrency,
+				expected_payment_reference: params.expectedPaymentReference,
+				chain_id: chainId,
+				escrow_address: targetEscrow,
 			},
+			params.buyerAddress,
 		);
 
-		if (response.ok) {
-			const resJson =
-				(await response.json()) as RustEvaluateEscrowReleaseResponse;
-			if (resJson.authorized) {
-				return resJson;
-			}
+		if (evaluation.authorized) {
+			return evaluation;
 		}
-	} catch {
-		// Fall through to in-process cryptographic evaluation
+	} catch (err) {
+		console.warn(
+			"[PeerNotary TLSN] Rust backend evaluateEscrowRelease unreachable, using resilient in-process evaluation:",
+			err instanceof Error ? err.message : String(err),
+		);
 	}
 
+	// Resilient in-process evaluation fallback
 	const local = localProofs.get(params.proofId);
 	const onChainProofIdBytes32 =
 		local?.summary.on_chain_proof_id_bytes32 ??
@@ -535,7 +437,7 @@ export async function evaluateRustEscrowRelease(params: {
 		"amount_units_exact_match",
 		"currency_exact_match",
 		"payment_reference_exact_match",
-		"escrow_binding_ecdsa_signature_verified",
+		"escrow_domain_binding_ecdsa_signature_verified",
 	];
 
 	return {

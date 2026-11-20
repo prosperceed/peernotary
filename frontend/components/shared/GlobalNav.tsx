@@ -666,7 +666,6 @@ export default function GlobalNav() {
 		{ label: "Home", view: "home", source: "/" },
 		{ label: "Trading Portal", view: "trade", source: "/trade" },
 		{ label: "Dashboard", view: "dashboard", source: "/dashboard" },
-		{ label: "Developer Portal", view: "dev", source: "/dev" },
 	];
 
 	return (

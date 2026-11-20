@@ -4,7 +4,9 @@
 const nextConfig = {
 	reactStrictMode: true,
 	/* Your configuration options go here */
-	experimental: {}
+	experimental: {
+		useTypeScriptCli: false,
+	}
 };
 
 export default nextConfig;

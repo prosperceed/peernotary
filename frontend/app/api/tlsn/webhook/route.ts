@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { keccak256, toUtf8Bytes } from "ethers";
-import { verificationStore } from "@/app/api/tlsn/trades/[tradeId]/verify/route";
+import { verificationStore } from "@/lib/tlsn/verificationStore";
 import { oracleRelease } from "@/lib/oracle/escrow";
 import { completePeerTrade } from "@/lib/trades/tradeStore";
 import {

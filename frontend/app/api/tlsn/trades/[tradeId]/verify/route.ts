@@ -17,6 +17,7 @@ import {
 	type RustExtractedPaymentEvidence,
 	type RustProofSummaryResponse,
 } from "@/lib/tlsn/client";
+import { verificationStore } from "@/lib/tlsn/verificationStore";
 
 export type VerificationStatus =
 	| "pending"
@@ -52,8 +53,6 @@ export interface VerificationRecord {
 	expiresAt: Date;
 	activeKey?: string;
 }
-
-export const verificationStore = new Map<string, VerificationRecord>();
 
 function mapBankToHostname(bankName?: string): string {
 	const normalized = (bankName ?? "").toLowerCase();

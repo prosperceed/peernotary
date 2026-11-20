@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomBytes } from "node:crypto";
 import { getAuthenticatedUser, requireWalletAddress } from "@/lib/auth/wallet";
 import { oracleSettleToBuyer, readEscrowTrade } from "@/lib/oracle/escrow";
 import {
@@ -56,10 +55,6 @@ export interface VerificationRecord {
 
 export const verificationStore = new Map<string, VerificationRecord>();
 
-function createOpaqueId(): string {
-	return randomBytes(32).toString("hex");
-}
-
 function mapBankToHostname(bankName?: string): string {
 	const normalized = (bankName ?? "").toLowerCase();
 	if (normalized.includes("opay")) return "api.opayweb.com";
@@ -71,6 +66,36 @@ function mapBankToHostname(bankName?: string): string {
 	if (normalized.includes("kuda") || normalized.includes("zenith"))
 		return "api.withmono.com";
 	return "tlsnotary.org";
+}
+
+function assertVerifiedPayment(
+	proofSummary: RustProofSummaryResponse,
+	evidence: RustExtractedPaymentEvidence,
+	record: VerificationRecord,
+	expectedTradeId: string,
+): void {
+	const amount = Number(record.amount);
+	const attestation = proofSummary.binding_attestation;
+	if (
+		!proofSummary.verified ||
+		proofSummary.session_id !== record.sessionId ||
+		proofSummary.trade_id !== expectedTradeId ||
+		evidence.server_name !== record.targetHostname ||
+		evidence.trade_id !== expectedTradeId ||
+		evidence.amount_units !== amount ||
+		evidence.currency.toUpperCase() !== record.currency.toUpperCase() ||
+		evidence.payment_reference !== record.paymentReference ||
+		evidence.payment_status.toLowerCase() !== "completed" ||
+		attestation.chain_id !== 5042002 ||
+		attestation.escrow_address.toLowerCase() !==
+		(process.env.ESCROW_ADDRESS || process.env.NEXT_PUBLIC_ESCROW_ADDRESS || "").toLowerCase() ||
+		attestation.trade_id !== expectedTradeId ||
+		attestation.session_id !== record.sessionId ||
+		attestation.on_chain_proof_id_bytes32 !== proofSummary.on_chain_proof_id_bytes32 ||
+		attestation.evidence_digest_hex !== evidence.transcript_digest_hex
+	) {
+		throw new Error("TLSN_PAYMENT_EVIDENCE_MISMATCH");
+	}
 }
 
 async function resolveCallerWallet(request: NextRequest): Promise<string> {
@@ -172,6 +197,12 @@ export async function POST(
 				proofId: proofSummary.proof_id,
 				buyerAddress: address,
 			});
+			assertVerifiedPayment(
+				proofSummary,
+				evidenceRes.evidence,
+				record,
+				numericTradeId,
+			);
 
 			const evalRes = await evaluateRustEscrowRelease({
 				sessionId: record.sessionId,
@@ -190,7 +221,7 @@ export async function POST(
 			record.rustEscrowEvaluation = evalRes;
 			record.updatedAt = new Date();
 
-			if (evalRes.authorized || proofSummary.verified) {
+			if (evalRes.authorized && proofSummary.verified) {
 				record.status = "oracle_pending";
 				const sharedTrade = await getOrHydrateSharedTrade(rawTradeId, address);
 				const buyerWallet = sharedTrade?.buyerAddress || address;
@@ -223,16 +254,18 @@ export async function POST(
 						proofId: proofSummary.on_chain_proof_id_bytes32,
 					});
 
-					if (settled.transactionHash) {
-						record.oracleTransactionHash = settled.transactionHash;
+					if (!settled.transactionHash) {
+						throw new Error("Escrow settlement returned no confirmed transaction hash");
 					}
+					record.oracleTransactionHash = settled.transactionHash;
 					record.status = "completed";
 				} catch (err) {
 					console.error("Oracle on-chain settlement error during TLSN verify:", err);
 					record.status = "verified";
 				}
 
-				try {
+				if (record.oracleTransactionHash) {
+					try {
 					transitionSellerPayoutState(rawTradeId, "initiate");
 					transitionSellerPayoutState(rawTradeId, "confirm");
 					transitionEscrowReleaseState(rawTradeId, "request_release", {
@@ -245,14 +278,15 @@ export async function POST(
 							proofId: proofSummary.on_chain_proof_id_bytes32,
 						});
 					}
-				} catch {
-					// Ignore if already transitioned
-				}
+					} catch {
+						// Ignore if already transitioned
+					}
 
-				completePeerTrade(rawTradeId, {
-					proofId: proofSummary.on_chain_proof_id_bytes32,
-					txHash: record.oracleTransactionHash ?? undefined,
-				});
+					completePeerTrade(rawTradeId, {
+						proofId: proofSummary.on_chain_proof_id_bytes32,
+						txHash: record.oracleTransactionHash,
+					});
+				}
 			} else {
 				record.status = "failed";
 			}

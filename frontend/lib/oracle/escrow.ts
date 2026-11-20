@@ -79,7 +79,6 @@ function getUsdcContract(signer: ethers.Wallet = oracleWallet) {
   return new ethers.Contract(address, USDC_ABI, signer);
 }
 
-const CREATED = 0n;
 const FUNDED = 1n;
 const FIAT_SENT = 2n;
 const COMPLETED = 3n;
@@ -144,9 +143,12 @@ export async function oracleRelease(
 
   const transaction = await escrow.oracleRelease(tradeId, proofId);
   const receipt = await transaction.wait();
+  if (!receipt || receipt.status !== 1) {
+    throw new Error("Oracle release transaction did not confirm successfully");
+  }
 
   return {
-    transactionHash: receipt?.hash ?? transaction.hash,
+    transactionHash: receipt.hash,
     tradeId,
     proofId,
   };
@@ -239,12 +241,22 @@ export async function oracleSettleToBuyer(
       validProofId,
     );
     const receipt = await settleTx.wait();
-    const txHash = receipt ? receipt.hash : settleTx.hash;
+    if (!receipt || receipt.status !== 1) {
+      throw new Error("Oracle settlement transaction did not confirm successfully");
+    }
+    const settledTradeId = BigInt((await settleTx.getResult())[0] ?? listingId);
+    const settledTrade = await escrow.getTrade(settledTradeId);
+    if (
+      BigInt(settledTrade.status) !== COMPLETED ||
+      String(settledTrade.proofId).toLowerCase() !== validProofId.toLowerCase()
+    ) {
+      throw new Error("Escrow settlement receipt does not show completed trade state");
+    }
 
     return {
-      transactionHash: txHash,
+      transactionHash: receipt.hash,
       alreadyCompleted: false,
-      onChainTradeId: listingId.toString(),
+      onChainTradeId: settledTradeId.toString(),
       proofIdUsed: validProofId,
     };
   } catch (settleOrderErr) {
@@ -281,27 +293,5 @@ export async function oracleSettleToBuyer(
     console.warn("Legacy oracleRelease fallback warning:", readErr);
   }
 
-  // Tertiary Path: Direct on-chain USDC transfer on Arc Testnet to buyer wallet
-  try {
-    const oracleUsdc = getUsdcContract(oracleWallet);
-    const oracleBal: bigint = await oracleUsdc.balanceOf(oracleWallet.address);
-    const activeUsdc =
-      oracleBal >= unitsToTransfer
-        ? oracleUsdc
-        : getUsdcContract(deployerWallet);
-
-    const forwardTx = await activeUsdc.transfer(buyerAddress, unitsToTransfer);
-    const receipt = await forwardTx.wait();
-    return {
-      transactionHash: receipt ? receipt.hash : forwardTx.hash,
-      alreadyCompleted: false,
-      onChainTradeId: listingId.toString(),
-      proofIdUsed: validProofId,
-    };
-  } catch (transferErr) {
-    console.error("Direct on-chain USDC transfer error:", transferErr);
-    throw new Error(
-      `On-chain USDC release failed: ${transferErr instanceof Error ? transferErr.message : "RPC error"}`,
-    );
-  }
+  throw new Error("On-chain escrow settlement failed; no synthetic transfer was created");
 }

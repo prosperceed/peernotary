@@ -356,9 +356,7 @@ export async function settleAndReleaseEscrowAfterPaymentConfirmed(params: {
 		}
 	}
 
-	if (!releaseTxHash) {
-		releaseTxHash = `0x${proofIdBytes32.slice(2, 66)}`;
-	}
+	if (!releaseTxHash) throw new Error("On-chain escrow settlement did not return a transaction hash");
 
 	// 3. Complete escrow release lifecycle and update order
 	try {

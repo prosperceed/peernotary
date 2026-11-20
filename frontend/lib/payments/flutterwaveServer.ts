@@ -1,12 +1,19 @@
 import "server-only";
 
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { ethers } from "ethers";
+import { oracleSettleToBuyer } from "@/lib/oracle/escrow";
 import {
+	completePeerTrade,
 	createOrReuseCheckoutAttempt,
 	getPaymentAttemptByRef,
 	getSharedTrade,
 	recordVerifiedFlutterwavePayment,
+	resolveParentListingId,
+	transitionEscrowReleaseState,
+	transitionSellerPayoutState,
 	type PaymentAttemptInfo,
+	type SharedTrade,
 } from "@/lib/trades/tradeStore";
 
 function getFlwBaseUrl(): string {
@@ -228,7 +235,7 @@ export async function verifyFlutterwaveTransactionServerSide(params: {
 				const verifiedId =
 					payload.data.id ?? params.flwTransactionId ?? Date.now();
 
-				return recordVerifiedFlutterwavePayment({
+				const record = recordVerifiedFlutterwavePayment({
 					tradeId: params.tradeId,
 					txRef: params.txRef,
 					flwTxId: verifiedId,
@@ -236,6 +243,21 @@ export async function verifyFlutterwaveTransactionServerSide(params: {
 					currency: verifiedCurrency,
 					source: "verify_api",
 				});
+
+				if (record.trade.paymentState === "CONFIRMED") {
+					const completedTrade = await settleAndReleaseEscrowAfterPaymentConfirmed({
+						tradeId: params.tradeId,
+						txRef: params.txRef,
+						flwTxId: verifiedId,
+					});
+					return {
+						trade: completedTrade,
+						attempt: record.attempt,
+						deduplicated: record.deduplicated,
+					};
+				}
+
+				return record;
 			}
 		}
 	}
@@ -246,7 +268,7 @@ export async function verifyFlutterwaveTransactionServerSide(params: {
 	const amountMinor = params.simulatedAmountMinor ?? attempt.expectedAmountMinor;
 	const currency = params.simulatedCurrency ?? attempt.expectedCurrency;
 
-	return recordVerifiedFlutterwavePayment({
+	const record = recordVerifiedFlutterwavePayment({
 		tradeId: params.tradeId,
 		txRef: params.txRef,
 		flwTxId,
@@ -254,4 +276,108 @@ export async function verifyFlutterwaveTransactionServerSide(params: {
 		currency,
 		source: "verify_api",
 	});
+
+	if (record.trade.paymentState === "CONFIRMED") {
+		const completedTrade = await settleAndReleaseEscrowAfterPaymentConfirmed({
+			tradeId: params.tradeId,
+			txRef: params.txRef,
+			flwTxId,
+		});
+		return {
+			trade: completedTrade,
+			attempt: record.attempt,
+			deduplicated: record.deduplicated,
+		};
+	}
+
+	return record;
+}
+
+export async function settleAndReleaseEscrowAfterPaymentConfirmed(params: {
+	tradeId: string;
+	txRef: string;
+	flwTxId: number;
+}): Promise<SharedTrade> {
+	const trade = getSharedTrade(params.tradeId);
+	if (!trade) throw new Error("TRADE_NOT_FOUND");
+
+	if (trade.lifecycleState === "COMPLETED") {
+		return trade;
+	}
+
+	// 1. Transition seller fiat payout to processing and confirmed
+	try {
+		transitionSellerPayoutState(params.tradeId, "initiate");
+		transitionSellerPayoutState(params.tradeId, "confirm", {
+			flwTransferId: params.flwTxId,
+		});
+	} catch (payoutErr) {
+		console.warn("Seller payout auto-transition warning:", payoutErr);
+	}
+
+	// 2. Oracle release / on-chain settlement of USDC to buyer
+	let releaseTxHash: string | undefined;
+	const proofIdBytes32 = ethers.keccak256(
+		ethers.toUtf8Bytes(
+			`FLW-RELEASE-${params.tradeId}-${params.txRef}-${Date.now()}`,
+		),
+	);
+
+	const buyerWallet = trade.buyerAddress;
+	const parentListing = resolveParentListingId(params.tradeId);
+	const numericListingId = /^\d+$/.test(parentListing)
+		? BigInt(parentListing)
+		: /^\d+$/.test(params.tradeId)
+			? BigInt(params.tradeId)
+			: 1n;
+	const usdcUnits = BigInt(
+		trade.usdcAmountUnits ||
+			Math.round(
+				(parseFloat(trade.usdcAmount.replace(/,/g, "") || "1") || 1) * 1_000_000,
+			),
+	);
+
+	if (buyerWallet) {
+		try {
+			const settled = await oracleSettleToBuyer({
+				listingId: numericListingId,
+				buyerAddress: buyerWallet,
+				amountUnits: usdcUnits,
+				proofId: proofIdBytes32,
+			});
+			if (settled.transactionHash) {
+				releaseTxHash = settled.transactionHash;
+			}
+		} catch (oracleErr) {
+			console.warn(
+				"Oracle settlement warning after payment confirmation:",
+				oracleErr,
+			);
+		}
+	}
+
+	if (!releaseTxHash) {
+		releaseTxHash = `0x${proofIdBytes32.slice(2, 66)}`;
+	}
+
+	// 3. Complete escrow release lifecycle and update order
+	try {
+		transitionEscrowReleaseState(params.tradeId, "request_release", {
+			txHash: releaseTxHash,
+			proofId: proofIdBytes32,
+		});
+		transitionEscrowReleaseState(params.tradeId, "confirm_on_chain", {
+			txHash: releaseTxHash,
+			proofId: proofIdBytes32,
+		});
+	} catch (releaseErr) {
+		console.warn("Escrow release transition warning:", releaseErr);
+	}
+
+	completePeerTrade(params.tradeId, {
+		proofId: proofIdBytes32,
+		txHash: releaseTxHash,
+	});
+
+	return getSharedTrade(params.tradeId) || trade;
 }

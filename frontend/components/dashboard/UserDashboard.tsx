@@ -1077,6 +1077,7 @@ export default function UserDashboard() {
 						peerOffers={peerOffers}
 						address={address}
 						username={username}
+						trustSummary={trustSummary}
 						releasingTradeId={releasingTradeId}
 						onReleaseEscrow={(tx) => void handleReleaseEscrowOnChain(tx)}
 						onViewAllTransactions={() => setActiveTab("transactions")}

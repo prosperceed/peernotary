@@ -317,11 +317,23 @@ function BankCheckoutContent() {
 							: undefined,
 					}),
 				});
+				const data = (await res.json().catch(() => ({}))) as {
+					ok?: boolean;
+					trade?: AuthoritativeTradeDetail;
+				};
 				if (res.ok) {
-					setStatusBanner(
-						"Payment verified server-side with Flutterwave. Proceeding to seller payout.",
-					);
 					await fetchTradeState();
+					if (data.trade?.lifecycleState === "COMPLETED") {
+						setStatusBanner(
+							`Payment confirmed and ${usdcDisplay} USDC released on Arc Testnet! Trade is COMPLETED.`,
+						);
+					} else {
+						setStatusBanner(
+							"Payment verified server-side with Flutterwave. Completing settlement...",
+						);
+						await handleCompleteFullSettlementPipeline();
+					}
+					window.dispatchEvent(new CustomEvent("peernotary-balance-refresh"));
 				}
 			} catch {
 				// Let user manually trigger verification if network was momentarily unavailable
@@ -415,6 +427,11 @@ function BankCheckoutContent() {
 				setErrorMsg(
 					"Late payment arrived after the 20-minute deadline. Placed in LATE_PAYMENT_REVIEW state.",
 				);
+			} else if (data.trade?.lifecycleState === "COMPLETED") {
+				setStatusBanner(
+					`Payment confirmed and ${usdcDisplay} USDC released on Arc Testnet! Trade is COMPLETED.`,
+				);
+				window.dispatchEvent(new CustomEvent("peernotary-balance-refresh"));
 			} else {
 				setStatusBanner(
 					"Payment verified server-side. Completing settlement and releasing USDC on Arc Testnet...",
@@ -488,6 +505,13 @@ function BankCheckoutContent() {
 
 	const handleCompleteFullSettlementPipeline = async () => {
 		if (!address) return;
+		if (trade?.lifecycleState === "COMPLETED") {
+			setStatusBanner(
+				`Trade is already COMPLETED and ${usdcDisplay} USDC released on Arc Testnet.`,
+			);
+			window.dispatchEvent(new CustomEvent("peernotary-balance-refresh"));
+			return;
+		}
 		setBusyAction("full_pipeline");
 		setErrorMsg(null);
 		setStatusBanner(null);

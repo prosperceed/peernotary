@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import {
 	parseDecimalToMinorUnits,
+	settleAndReleaseEscrowAfterPaymentConfirmed,
 	verifyFlutterwaveWebhookSignature,
 } from "@/lib/payments/flutterwaveServer";
 import {
@@ -86,13 +87,24 @@ export async function POST(request: NextRequest) {
 			eventId,
 		});
 
+		let finalTrade = trade;
+		if (trade.paymentState === "CONFIRMED") {
+			finalTrade = await settleAndReleaseEscrowAfterPaymentConfirmed({
+				tradeId: attempt.tradeId,
+				txRef,
+				flwTxId,
+			});
+		}
+
 		return NextResponse.json({
 			received: true,
 			deduplicated,
 			eventId,
-			tradeId: trade.tradeId,
-			lifecycleState: trade.lifecycleState,
-			paymentState: trade.paymentState,
+			tradeId: finalTrade.tradeId,
+			lifecycleState: finalTrade.lifecycleState,
+			paymentState: finalTrade.paymentState,
+			status: finalTrade.status,
+			escrowState: finalTrade.escrowState,
 		});
 	} catch (err) {
 		const message =

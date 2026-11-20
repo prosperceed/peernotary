@@ -1,16 +1,18 @@
 "use client";
 
+import { useMemo } from "react";
 import Link from "next/link";
 import { ArrowUpRight, ShieldCheck, Star } from "lucide-react";
 import { cn, RATE } from "@/lib/utils";
 import { useMonierateRate } from "@/hooks/useMonierateRate";
-import type { PeerTradeOffer, UserTransaction } from "@/types";
+import type { PeerTradeOffer, UserTransaction, UserTrustSummary } from "@/types";
 
 interface OverviewTabProps {
 	transactions: UserTransaction[];
 	peerOffers: PeerTradeOffer[];
 	address?: string;
 	username: string | null;
+	trustSummary?: UserTrustSummary | null;
 	releasingTradeId: string | null;
 	onReleaseEscrow: (tx: UserTransaction) => void;
 	onViewAllTransactions: () => void;
@@ -23,6 +25,7 @@ export function OverviewTab({
 	peerOffers,
 	address,
 	username,
+	trustSummary,
 	releasingTradeId,
 	onReleaseEscrow,
 	onViewAllTransactions,
@@ -38,6 +41,65 @@ export function OverviewTab({
 	const userOffers = peerOffers.filter(
 		(o) => o.peerAddress.toLowerCase() === address?.toLowerCase(),
 	);
+
+	const performanceMetrics = useMemo(() => {
+		const finishedTrades = transactions.filter(
+			(t) =>
+				t.status === "completed" ||
+				t.status === "disputed" ||
+				t.lifecycleState === "CANCELLED" ||
+				t.lifecycleState === "COMPLETED" ||
+				t.lifecycleState === "DISPUTED",
+		);
+		const completedTrades = transactions.filter(
+			(t) => t.status === "completed" || t.lifecycleState === "COMPLETED",
+		);
+		const disputedTrades = transactions.filter(
+			(t) => t.status === "disputed" || t.lifecycleState === "DISPUTED",
+		);
+
+		const completedCount = Math.max(
+			completedTrades.length,
+			trustSummary?.completedTradeCount ?? 0,
+		);
+		const totalFinishedCount = Math.max(
+			finishedTrades.length,
+			(trustSummary?.completedTradeCount ?? 0) +
+				(trustSummary?.unexplainedExpiryCount ?? 0),
+		);
+
+		if (totalFinishedCount === 0 && completedCount === 0) {
+			return {
+				completionRate: "0.0%",
+				positiveRate: "0.0%",
+				completedCount: 0,
+				totalCount: 0,
+				tier: trustSummary?.trustTier ?? "NEW",
+				isNew: true,
+			};
+		}
+
+		const compPct =
+			totalFinishedCount > 0
+				? (completedCount / totalFinishedCount) * 100
+				: 100;
+		const posDenominator = completedCount + disputedTrades.length;
+		const posPct =
+			posDenominator > 0
+				? (completedCount / posDenominator) * 100
+				: completedCount > 0
+					? 100
+					: 0;
+
+		return {
+			completionRate: `${compPct.toFixed(1)}%`,
+			positiveRate: `${posPct.toFixed(1)}%`,
+			completedCount,
+			totalCount: totalFinishedCount,
+			tier: trustSummary?.trustTier ?? "STANDARD",
+			isNew: false,
+		};
+	}, [transactions, trustSummary]);
 
 	return (
 		<div className="space-y-6">
@@ -172,13 +234,20 @@ export function OverviewTab({
 					{/* Performance Card */}
 					<div className="rounded-[28px] relative overflow-hidden h-[240px] p-5 flex flex-col justify-between shadow-sm bg-gradient-to-br from-[#0d2b1e] via-[#145a3a] to-[#082015] text-white">
 						<div>
-							<span className="text-lg font-bold text-white tracking-tight block">
-								Performance
-							</span>
+							<div className="flex items-center justify-between">
+								<span className="text-lg font-bold text-white tracking-tight block">
+									Performance
+								</span>
+								<span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-white/10 border border-white/20 text-[#4dd68c]">
+									{performanceMetrics.tier}
+								</span>
+							</div>
 							<div className="flex items-center gap-1.5 text-xs text-white/80 mt-1">
 								<ShieldCheck size={14} className="text-[#4dd68c]" />
 								<span>
-									Verified P2P Merchant (@{username || "trader"})
+									{performanceMetrics.completedCount > 0
+										? `Verified P2P Merchant (@${username || "trader"})`
+										: `New P2P Trader (@${username || "trader"})`}
 								</span>
 							</div>
 						</div>
@@ -188,14 +257,21 @@ export function OverviewTab({
 								<div className="w-3.5 h-3.5 rounded-full bg-[#1a9e5c] text-white flex items-center justify-center text-[9px] font-bold">
 									✓
 								</div>
-								<span className="font-semibold text-white/95">99.4%</span>
+								<span className="font-semibold text-white/95">
+									{performanceMetrics.completionRate}
+								</span>
 								<span className="text-white/70 text-[10px]">
 									30D Completion
+									{performanceMetrics.totalCount > 0
+										? ` (${performanceMetrics.completedCount}/${performanceMetrics.totalCount})`
+										: ""}
 								</span>
 							</div>
 							<div className="flex items-center gap-1.5">
 								<Star size={12} className="text-amber-400 fill-amber-400" />
-								<span className="font-semibold text-white/95">99.8%</span>
+								<span className="font-semibold text-white/95">
+									{performanceMetrics.positiveRate}
+								</span>
 								<span className="text-white/70 text-[10px]">Positive</span>
 							</div>
 						</div>

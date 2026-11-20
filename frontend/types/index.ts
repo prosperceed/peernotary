@@ -192,6 +192,8 @@ export interface UserTrustSummary {
 	walletAddress: string;
 	trustTier: TrustTier;
 	trustScore: number;
+	completionRate?: string;
+	positiveRate?: string;
 	maxTradeUsdc: string;
 	maxTradeUsdcUnits: number;
 	maxConcurrentUnpaidTrades: number;

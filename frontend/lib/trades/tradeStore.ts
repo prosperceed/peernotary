@@ -293,8 +293,8 @@ export async function hydrateListingsFromSupabase(): Promise<void> {
 					maxLimitUsdc: formattedAvail,
 					requiredCollateralUsdc: "0.00",
 					bankName: row.seller_bank_name || "Bank Transfer",
-					completionRate: "99.4%",
-					completedTrades: 1,
+					completionRate: getSellerCompletionRate(sellerAddr),
+					completedTrades: getUserTrustSummary(sellerAddr).completedTradeCount,
 					avgReleaseTime: "54s",
 					createdAt: "Active",
 					sellerBusy: allocUnits > 0,
@@ -346,6 +346,7 @@ export async function hydrateUserTradesFromSupabase(
 	address: string,
 ): Promise<void> {
 	const lower = address.toLowerCase();
+	await hydrateUserTrustProfileFromSupabase(lower);
 	try {
 		const rows = await supabaseServerSelect<{
 			trade_id: string;
@@ -859,7 +860,97 @@ function recalculateTrustSummary(summary: UserTrustSummary): UserTrustSummary {
 	summary.activeUnpaidCount = countBuyerActiveUnpaidObligations(
 		summary.walletAddress,
 	);
+
+	const finishedTrades =
+		summary.completedTradeCount + summary.unexplainedExpiryCount;
+	if (finishedTrades > 0) {
+		const compRatio = (summary.completedTradeCount / finishedTrades) * 100;
+		summary.completionRate = `${compRatio.toFixed(1)}%`;
+		summary.positiveRate = `${Math.min(100, Math.max(0, compRatio)).toFixed(1)}%`;
+	} else {
+		// New user with 0 trades: default should NOT be 99%
+		summary.completionRate = "0.0%";
+		summary.positiveRate = "0.0%";
+	}
+
 	return summary;
+}
+
+export function getSellerCompletionRate(address: string): string {
+	const trust = getUserTrustSummary(address);
+	const total = trust.completedTradeCount + trust.unexplainedExpiryCount;
+	if (total === 0) {
+		return trust.completedTradeCount > 0 ? "100.0%" : "0.0%";
+	}
+	return `${((trust.completedTradeCount / total) * 100).toFixed(1)}%`;
+}
+
+export function syncTrustProfileToSupabase(trust: UserTrustSummary): void {
+	void supabaseServerUpsert("user_trust_profiles", {
+		wallet_address: trust.walletAddress.toLowerCase(),
+		trust_tier: trust.trustTier,
+		trust_score: trust.trustScore,
+		max_trade_usdc_units: trust.maxTradeUsdcUnits,
+		max_concurrent_unpaid_trades: trust.maxConcurrentUnpaidTrades,
+		completed_trades_count: trust.completedTradeCount,
+		completed_volume_usdc_units: Math.round(
+			parseAmountUsdc(trust.completedVolumeUsdc) * 1_000_000,
+		),
+		unexplained_expiry_count: trust.unexplainedExpiryCount,
+		consecutive_expiry_streak: trust.consecutiveExpiryStreak,
+		stronger_verification_status: trust.strongerVerificationStatus,
+		cooldown_until: trust.cooldownUntil ?? null,
+		cooldown_reason: trust.cooldownReason ?? null,
+		cooldown_level: trust.consecutiveExpiryStreak,
+	});
+}
+
+export async function hydrateUserTrustProfileFromSupabase(
+	address: string,
+): Promise<void> {
+	const lower = address.toLowerCase();
+	try {
+		const rows = await supabaseServerSelect<{
+			wallet_address: string;
+			trust_tier: TrustTier;
+			trust_score: number;
+			max_trade_usdc_units: number;
+			max_concurrent_unpaid_trades: number;
+			completed_trades_count: number;
+			completed_volume_usdc_units: number;
+			unexplained_expiry_count: number;
+			consecutive_expiry_streak: number;
+			stronger_verification_status: "NONE" | "PENDING" | "VERIFIED";
+			cooldown_until?: string | null;
+			cooldown_reason?: string | null;
+		}>("user_trust_profiles", `wallet_address=eq.${encodeURIComponent(lower)}`);
+
+		if (rows && rows.length > 0) {
+			const r = rows[0];
+			const summary = getUserTrustSummary(lower);
+			summary.trustTier = r.trust_tier || summary.trustTier;
+			summary.trustScore = r.trust_score ?? summary.trustScore;
+			summary.completedTradeCount =
+				r.completed_trades_count ?? summary.completedTradeCount;
+			summary.completedVolumeUsdc = (
+				(r.completed_volume_usdc_units ?? 0) / 1_000_000
+			).toLocaleString("en-US", {
+				minimumFractionDigits: 2,
+				maximumFractionDigits: 2,
+			});
+			summary.unexplainedExpiryCount =
+				r.unexplained_expiry_count ?? summary.unexplainedExpiryCount;
+			summary.consecutiveExpiryStreak =
+				r.consecutive_expiry_streak ?? summary.consecutiveExpiryStreak;
+			summary.strongerVerificationStatus =
+				r.stronger_verification_status ?? summary.strongerVerificationStatus;
+			if (r.cooldown_until) summary.cooldownUntil = r.cooldown_until;
+			if (r.cooldown_reason) summary.cooldownReason = r.cooldown_reason;
+			recalculateTrustSummary(summary);
+		}
+	} catch {
+		// Ignore hydration errors
+	}
 }
 
 export function getUserTrustSummary(address: string): UserTrustSummary {
@@ -870,6 +961,8 @@ export function getUserTrustSummary(address: string): UserTrustSummary {
 			walletAddress: key,
 			trustTier: "NEW",
 			trustScore: 50,
+			completionRate: "0.0%",
+			positiveRate: "0.0%",
 			maxTradeUsdc: "150.00",
 			maxTradeUsdcUnits: 150_000_000,
 			maxConcurrentUnpaidTrades: 1,
@@ -1111,7 +1204,7 @@ export function createPeerOffer(
 		maxLimitUsdc: formattedUsdc,
 		requiredCollateralUsdc: "0.00",
 		bankName: params.bankName,
-		completionRate: "100%",
+		completionRate: getSellerCompletionRate(sellerAddress),
 		completedTrades: sellerLedger.filter((t) => t.status === "completed")
 			.length,
 		avgReleaseTime: "4.1s",
@@ -2183,6 +2276,7 @@ export function reconcileExpiredTrades(): {
 			).toISOString();
 			trust.cooldownReason = "Unpaid 20-minute trade deadline expired";
 			recalculateTrustSummary(trust);
+			syncTrustProfileToSupabase(trust);
 		}
 
 		appendAudit(
@@ -2231,6 +2325,21 @@ export function completePeerTrade(
 				maximumFractionDigits: 2,
 			});
 			recalculateTrustSummary(trust);
+			syncTrustProfileToSupabase(trust);
+		}
+
+		if (shared.sellerAddress) {
+			const sellerTrust = getUserTrustSummary(shared.sellerAddress);
+			sellerTrust.completedTradeCount += 1;
+			sellerTrust.consecutiveExpiryStreak = 0;
+			const prevVol = parseAmountUsdc(sellerTrust.completedVolumeUsdc);
+			const addedVol = shared.usdcAmountUnits / 1_000_000;
+			sellerTrust.completedVolumeUsdc = (prevVol + addedVol).toLocaleString("en-US", {
+				minimumFractionDigits: 2,
+				maximumFractionDigits: 2,
+			});
+			recalculateTrustSummary(sellerTrust);
+			syncTrustProfileToSupabase(sellerTrust);
 		}
 
 		appendAudit(

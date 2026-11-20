@@ -1,5 +1,6 @@
 "use client";
 
+import posthog from "posthog-js";
 import { signWalletMessage } from "@/lib/web3/arcConfig";
 
 export interface SupabaseWalletUser {
@@ -78,6 +79,15 @@ function broadcastAuthState(state: WalletAuthState): void {
 	);
 }
 
+function identifyAuthenticatedWalletUser(state: WalletAuthState): void {
+	if (!state.authenticated || !state.user?.id) return;
+
+	posthog.identify(
+		state.user.id,
+		state.user.username ? { username: state.user.username } : undefined,
+	);
+}
+
 /**
  * Verifies and returns the active Supabase wallet session for `walletAddress`,
  * synchronizing client cache with the server's `peernotary_session` & `wallet_sessions` table.
@@ -115,11 +125,15 @@ export async function getSupabaseWalletSession(
 				user: data.user,
 			};
 			writeCachedAuthState(state);
+			identifyAuthenticatedWalletUser(state);
 			return state;
 		}
 	} catch {
 		const cached = readCachedAuthState(normalizedAddress);
-		if (cached) return cached;
+		if (cached) {
+			identifyAuthenticatedWalletUser(cached);
+			return cached;
+		}
 	}
 
 	writeCachedAuthState(null);
@@ -230,6 +244,11 @@ export async function supabaseWalletSignin(params: {
 	};
 
 	writeCachedAuthState(state);
+	identifyAuthenticatedWalletUser(state);
+	posthog.capture("wallet_sign_in_completed", {
+		authentication_method: "wallet_signature",
+		force_reauthentication: forceReauth,
+	});
 	broadcastAuthState(state);
 	return state;
 }
@@ -244,6 +263,7 @@ export const walletSignin = supabaseWalletSignin;
  */
 export async function supabaseWalletSignOut(): Promise<void> {
 	writeCachedAuthState(null);
+	posthog.reset();
 	await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
 	broadcastAuthState({
 		authenticated: false,

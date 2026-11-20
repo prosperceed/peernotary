@@ -3,6 +3,7 @@
 import { Suspense, useState, useEffect, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import posthog from "posthog-js";
 import {
 	Shield,
 	Lock,
@@ -226,6 +227,9 @@ function BankCheckoutContent() {
 			}
 
 			if (data.hostedMode) setHostedMode(data.hostedMode);
+			posthog.capture("checkout_session_created", {
+				hosted_mode: data.hostedMode ?? "sandbox_portal",
+			});
 			setAttempt({
 				id: data.attemptId || "",
 				txRef: data.txRef,
@@ -383,6 +387,9 @@ function BankCheckoutContent() {
 						initData.error || "Could not initialize checkout attempt.",
 					);
 				}
+				posthog.capture("checkout_session_created", {
+					hosted_mode: "verification_flow",
+				});
 				activeTxRef = initData.txRef;
 				expectedMinor = initData.expectedAmountMinor ?? expectedMinor;
 			}
@@ -428,11 +435,19 @@ function BankCheckoutContent() {
 					"Late payment arrived after the 20-minute deadline. Placed in LATE_PAYMENT_REVIEW state.",
 				);
 			} else if (data.trade?.lifecycleState === "COMPLETED") {
+				posthog.capture("payment_verified", {
+					verification_source: "manual",
+					settlement_status: "completed",
+				});
 				setStatusBanner(
 					`Payment confirmed and ${usdcDisplay} USDC released on Arc Testnet! Trade is COMPLETED.`,
 				);
 				window.dispatchEvent(new CustomEvent("peernotary-balance-refresh"));
 			} else {
+				posthog.capture("payment_verified", {
+					verification_source: "manual",
+					settlement_status: "in_progress",
+				});
 				setStatusBanner(
 					"Payment verified server-side. Completing settlement and releasing USDC on Arc Testnet...",
 				);
@@ -651,6 +666,7 @@ function BankCheckoutContent() {
 				const d = (await res.json().catch(() => ({}))) as { error?: string };
 				throw new Error(d.error || "Failed to cancel order.");
 			}
+			posthog.capture("checkout_order_cancelled");
 			setStatusBanner(
 				"Order cancelled successfully. Escrow inventory lock has been released back to seller.",
 			);

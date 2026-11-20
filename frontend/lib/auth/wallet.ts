@@ -15,6 +15,7 @@ import {
 	supabaseServerUpdate,
 	supabaseServerUpsert,
 } from "@/lib/supabase/server";
+import { isWalletSuspended } from "@/lib/auth/moderation";
 
 export type WalletPrivilege =
 	| "trader"
@@ -416,6 +417,7 @@ export async function createWalletChallenge(
 	requestDomain?: string,
 ) {
 	const address = normalizeAddress(addressInput);
+	if (await isWalletSuspended(address)) throw new Error("This wallet is suspended.");
 	checkRateLimit(`challenge:${address.toLowerCase()}`);
 
 	const nonce = createOpaqueId(24);
@@ -479,6 +481,7 @@ export async function signInWallet(
 ): Promise<{ session: AuthSession; user: UserRecord }> {
 	const address = normalizeAddress(addressInput);
 	const lowerAddr = address.toLowerCase();
+	if (await isWalletSuspended(address)) throw new Error("This wallet is suspended.");
 	checkRateLimit(`verify:${lowerAddr}`);
 
 	if (
@@ -487,7 +490,6 @@ export async function signInWallet(
 	) {
 		throw new Error("Malformed authentication request");
 	}
-
 	let challenge = inMemoryNonces.get(nonceKey(address, nonce));
 
 	// If not in local memory (e.g. serverless invocation or dev hot-reload), load from Supabase `wallet_nonces`

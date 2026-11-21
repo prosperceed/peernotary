@@ -2,7 +2,7 @@
 
 import { useAccount } from "wagmi";
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, Clock3, LockKeyhole, RefreshCw, ShieldCheck } from "lucide-react";
+import { AlertTriangle, LockKeyhole } from "lucide-react";
 import AdminActivityChart from "./admin/AdminActivityChart";
 import AdminKpiGrid from "./admin/AdminKpiGrid";
 import AdminTrafficPanel from "./admin/AdminTrafficPanel";
@@ -52,5 +52,5 @@ export default function DevDashboard() {
 		return <div className="space-y-5"><div className="h-28 animate-pulse rounded-2xl bg-[#eaf4ee]" /><div className="grid grid-cols-1 gap-4 lg:grid-cols-3"><div className="h-72 animate-pulse rounded-2xl bg-[#eaf4ee] lg:col-span-2" /><div className="h-72 animate-pulse rounded-2xl bg-[#eaf4ee]" /></div></div>;
 	}
 
-	return <div className="space-y-6"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#1a9e5c]"><ShieldCheck size={14} />Super admin</div><h2 className="mt-2 text-2xl font-bold tracking-tight text-[#0d2b1e]">Operations overview</h2><p className="mt-1 text-sm text-[#7aaa92]">A live view of liquidity, settlement, treasury, and network activity.</p></div><div className="flex items-center gap-2"><div className="hidden items-center gap-1.5 rounded-xl border border-[#d1e8dc] bg-white px-3 py-2 text-xs text-[#7aaa92] sm:flex"><Clock3 size={13} />Last 30 days</div><button onClick={() => void load()} className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#d1e8dc] bg-white px-3.5 py-2 text-xs font-semibold text-[#3d6b55] transition hover:border-[#1a9e5c]/40 hover:bg-[#f0f7f3]"><RefreshCw size={13} />Refresh</button></div></div><div className="flex flex-wrap items-center gap-2 text-[11px] text-[#7aaa92]"><span className="inline-flex items-center gap-1.5 rounded-full border border-[#cfead9] bg-[#f0f7f3] px-2.5 py-1 text-[#1a9e5c]"><CheckCircle2 size={12} />Protected session</span><span>Updated {new Date(overview.updatedAt).toLocaleTimeString()}</span></div><AdminKpiGrid metrics={overview.metrics} /><div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,1fr)]"><AdminActivityChart overview={overview} analytics={analytics} /><AdminTrafficPanel analytics={analytics} /></div><AdminTransactionTable rows={overview.recentTransactions} /></div>;
+	return <div className="space-y-6"><div><h2 className="text-2xl font-bold tracking-tight text-[#0d2b1e]">Operations overview</h2><p className="mt-1 text-sm text-[#7aaa92]">A live view of liquidity, settlement, treasury, and network activity.</p></div><AdminKpiGrid metrics={overview.metrics} /><div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,1fr)]"><AdminActivityChart overview={overview} analytics={analytics} /><AdminTrafficPanel analytics={analytics} /></div><AdminTransactionTable rows={overview.recentTransactions} /></div>;
 }

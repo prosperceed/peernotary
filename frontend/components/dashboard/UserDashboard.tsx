@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
+import posthog from "posthog-js";
 import {
 	LayoutDashboard,
 	Layers,
@@ -342,6 +343,7 @@ export default function UserDashboard() {
 			};
 			if (!res.ok) throw new Error(data.error || "Failed to set handle.");
 			const saved = data.user?.username ?? trimmed;
+			posthog.capture("profile_username_set");
 			setUsername(saved);
 			setOnboardingCompleted(true);
 			setShowUsernameModal(false);
@@ -388,6 +390,7 @@ export default function UserDashboard() {
 			if (data.transactions) setTransactions(data.transactions);
 			if (data.peerOffers) setPeerOffers(data.peerOffers);
 			if (data.trustSummary) setTrustSummary(data.trustSummary);
+			posthog.capture("trade_cancelled", { surface: "dashboard" });
 
 			setActionFeedback({
 				type: "success",
@@ -518,6 +521,10 @@ export default function UserDashboard() {
 			if (data.peerOffers) setPeerOffers(data.peerOffers);
 			if (data.trustSummary) setTrustSummary(data.trustSummary);
 			if (data.queueEntries) setQueueEntries(data.queueEntries);
+			posthog.capture("peer_offer_taken", {
+				offer_side: offer.side,
+				execution_mode: data.executionMode === "QUEUED" ? "queued" : "active_slot",
+			});
 
 			if (data.executionMode === "QUEUED" && data.queueEntry) {
 				setActionFeedback({
@@ -618,6 +625,7 @@ export default function UserDashboard() {
 			if (data.transactions) setTransactions(data.transactions);
 			if (data.peerOffers) setPeerOffers(data.peerOffers);
 			if (data.trustSummary) setTrustSummary(data.trustSummary);
+			posthog.capture("peer_offer_created", { offer_side: offerSide });
 
 			setOfferAccountNo("");
 			setActionFeedback({
@@ -748,6 +756,9 @@ export default function UserDashboard() {
 				throw new Error(relData.error || "Failed to confirm release on server.");
 			}
 
+			posthog.capture("escrow_released", {
+				release_method: "tlsnotary_verification",
+			});
 			setActionFeedback({
 				type: "success",
 				text: `Payment verified via TLSNotary. Arc Escrow released ${trade.usdcAmount} USDC on-chain.`,
@@ -806,6 +817,7 @@ export default function UserDashboard() {
 				throw new Error(data.error || "Failed to confirm release on server.");
 			}
 
+			posthog.capture("escrow_released", { release_method: "direct" });
 			setActionFeedback({
 				type: "success",
 				text: `USDC escrow released on-chain${txHash ? ` (Tx: ${txHash.slice(0, 8)}...)` : ""}. Trade #${tradeId} is completed.`,

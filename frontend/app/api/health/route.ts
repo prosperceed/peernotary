@@ -1,4 +1,6 @@
-import { NextResponse } from "next/server";
+import { SeverityNumber } from "@opentelemetry/api-logs";
+import { after, NextResponse } from "next/server";
+import { flushPostHogLogs, getPostHogLogger } from "@/instrumentation";
 import { rustApiClient } from "@/lib/rust";
 
 export async function GET() {
@@ -20,8 +22,29 @@ export async function GET() {
 		};
 	}
 
+	const logger = getPostHogLogger();
+	const isRustBackendHealthy = rustBackendStatus === "healthy";
+
+	logger?.emit({
+		body: isRustBackendHealthy
+			? "health check completed with Rust backend healthy"
+			: "health check completed with Rust backend degraded",
+		severityNumber: isRustBackendHealthy
+			? SeverityNumber.INFO
+			: SeverityNumber.WARN,
+		attributes: {
+			route: "/api/health",
+			rust_backend_status: rustBackendStatus,
+			latency_ms: latencyMs,
+		},
+	});
+
+	after(async () => {
+		await flushPostHogLogs();
+	});
+
 	const response = {
-		status: rustBackendStatus === "healthy" ? "ok" : "degraded",
+		status: isRustBackendHealthy ? "ok" : "degraded",
 		timestamp: new Date().toISOString(),
 		services: {
 			frontend_nextjs: "healthy",

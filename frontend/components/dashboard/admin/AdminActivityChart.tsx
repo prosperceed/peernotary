@@ -12,7 +12,7 @@ export default function AdminActivityChart({ overview, analytics }: { overview: 
 		<div className="rounded-2xl border border-[#d1e8dc] bg-white p-5 shadow-[0_12px_35px_rgba(20,100,65,0.04)]">
 			<div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
 				<div>
-					<div className="flex items-center gap-2 text-sm font-semibold text-[#0d2b1e]"><span className="h-2 w-2 animate-pulse rounded-full bg-[#22c972]" />Live activity</div>
+					<div className="text-sm font-semibold text-[#0d2b1e]">Live activity</div>
 					<div className="mt-1 text-xs text-[#7aaa92]">Escrow volume and traffic over the last 14–30 days</div>
 				</div>
 				<div className="rounded-lg bg-[#f0f7f3] px-3 py-1.5 text-[11px] text-[#3d6b55]">{analytics.totalPageviews.toLocaleString()} pageviews · {analytics.totalVisitors.toLocaleString()} visitors</div>

@@ -18,7 +18,6 @@ function Card({ icon, label, value, detail, accent, tint }: { icon: React.ReactN
 		<div className="rounded-2xl border border-white/60 p-5 shadow-[0_12px_35px_rgba(20,100,65,0.08)] transition hover:-translate-y-0.5 hover:shadow-[0_16px_35px_rgba(20,100,65,0.12)]" style={{ background: tint }}>
 			<div className="flex items-center justify-between">
 				<span className="flex h-9 w-9 items-center justify-center rounded-xl" style={{ backgroundColor: `${accent}12` }}>{icon}</span>
-				<span className="h-2 w-2 rounded-full" style={{ backgroundColor: accent }} />
 			</div>
 			<div className="mt-5 text-[11px] font-medium uppercase tracking-[0.12em] text-[#7aaa92]">{label}</div>
 			<div className="mt-1 text-2xl font-bold tracking-tight text-[#0d2b1e]">{value}</div>

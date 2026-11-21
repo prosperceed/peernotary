@@ -44,7 +44,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
 							return <Link key={href} href={href} className={cn("flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold transition", active ? "bg-[#0d2b1e] text-white shadow-[0_10px_24px_rgba(13,43,30,0.15)]" : "text-[#527663] hover:bg-[#f0f7f3] hover:text-[#0d2b1e]")}><Icon size={17} /><span>{label}</span>{active && <ChevronRight className="ml-auto" size={14} />}</Link>;
 			})}
 					</nav>
-					<div className="mt-auto rounded-2xl bg-[#f0f7f3] p-4"><div className="flex items-center gap-2 text-xs font-bold text-[#1a9e5c]"><span className="net-dot h-2 w-2 rounded-full bg-[#1a9e5c]" />Systems nominal</div><p className="mt-2 text-xs leading-5 text-[#6f9a83]">Control access is restricted to configured administrator wallets.</p></div>
+					<div className="mt-auto rounded-2xl bg-[#f0f7f3] p-4"><div className="text-xs font-bold text-[#1a9e5c]">Systems nominal</div><p className="mt-2 text-xs leading-5 text-[#6f9a83]">Control access is restricted to configured administrator wallets.</p></div>
 				</aside>
 				<main className="relative min-w-0 overflow-hidden bg-[radial-gradient(circle_at_88%_0%,rgba(77,214,140,0.16),transparent_30%),radial-gradient(circle_at_46%_100%,rgba(212,240,227,0.7),transparent_36%),linear-gradient(135deg,#f7fbf8_0%,#f0f8f3_48%,#eaf6ef_100%)] px-4 py-5 sm:px-7 lg:px-10 lg:py-7">
 					<div className="pointer-events-none absolute -right-28 top-20 h-72 w-72 rounded-full bg-[#bdebd1]/25 blur-3xl" />

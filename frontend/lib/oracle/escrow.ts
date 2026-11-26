@@ -117,8 +117,23 @@ export async function readNextTradeId(): Promise<bigint> {
   return BigInt(await getEscrowContract(provider).nextTradeId());
 }
 
+let escrowCompatible = false;
+/** Fails with a config message if ESCROW_ADDRESS isn't the current contract version. */
+export async function assertEscrowCompatible() {
+  if (escrowCompatible) return;
+  try {
+    await getEscrowContract(provider).getListingInventory(0n);
+    escrowCompatible = true;
+  } catch {
+    throw new Error(
+      `ESCROW_MISCONFIGURED: ${escrowAddress()} on ${NETWORK.chainName} is not the current PeerNotary escrow contract (no getListingInventory). Fix NEXT_PUBLIC_TESTNET_ESCROW_ADDRESS / ESCROW_ADDRESS and rebuild.`,
+    );
+  }
+}
+
 export async function readListingInventory(listingId: bigint) {
   if (listingId <= 0n) throw new Error("Invalid listing identifier");
+  await assertEscrowCompatible();
   return getEscrowContract(provider).getListingInventory(listingId);
 }
 
@@ -139,6 +154,7 @@ function describeRevert(err: unknown): string {
 
 async function assertOracleConfigured() {
   await assertExpectedChain();
+  await assertEscrowCompatible();
   const configured: string = await getEscrowContract(provider).oracleAddress();
   if (configured.toLowerCase() !== oracleWallet.address.toLowerCase()) {
     throw new Error(
@@ -347,6 +363,8 @@ export async function verifySellerListing(
     }
     return { ok: true };
   } catch (err) {
+    const msg = err instanceof Error ? err.message : "";
+    if (msg.startsWith("ESCROW_MISCONFIGURED")) return { ok: false, reason: msg };
     return { ok: false, reason: `Could not read listing #${listingId} from Arc: ${describeRevert(err)}` };
   }
 }

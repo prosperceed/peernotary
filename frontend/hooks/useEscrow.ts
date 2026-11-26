@@ -114,6 +114,7 @@ export interface EscrowHookReturn {
 }
 
 const RECEIPT_TIMEOUT_MS = 120_000;
+const escrowCompatCache = new Map<string, boolean>();
 const escrowAbi = ESCROW_ABI as unknown as Abi;
 
 export function useEscrow(): EscrowHookReturn {
@@ -264,15 +265,40 @@ export function useEscrow(): EscrowHookReturn {
 		[publicClient, requireWallet, waitFor, writeContractAsync],
 	);
 
+	/**
+	 * Refuses to touch an escrow that isn't the current ArcP2PEscrowService
+	 * (e.g. an old deployment left in a host's env vars). Runs before any
+	 * approval, so a misconfigured app can't strand USDC in the wrong contract.
+	 */
+	const assertEscrowCompatible = useCallback(async () => {
+		if (escrowCompatCache.get(ESCROW_ADDRESS)) return;
+		try {
+			await publicClient!.readContract({
+				address: ESCROW_ADDRESS,
+				abi: ESCROW_ABI,
+				functionName: "getListingInventory",
+				args: [0n],
+			});
+			escrowCompatCache.set(ESCROW_ADDRESS, true);
+		} catch {
+			throw new Error(
+				`This app is configured with escrow ${ESCROW_ADDRESS}, which is not the current PeerNotary contract on ${arcChain.name}. ` +
+					"Update NEXT_PUBLIC_TESTNET_ESCROW_ADDRESS (or NEXT_PUBLIC_ESCROW_ADDRESS) and rebuild. No funds were moved.",
+			);
+		}
+	}, [publicClient]);
+
 	const readListing = useCallback(
-		async (listingId: bigint) =>
-			publicClient!.readContract({
+		async (listingId: bigint) => {
+			await assertEscrowCompatible();
+			return publicClient!.readContract({
 				address: ESCROW_ADDRESS,
 				abi: ESCROW_ABI,
 				functionName: "getListingInventory",
 				args: [listingId],
-			}),
-		[publicClient],
+			});
+		},
+		[publicClient, assertEscrowCompatible],
 	);
 
 	// ── Seller: lock USDC into a new listing ─────────────────────────────────
@@ -281,6 +307,7 @@ export function useEscrow(): EscrowHookReturn {
 			reset();
 			try {
 				requireWallet();
+				await assertEscrowCompatible();
 				const amount = parseUsdc(cryptoAmountUsdc);
 				const bankHash = hashBankDetails(bankName, accountNo, sortCode);
 				await ensureArc();
@@ -315,7 +342,7 @@ export function useEscrow(): EscrowHookReturn {
 				return fail(e);
 			}
 		},
-		[reset, requireWallet, ensureArc, ensureAllowance, send, fail],
+		[reset, requireWallet, assertEscrowCompatible, ensureArc, ensureAllowance, send, fail],
 	);
 
 	// ── Buyer: take the full remaining listing on-chain ──────────────────────

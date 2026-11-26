@@ -1277,7 +1277,7 @@ export function createPeerOffer(
 		type: params.side === "buy" ? "buy" : "sell",
 		role: params.side === "buy" ? "buyer" : "seller",
 		counterparty: "Open Peer Market",
-		counterpartyAddress: "0x5042f1114C6F272f5909f16510399986EF0D734D",
+		counterpartyAddress: NETWORK.escrowAddress,
 		usdcAmount: formattedUsdc,
 		ngnAmount: formattedNgn,
 		bankName: params.bankName,

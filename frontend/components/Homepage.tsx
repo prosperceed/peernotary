@@ -5,7 +5,7 @@ import HowItWorks from "@/components/home/HowItWorks";
 const TICKET_STEPS = [
 	{ icon: Lock, title: "Seller locks 250.00 USDC", meta: "Locked in escrow on Arc", done: true },
 	{ icon: Landmark, title: "Buyer pays ₦345,000 by bank transfer", meta: "Flutterwave · GTBank", done: true },
-	{ icon: FileCheck2, title: "Payment proven from the bank session", meta: "TLSNotary proof of the bank session", done: true },
+	{ icon: FileCheck2, title: "Payment proven from the bank session", meta: "TLSNotary · no screenshots", done: true },
 	{ icon: Send, title: "Escrow releases 247.50 USDC to buyer", meta: "Sent to buyer · 1% fee", done: false },
 ];
 

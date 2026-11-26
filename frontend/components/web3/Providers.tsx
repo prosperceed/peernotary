@@ -27,7 +27,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => new QueryClient({
     defaultOptions: {
       queries: {
-        // Arc Testnet blocks every ~2s — stale after 4s is a reasonable default
+        // Arc blocks every ~2s — stale after 4s is a reasonable default
         staleTime: 4_000,
         retry: 2,
       },

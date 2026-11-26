@@ -26,11 +26,12 @@ import {
 } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { cn } from "@/lib/utils";
+import { IS_TESTNET } from "@/lib/env/network";
 import { useMonierateRate } from "@/hooks/useMonierateRate";
 import {
-	arcTestnet,
+	arcChain,
 	ARCSCAN_ADDR,
-	switchToArcTestnet,
+	switchToArc,
 	formatUserFriendlyWalletError,
 } from "@/lib/web3/arcConfig";
 import {
@@ -152,7 +153,7 @@ function WalletButton({
 		setBusy(true);
 		setError(undefined);
 		try {
-			await switchToArcTestnet(switchChainAsync);
+			await switchToArc(switchChainAsync);
 			if (address) {
 				await authenticate(address);
 			}
@@ -160,7 +161,7 @@ function WalletButton({
 			setError(
 				formatUserFriendlyWalletError(
 					caught,
-					"Could not switch to Arc Testnet. Please switch networks in your wallet.",
+					`Could not switch to ${arcChain.name}. Please switch networks in your wallet.`,
 				),
 			);
 		} finally {
@@ -169,8 +170,8 @@ function WalletButton({
 	};
 
 	const authenticate = async (walletAddress: `0x${string}`) => {
-		if (chainId && chainId !== arcTestnet.id) {
-			setError(`Switch to ${arcTestnet.name} before signing in.`);
+		if (chainId && chainId !== arcChain.id) {
+			setError(`Switch to ${arcChain.name} before signing in.`);
 			return;
 		}
 		setBusy(true);
@@ -247,7 +248,7 @@ function WalletButton({
 
 	// ── STATE 2: Connected but not authenticated (includes wrong-chain) ───────
 	if (!authenticated) {
-		const isWrongChain = chainId !== arcTestnet.id;
+		const isWrongChain = chainId !== arcChain.id;
 		return (
 			<div className="flex items-center gap-2">
 				<span className="hidden font-mono text-xs text-ink-3 sm:inline">{truncate(address)}</span>
@@ -282,7 +283,7 @@ function WalletButton({
 				aria-haspopup="true"
 				aria-expanded={open}
 			>
-				<span className="h-2 w-2 rounded-full bg-accent" aria-label="Arc Testnet" />
+				<span className="h-2 w-2 rounded-full bg-accent" aria-label={arcChain.name} />
 				<span className="font-mono text-xs text-ink">{truncate(address)}</span>
 				<ChevronDown size={14} className={cn("text-ink-3 transition-transform", open && "rotate-180")} />
 			</button>
@@ -294,7 +295,7 @@ function WalletButton({
 						<div className="mt-1 break-all font-mono text-xs text-ink">{address}</div>
 						<div className="mt-2 flex items-center gap-1.5 text-xs text-ink-3">
 							<span className="h-1.5 w-1.5 rounded-full bg-accent" />
-							Arc Testnet · {arcTestnet.id}
+							{arcChain.name} · {arcChain.id}
 						</div>
 					</div>
 					<div className="p-1">
@@ -445,6 +446,14 @@ export default function GlobalNav() {
 						</span>
 						<span className="text-[15px] font-semibold tracking-tight text-ink">PeerNotary</span>
 					</Link>
+					{IS_TESTNET && (
+						<span
+							title={`${arcChain.name} · Flutterwave test mode. No real funds move.`}
+							className="rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-800"
+						>
+							Testnet
+						</span>
+					)}
 					<nav className="hidden items-center gap-1 md:flex">
 						{navLinks.map(({ label, view, source }) => (
 							<NavLink key={view} source={source} label={label} active={currentView === view} />

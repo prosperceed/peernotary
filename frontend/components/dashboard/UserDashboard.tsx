@@ -27,12 +27,12 @@ import { formatUnits } from "viem";
 import { useEscrow } from "@/hooks/useEscrow";
 import TxStatusBanner from "@/components/web3/TxStatusBanner";
 import {
-	arcTestnet,
+	arcChain,
 	isOnChainTradeId,
 	USDC_ABI,
 	USDC_ADDRESS,
 	formatUsdc,
-	switchToArcTestnet,
+	switchToArc,
 	formatUserFriendlyWalletError,
 } from "@/lib/web3/arcConfig";
 import {
@@ -155,7 +155,7 @@ export default function UserDashboard() {
 
 	const { data: nativeBalance, refetch: refetchNative } = useBalance({
 		address,
-		chainId: arcTestnet.id,
+		chainId: arcChain.id,
 		query: { refetchInterval: 4000 },
 	});
 
@@ -261,8 +261,8 @@ export default function UserDashboard() {
 	}, [fetchDashboardData, refetchNative, refetchErc20]);
 
 	const authenticateWallet = async (targetAddress: `0x${string}`) => {
-		if (chainId && chainId !== arcTestnet.id) {
-			setAuthError(`Switch to ${arcTestnet.name} before signing in.`);
+		if (chainId && chainId !== arcChain.id) {
+			setAuthError(`Switch to ${arcChain.name} before signing in.`);
 			return;
 		}
 		setAuthBusy(true);
@@ -293,7 +293,7 @@ export default function UserDashboard() {
 			if (!conn) throw new Error("No Web3 wallet detected in browser.");
 			const result = await connectAsync({
 				connector: conn,
-				chainId: arcTestnet.id,
+				chainId: arcChain.id,
 			});
 			const accountAddr = result.accounts[0];
 			if (accountAddr) await authenticateWallet(accountAddr);
@@ -313,10 +313,10 @@ export default function UserDashboard() {
 		setAuthBusy(true);
 		setAuthError(null);
 		try {
-			await switchToArcTestnet(switchChainAsync);
+			await switchToArc(switchChainAsync);
 		} catch (err) {
 			setAuthError(
-				formatUserFriendlyWalletError(err, "Could not switch to Arc Testnet."),
+				formatUserFriendlyWalletError(err, `Could not switch to ${arcChain.name}.`),
 			);
 		} finally {
 			setAuthBusy(false);
@@ -861,14 +861,14 @@ export default function UserDashboard() {
 		});
 	}, [peerOffers, peerSideFilter, peerBankFilter, peerSearch]);
 
-	const isWrongChain = isConnected && chainId !== arcTestnet.id;
+	const isWrongChain = isConnected && chainId !== arcChain.id;
 
 	if (checkingSession) {
 		return (
 			<div className="py-24 flex items-center justify-center">
 				<div className="flex items-center gap-3 px-5 py-3 rounded-md border border-line bg-surface text-xs font-medium text-ink-2 shadow-card">
 					<RefreshCw size={14} className="animate-spin text-accent" />
-					<span>Verifying wallet session on Arc Testnet...</span>
+					<span>Verifying wallet session on {arcChain.name}…</span>
 				</div>
 			</div>
 		);
@@ -886,7 +886,7 @@ export default function UserDashboard() {
 						{!isConnected
 							? "Connect your wallet"
 							: isWrongChain
-								? "Switch to Arc Testnet"
+								? `Switch to ${arcChain.name}`
 								: "Sign In to Verify Ownership"}
 					</h2>
 
@@ -894,7 +894,7 @@ export default function UserDashboard() {
 						{!isConnected
 							? "Sign in with your wallet to sell USDC, track your escrows and release payments."
 							: isWrongChain
-								? `Switch network to ${arcTestnet.name} (Chain ID ${arcTestnet.id}) to continue.`
+								? `Switch network to ${arcChain.name} (Chain ID ${arcChain.id}) to continue.`
 								: "Sign a message with your connected wallet to unlock your dashboard session."}
 					</p>
 
@@ -923,7 +923,7 @@ export default function UserDashboard() {
 								disabled={authBusy}
 								className="w-full py-3 rounded-full font-semibold text-xs text-white bg-amber-600 hover:bg-amber-700 transition-colors shadow-card disabled:opacity-60"
 							>
-								{authBusy ? "Switching Network..." : "Switch to Arc Testnet"}
+								{authBusy ? "Switching Network..." : `Switch to ${arcChain.name}`}
 							</button>
 						) : (
 							<button

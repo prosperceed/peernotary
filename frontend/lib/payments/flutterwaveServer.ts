@@ -2,6 +2,7 @@ import "server-only";
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { oracleSettleToBuyer, paymentProofId } from "@/lib/oracle/escrow";
+import { getPaymentMode, getServerNetworkSecrets, type PaymentMode } from "@/lib/env/serverSecrets";
 import {
 	completePeerTrade,
 	createOrReuseCheckoutAttempt,
@@ -21,17 +22,14 @@ function getFlwBaseUrl(): string {
 	).replace(/\/$/, "");
 }
 
+/** Secret key for the active network, validated against the payment mode. */
 function getFlwSecretKey(): string | undefined {
-	const key = process.env.FLW_SECRET_KEY?.trim();
-	return key && key.length > 0 ? key : undefined;
+	const mode = getPaymentMode(); // throws on test/live key mismatch
+	return mode === "simulated" ? undefined : getServerNetworkSecrets().flwSecretKey;
 }
 
 function getFlwSecretHash(): string {
-	return (
-		process.env.FLW_SECRET_HASH ??
-		process.env.TLSN_WEBHOOK_SECRET ??
-		""
-	).trim();
+	return getServerNetworkSecrets().flwSecretHash ?? "";
 }
 
 export function minorUnitsToDecimalString(minorUnits: number): string {
@@ -114,7 +112,9 @@ export async function initializeFlutterwaveStandardCheckout(params: {
 }): Promise<{
 	attempt: PaymentAttemptInfo;
 	hostedMode: "live_api" | "sandbox_portal";
+	paymentMode: PaymentMode;
 }> {
+	const paymentMode = getPaymentMode();
 	const attempt = createOrReuseCheckoutAttempt(
 		params.tradeId,
 		params.buyerAddress,
@@ -163,15 +163,19 @@ export async function initializeFlutterwaveStandardCheckout(params: {
 				};
 				if (body.status === "success" && body.data?.link) {
 					attempt.checkoutUrl = body.data.link;
-					return { attempt, hostedMode: "live_api" };
+					return { attempt, hostedMode: "live_api", paymentMode };
 				}
 			}
-		} catch {
-			// Fall back to integrated checkout portal when offline or sandbox key not active
+			const detail = await res.text().catch(() => "");
+			throw new Error(`FLUTTERWAVE_CHECKOUT_FAILED (${res.status}): ${detail.slice(0, 160)}`);
+		} catch (err) {
+			// A configured key means real Flutterwave only: never fall back to a fake portal.
+			throw err instanceof Error ? err : new Error("FLUTTERWAVE_CHECKOUT_FAILED");
 		}
 	}
 
-	return { attempt, hostedMode: "sandbox_portal" };
+	if (paymentMode !== "simulated") throw new Error("TRADE_NOT_FOUND");
+	return { attempt, hostedMode: "sandbox_portal", paymentMode };
 }
 
 export async function verifyFlutterwaveTransactionServerSide(params: {
@@ -259,9 +263,13 @@ export async function verifyFlutterwaveTransactionServerSide(params: {
 				return record;
 			}
 		}
+		// Real Flutterwave mode: only a payment Flutterwave reports as successful counts.
+		throw new Error(
+			"PAYMENT_NOT_CONFIRMED: Flutterwave has no successful payment for this reference yet.",
+		);
 	}
 
-	// Deterministic sandbox verification when FLW_SECRET_KEY is not set in local dev
+	// Simulated mode only (testnet, no key, FLW_ALLOW_SIMULATED_PAYMENTS=true, non-production).
 	const flwTxId =
 		params.flwTransactionId ?? Math.floor(10_000_000 + Math.random() * 89_000_000);
 	const amountMinor = params.simulatedAmountMinor ?? attempt.expectedAmountMinor;

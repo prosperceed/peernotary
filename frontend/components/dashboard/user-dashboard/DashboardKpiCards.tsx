@@ -1,5 +1,6 @@
 "use client";
 
+import { arcChain } from "@/lib/web3/arcConfig";
 import { Check } from "lucide-react";
 
 import type { DashboardStats } from "./types";
@@ -22,7 +23,7 @@ export function DashboardKpiCards({
 				<div className="flex items-center justify-between text-xs">
 					<span className="font-medium text-white/85">Balance</span>
 					<span className="text-[11px] font-mono uppercase tracking-wider text-white/70">
-						Arc Testnet
+						{arcChain.name}
 					</span>
 				</div>
 

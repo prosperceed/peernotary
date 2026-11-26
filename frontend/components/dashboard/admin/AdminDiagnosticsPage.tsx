@@ -1,5 +1,6 @@
 "use client";
 
+import { arcChain } from "@/lib/web3/arcConfig";
 import { useAccount } from "wagmi";
 import { CheckCircle2, CircleAlert, Gauge, RefreshCw, Server, ShieldCheck } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -34,7 +35,7 @@ function normalizeDiagnostics(body: DiagnosticResponse): Diagnostic {
 		},
 		escrow: {
 			address: body.escrowAddress ?? null,
-			chainId: body.chainId ?? 5042002,
+			chainId: body.chainId ?? arcChain.id,
 			configured: Boolean(body.escrowAddress),
 		},
 		checkedAt: new Date().toISOString(),

@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
 		const originUrl =
 			process.env.NEXT_PUBLIC_APP_URL ?? request.nextUrl.origin;
 
-		const { attempt, hostedMode } = await initializeFlutterwaveStandardCheckout({
+		const { attempt, hostedMode, paymentMode } = await initializeFlutterwaveStandardCheckout({
 			tradeId,
 			buyerAddress: user.walletAddress,
 			originUrl,
@@ -32,6 +32,7 @@ export async function POST(request: NextRequest) {
 		return NextResponse.json({
 			ok: true,
 			hostedMode,
+			paymentMode,
 			tradeId,
 			attemptId: attempt.id,
 			txRef: attempt.txRef,

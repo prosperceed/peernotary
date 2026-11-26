@@ -5,6 +5,8 @@ import http from "node:http";
 import https from "node:https";
 import net from "node:net";
 import { ethers } from "ethers";
+import { APP_NETWORK, NETWORK } from "@/lib/env/network";
+import { getServerNetworkSecrets } from "@/lib/env/serverSecrets";
 
 // Ensure IPv4 DNS resolution and disable broken IPv6 Happy Eyeballs timeout in Node.js v24
 try {
@@ -26,13 +28,6 @@ try {
 } catch {
   // Ignore if unsupported in runtime
 }
-
-const requiredEnv = (name: string, fallbackName?: string): string => {
-  const value =
-    process.env[name] || (fallbackName ? process.env[fallbackName] : undefined);
-  if (!value) throw new Error(`Missing required server configuration: ${name}`);
-  return value;
-};
 
 const ESCROW_ABI = [
   "error Unauthorized()",
@@ -63,20 +58,38 @@ const RECEIPT_TIMEOUT_MS = 120_000;
 const MIN_ORACLE_GAS_WEI = ethers.parseUnits("0.5", 18);
 const GAS_TOPUP_UNITS = 2_000_000n; // 2 USDC (ERC-20, 6 dp)
 
-const provider = new ethers.JsonRpcProvider(
-  requiredEnv("ARC_RPC_URL", "NEXT_PUBLIC_ARC_RPC_URL"),
-  5042002,
-  { staticNetwork: true },
-);
+const secrets = getServerNetworkSecrets();
 
-const oracleWallet = new ethers.Wallet(requiredEnv("ORACLE_PRIVATE_KEY"), provider);
+const provider = new ethers.JsonRpcProvider(secrets.rpcUrl, NETWORK.chainId, {
+  staticNetwork: true,
+});
+
+if (!secrets.oraclePrivateKey) {
+  throw new Error(
+    `Missing oracle key for ${APP_NETWORK}: set ${APP_NETWORK === "mainnet" ? "ORACLE_PRIVATE_KEY_MAINNET" : "ORACLE_PRIVATE_KEY_TESTNET (or ORACLE_PRIVATE_KEY)"}`,
+  );
+}
+const oracleWallet = new ethers.Wallet(secrets.oraclePrivateKey, provider);
 
 // Optional gas sponsor for the oracle. Server-only: never a NEXT_PUBLIC_ var.
-const gasSponsorWallet = process.env.ARC_PRIVATE_KEY
-  ? new ethers.Wallet(process.env.ARC_PRIVATE_KEY, provider)
+const gasSponsorWallet = secrets.gasSponsorPrivateKey
+  ? new ethers.Wallet(secrets.gasSponsorPrivateKey, provider)
   : null;
 
-const escrowAddress = () => requiredEnv("ESCROW_ADDRESS", "NEXT_PUBLIC_ESCROW_ADDRESS");
+const escrowAddress = () => NETWORK.escrowAddress;
+
+/** Refuses to sign anything if the RPC is not the chain this build targets. */
+let chainVerified = false;
+async function assertExpectedChain() {
+  if (chainVerified) return;
+  const actual = Number(await provider.send("eth_chainId", []));
+  if (actual !== NETWORK.chainId) {
+    throw new Error(
+      `RPC ${secrets.rpcUrl} is chain ${actual}, but ${APP_NETWORK} expects ${NETWORK.chainId}. Refusing to settle.`,
+    );
+  }
+  chainVerified = true;
+}
 
 function getEscrowContract(signer: ethers.Signer | ethers.Provider = oracleWallet) {
   return new ethers.Contract(escrowAddress(), ESCROW_ABI, signer);
@@ -125,6 +138,7 @@ function describeRevert(err: unknown): string {
 }
 
 async function assertOracleConfigured() {
+  await assertExpectedChain();
   const configured: string = await getEscrowContract(provider).oracleAddress();
   if (configured.toLowerCase() !== oracleWallet.address.toLowerCase()) {
     throw new Error(
@@ -142,7 +156,7 @@ async function ensureOracleGas() {
     return;
   }
   try {
-    const usdc = new ethers.Contract(requiredEnv("USDC_ADDRESS", "NEXT_PUBLIC_USDC_ADDRESS"), USDC_ABI, gasSponsorWallet);
+    const usdc = new ethers.Contract(NETWORK.usdcAddress, USDC_ABI, gasSponsorWallet);
     const tx = await usdc.transfer(oracleWallet.address, GAS_TOPUP_UNITS);
     await tx.wait(1, RECEIPT_TIMEOUT_MS);
   } catch (err) {

@@ -35,7 +35,7 @@ import { StepBar, ToastAlert, BankSearchSelect } from "@/components/shared";
 import { useEscrow } from "@/hooks/useEscrow";
 import TxStatusBanner from "@/components/web3/TxStatusBanner";
 import {
-	arcTestnet,
+	arcChain,
 	isOnChainTradeId,
 	DEFAULT_FEE_BPS,
 	USDC_ADDRESS,
@@ -284,7 +284,7 @@ function ZKProofPanel({
 					</div>
 					{proofMeta.checksCount && (
 						<div className="text-[11px] text-ink-2">
-							{proofMeta.checksCount} cryptographic checks passed · Chain #5042002
+							{proofMeta.checksCount} cryptographic checks passed · Chain #{arcChain.id}
 						</div>
 					)}
 				</div>
@@ -356,7 +356,7 @@ export default function TradingWidget({
 	// Track real on-chain wallet USDC balance
 	const { data: nativeBalance, refetch: refetchNative } = useBalance({
 		address,
-		chainId: arcTestnet.id,
+		chainId: arcChain.id,
 		query: { refetchInterval: 4000 },
 	});
 	const { data: erc20BalanceRaw, refetch: refetchErc20 } = useReadContract(
@@ -1017,7 +1017,7 @@ export default function TradingWidget({
 								</span>
 							)}
 						</div>
-						<div className="text-xs text-ink-3">Settles on Arc Testnet</div>
+						<div className="text-xs text-ink-3">Settles on {arcChain.name}</div>
 					</div>
 				</div>
 

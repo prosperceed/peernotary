@@ -3,7 +3,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * Every ArcP2PEscrowService write the UI performs goes through `send()`:
  *
- *   1. ensureArc()   – switch the wallet to Arc Testnet (adds the chain if needed)
+ *   1. ensureArc()   – switch the wallet to the active Arc chain (adds the chain if needed)
  *   2. simulate      – dry-run against Arc RPC so reverts surface *before* the
  *                      wallet prompt, with the decoded contract error
  *   3. write         – `chainId` is pinned, so wagmi refuses to broadcast on any
@@ -38,8 +38,8 @@ import {
 	parseUsdc,
 	formatUsdc,
 	hashBankDetails,
-	arcTestnet,
-	switchToArcTestnet,
+	arcChain,
+	switchToArc as switchWalletToArc,
 	formatUserFriendlyWalletError,
 } from "@/lib/web3/arcConfig";
 
@@ -57,7 +57,7 @@ export type EscrowTxState =
 
 export const TX_STATE_LABEL: Record<EscrowTxState, string> = {
 	idle: "",
-	"switching-network": "Switching wallet to Arc Testnet…",
+	"switching-network": `Switching wallet to ${arcChain.name}…`,
 	approving: "Approve USDC spending in your wallet…",
 	"waiting-approval": "Waiting for approval to confirm…",
 	writing: "Confirm the transaction in your wallet…",
@@ -121,14 +121,14 @@ export function useEscrow(): EscrowHookReturn {
 	const { connectAsync, connectors } = useConnect();
 	const { disconnect } = useDisconnect();
 	const { switchChainAsync } = useSwitchChain();
-	const publicClient = usePublicClient({ chainId: arcTestnet.id });
+	const publicClient = usePublicClient({ chainId: arcChain.id });
 	const { writeContractAsync } = useWriteContract();
 
 	const [txState, setTxState] = useState<EscrowTxState>("idle");
 	const [txHash, setTxHash] = useState<Hex | undefined>(undefined);
 	const [errorMsg, setErrorMsg] = useState<string | undefined>(undefined);
 
-	const isWrongChain = isConnected && chainId !== arcTestnet.id;
+	const isWrongChain = isConnected && chainId !== arcChain.id;
 
 	const isLoading =
 		txState === "switching-network" ||
@@ -161,7 +161,7 @@ export function useEscrow(): EscrowHookReturn {
 	}, [connectAsync, connectors]);
 
 	const switchToArc = useCallback(async () => {
-		await switchToArcTestnet(switchChainAsync);
+		await switchWalletToArc(switchChainAsync);
 	}, [switchChainAsync]);
 
 	const requireWallet = useCallback((): Hex => {
@@ -171,9 +171,9 @@ export function useEscrow(): EscrowHookReturn {
 	}, [address, isConnected, publicClient]);
 
 	const ensureArc = useCallback(async () => {
-		if (chainId === arcTestnet.id) return;
+		if (chainId === arcChain.id) return;
 		setTxState("switching-network");
-		await switchToArcTestnet(switchChainAsync);
+		await switchWalletToArc(switchChainAsync);
 	}, [chainId, switchChainAsync]);
 
 	const waitFor = useCallback(
@@ -213,7 +213,7 @@ export function useEscrow(): EscrowHookReturn {
 				functionName,
 				args,
 				account,
-				chainId: arcTestnet.id,
+				chainId: arcChain.id,
 			});
 			setTxHash(hash);
 			setTxState("waiting-confirmation");
@@ -255,7 +255,7 @@ export function useEscrow(): EscrowHookReturn {
 				functionName: "approve",
 				args: [ESCROW_ADDRESS, amount],
 				account,
-				chainId: arcTestnet.id,
+				chainId: arcChain.id,
 			});
 			setTxHash(hash);
 			setTxState("waiting-approval");
@@ -454,7 +454,7 @@ export function useTradeData(tradeId: bigint | null) {
 		abi: ESCROW_ABI,
 		functionName: "getTrade",
 		args: tradeId !== null ? [tradeId] : undefined,
-		chainId: arcTestnet.id,
+		chainId: arcChain.id,
 		query: { enabled: tradeId !== null },
 	});
 }

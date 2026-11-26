@@ -1,3 +1,4 @@
+import { NETWORK } from "@/lib/env/network";
 import { randomUUID } from "node:crypto";
 import { getUsernameForAddress } from "@/lib/auth/wallet";
 import {
@@ -157,7 +158,7 @@ export function syncTradeToSupabase(trade: SharedTrade): void {
 			escrow_state: trade.escrowState,
 			terms_locked: trade.termsLocked ?? true,
 			payment_deadline_at: trade.paymentDeadlineAt || null,
-			chain_id: 5042002,
+			chain_id: NETWORK.chainId,
 			escrow_contract_address:
 				process.env.ESCROW_ADDRESS ||
 				"0xAEC65F8De5c5f893c6Cd5f101D290869fFEd9dAe",
@@ -191,7 +192,7 @@ export function syncListingToSupabase(
 			seller_bank_name: inv.bankName,
 			seller_account_masked: "******",
 			seller_account_hash: inv.listingTradeId,
-			chain_id: 5042002,
+			chain_id: NETWORK.chainId,
 			escrow_contract_address:
 				process.env.ESCROW_ADDRESS ||
 				"0xAEC65F8De5c5f893c6Cd5f101D290869fFEd9dAe",

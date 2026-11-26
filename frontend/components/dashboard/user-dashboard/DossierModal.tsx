@@ -1,5 +1,6 @@
 "use client";
 
+import { arcChain } from "@/lib/web3/arcConfig";
 import type { UserTrustSummary } from "@/types";
 
 interface DossierModalProps {
@@ -49,7 +50,7 @@ export function DossierModal({ trustSummary, onClose }: DossierModalProps) {
 				<div className="p-3 rounded-xl bg-surface border border-line">
 					<div className="text-[11px] text-ink-3">Arc Network</div>
 					<div className="font-semibold text-accent mt-0.5 font-mono">
-						Chain 5042002
+						Chain {arcChain.id}
 					</div>
 				</div>
 			</div>

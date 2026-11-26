@@ -1,3 +1,4 @@
+import { NETWORK } from "@/lib/env/network";
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser, requireWalletAddress } from "@/lib/auth/wallet";
 import { oracleSettleToBuyer, readEscrowTrade } from "@/lib/oracle/escrow";
@@ -85,9 +86,8 @@ function assertVerifiedPayment(
 		evidence.currency.toUpperCase() !== record.currency.toUpperCase() ||
 		evidence.payment_reference !== record.paymentReference ||
 		evidence.payment_status.toLowerCase() !== "completed" ||
-		attestation.chain_id !== 5042002 ||
-		attestation.escrow_address.toLowerCase() !==
-		(process.env.ESCROW_ADDRESS || process.env.NEXT_PUBLIC_ESCROW_ADDRESS || "").toLowerCase() ||
+		attestation.chain_id !== NETWORK.chainId ||
+		attestation.escrow_address.toLowerCase() !== NETWORK.escrowAddress.toLowerCase() ||
 		attestation.trade_id !== expectedTradeId ||
 		attestation.session_id !== record.sessionId ||
 		attestation.on_chain_proof_id_bytes32 !== proofSummary.on_chain_proof_id_bytes32 ||

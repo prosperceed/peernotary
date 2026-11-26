@@ -1,3 +1,4 @@
+import { NETWORK } from "@/lib/env/network";
 import { NextRequest, NextResponse } from "next/server";
 import { ethers } from "ethers";
 import { requireSuperAdmin, AdminAccessError } from "@/lib/auth/admin";
@@ -49,7 +50,7 @@ async function onChainBalances() {
 	}
 
 	try {
-		const provider = new ethers.JsonRpcProvider(rpcUrl, 5042002, {
+		const provider = new ethers.JsonRpcProvider(rpcUrl, NETWORK.chainId, {
 			staticNetwork: true,
 		});
 		const usdc = new ethers.Contract(usdcAddress, USDC_ABI, provider);

@@ -1,4 +1,5 @@
 import "server-only";
+import { IS_MAINNET, NETWORK } from "@/lib/env/network";
 
 export interface RustBackendConfig {
 	baseUrl: string;
@@ -13,13 +14,12 @@ const DEFAULT_LOCAL_URL = "http://127.0.0.1:7047";
 const DEFAULT_PRODUCTION_URL = "https://peernotary.onrender.com";
 const DEFAULT_TIMEOUT_MS = 25_000; // 25s to gracefully handle Render cold starts
 const DEFAULT_COLD_START_RETRIES = 2; // Retry transient 502/503/504 gateway wakeups
-const DEFAULT_CHAIN_ID = 5042002;
-const DEFAULT_ESCROW_ADDRESS = "0xAEC65F8De5c5f893c6Cd5f101D290869fFEd9dAe";
 const DEFAULT_SERVICE_API_KEY =
 	"959f0dfb574a455e1a7672085b012655e5732e4087611991d19f4a3de3b350af";
 
 function resolveBaseUrl(): string {
 	const raw =
+		(IS_MAINNET ? process.env.RUST_API_BASE_URL_MAINNET : undefined) ||
 		process.env.RUST_API_BASE_URL ||
 		process.env.TLSN_VERIFIER_URL ||
 		(process.env.NODE_ENV === "production"
@@ -68,13 +68,7 @@ export function getRustBackendConfig(): RustBackendConfig {
 		apiKey: resolveApiKey(),
 		timeoutMs: resolveTimeoutMs(),
 		coldStartRetries: DEFAULT_COLD_START_RETRIES,
-		escrowAddress: (
-			process.env.ESCROW_ADDRESS ||
-			process.env.NEXT_PUBLIC_ESCROW_ADDRESS ||
-			DEFAULT_ESCROW_ADDRESS
-		).toLowerCase(),
-		expectedChainId: Number(
-			process.env.NEXT_PUBLIC_ARC_CHAIN_ID || DEFAULT_CHAIN_ID,
-		),
+		escrowAddress: NETWORK.escrowAddress.toLowerCase(),
+		expectedChainId: NETWORK.chainId,
 	};
 }

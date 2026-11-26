@@ -23,10 +23,11 @@ import {
 } from "lucide-react";
 import { useAccount } from "wagmi";
 import { useEscrow } from "@/hooks/useEscrow";
+import { IS_TESTNET } from "@/lib/env/network";
 import TxStatusBanner from "@/components/web3/TxStatusBanner";
 import { Badge, ToastAlert } from "@/components/shared";
 import { subscribeToTradeUpdates } from "@/lib/supabase/client";
-import { ARCSCAN_TX, ESCROW_ADDRESS } from "@/lib/web3/arcConfig";
+import { ARCSCAN_TX, ESCROW_ADDRESS, arcChain } from "@/lib/web3/arcConfig";
 import { cn, RATE } from "@/lib/utils";
 import type {
 	EscrowOperationState,
@@ -36,6 +37,8 @@ import type {
 	TradeAuditEventItem,
 	TradeLifecycleState,
 } from "@/types";
+
+type PaymentModeLabel = "flutterwave_test" | "flutterwave_live" | "simulated";
 
 interface AuthoritativeTradeDetail {
 	tradeId: string;
@@ -157,6 +160,7 @@ function BankCheckoutContent() {
 		"sandbox_portal",
 	);
 
+	const [paymentMode, setPaymentMode] = useState<PaymentModeLabel | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [busyAction, setBusyAction] = useState<string | null>(null);
 	const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -195,7 +199,7 @@ function BankCheckoutContent() {
 		}
 	}, [address, tradeId]);
 
-	const initializeCheckoutSession = useCallback(async () => {
+	const initializeCheckoutSession = useCallback(async (): Promise<string | undefined> => {
 		if (!address) return;
 		setBusyAction("init_checkout");
 		setErrorMsg(null);
@@ -212,6 +216,7 @@ function BankCheckoutContent() {
 				ok?: boolean;
 				error?: string;
 				hostedMode?: "live_api" | "sandbox_portal";
+				paymentMode?: PaymentModeLabel;
 				attemptId?: string;
 				txRef?: string;
 				checkoutUrl?: string;
@@ -227,6 +232,7 @@ function BankCheckoutContent() {
 			}
 
 			if (data.hostedMode) setHostedMode(data.hostedMode);
+			if (data.paymentMode) setPaymentMode(data.paymentMode);
 			setAttempt({
 				id: data.attemptId || "",
 				txRef: data.txRef,
@@ -239,6 +245,7 @@ function BankCheckoutContent() {
 					data.expiresAt || new Date(Date.now() + 20 * 60_000).toISOString(),
 			});
 			await fetchTradeState();
+			return data.checkoutUrl || undefined;
 		} catch (err) {
 			setErrorMsg(
 				err instanceof Error ? err.message : "Failed to initialize checkout.",
@@ -247,6 +254,16 @@ function BankCheckoutContent() {
 			setBusyAction(null);
 		}
 	}, [address, fetchTradeState, tradeId]);
+
+	/** Sends the buyer to Flutterwave's hosted page; they return with ?tx_ref=… */
+	const handlePayWithFlutterwave = useCallback(async () => {
+		const url = attempt?.checkoutUrl || (await initializeCheckoutSession());
+		if (url) {
+			window.location.assign(url);
+		} else {
+			setErrorMsg("Flutterwave did not return a checkout link. Try again in a moment.");
+		}
+	}, [attempt?.checkoutUrl, initializeCheckoutSession]);
 
 	useEffect(() => {
 		void fetchTradeState();
@@ -326,7 +343,7 @@ function BankCheckoutContent() {
 					await fetchTradeState();
 					if (data.trade?.lifecycleState === "COMPLETED") {
 						setStatusBanner(
-							`Payment confirmed and ${usdcDisplay} USDC released on Arc Testnet! Trade is COMPLETED.`,
+							`Payment confirmed and ${usdcDisplay} USDC released on ${arcChain.name}! Trade is COMPLETED.`,
 						);
 					} else {
 						setStatusBanner(
@@ -402,8 +419,10 @@ function BankCheckoutContent() {
 				body: JSON.stringify({
 					tradeId,
 					txRef: activeTxRef,
-					simulatedAmountMinor: simulatedMinor,
-					simulatedCurrency: "NGN",
+					// Only honoured by the server in simulated mode.
+					...(paymentMode === "simulated"
+						? { simulatedAmountMinor: simulatedMinor, simulatedCurrency: "NGN" }
+						: {}),
 				}),
 			});
 
@@ -430,12 +449,12 @@ function BankCheckoutContent() {
 				);
 			} else if (data.trade?.lifecycleState === "COMPLETED") {
 				setStatusBanner(
-					`Payment confirmed and ${usdcDisplay} USDC released on Arc Testnet! Trade is COMPLETED.`,
+					`Payment confirmed and ${usdcDisplay} USDC released on ${arcChain.name}! Trade is COMPLETED.`,
 				);
 				window.dispatchEvent(new CustomEvent("peernotary-balance-refresh"));
 			} else {
 				setStatusBanner(
-					"Payment verified server-side. Completing settlement and releasing USDC on Arc Testnet...",
+					`Payment verified server-side. Completing settlement and releasing USDC on ${arcChain.name}...`,
 				);
 				await handleCompleteFullSettlementPipeline();
 			}
@@ -508,7 +527,7 @@ function BankCheckoutContent() {
 		if (!address) return;
 		if (trade?.lifecycleState === "COMPLETED") {
 			setStatusBanner(
-				`Trade is already COMPLETED and ${usdcDisplay} USDC released on Arc Testnet.`,
+				`Trade is already COMPLETED and ${usdcDisplay} USDC released on ${arcChain.name}.`,
 			);
 			window.dispatchEvent(new CustomEvent("peernotary-balance-refresh"));
 			return;
@@ -605,7 +624,7 @@ function BankCheckoutContent() {
 			});
 			await fetchTradeState();
 			setStatusBanner(
-				`TLSNotary proof verified and ${usdcDisplay} USDC released on Arc Testnet${releaseTxHash ? ` (Tx: ${releaseTxHash.slice(0, 10)}...)` : ""}. Trade is COMPLETED.`,
+				`TLSNotary proof verified and ${usdcDisplay} USDC released on ${arcChain.name}${releaseTxHash ? ` (Tx: ${releaseTxHash.slice(0, 10)}...)` : ""}. Trade is COMPLETED.`,
 			);
 			window.dispatchEvent(new CustomEvent("peernotary-balance-refresh"));
 		} catch (err) {
@@ -841,7 +860,7 @@ function BankCheckoutContent() {
 					<div className="flex items-center justify-between text-xs text-ink-3">
 						<span>Escrow Inventory</span>
 						<span className="px-2 py-0.5 rounded-md bg-subtle text-[11px] font-mono text-accent">
-							Arc Testnet
+							{arcChain.name}
 						</span>
 					</div>
 					<div className="my-2">
@@ -1009,24 +1028,55 @@ function BankCheckoutContent() {
 					{/* Action Buttons */}
 					{currentLifecycle === "AWAITING_PAYMENT" && (
 						<div className="space-y-3 pt-2">
-							<button
-								type="button"
-								disabled={busyAction !== null || secondsRemaining === 0}
-								onClick={() => void handleVerifyPayment("exact")}
-								className="w-full py-4 px-6 rounded-md bg-accent hover:bg-accent-hover text-white text-sm font-semibold shadow-card shadow-accent/20 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
-							>
-								{busyAction === "verify_payment" || busyAction === "full_pipeline" ? (
-									<>
+							{paymentMode === "simulated" ? (
+								<button
+									type="button"
+									disabled={busyAction !== null || secondsRemaining === 0}
+									onClick={() => void handleVerifyPayment("exact")}
+									className="btn-primary h-12 w-full"
+								>
+									{busyAction === "verify_payment" || busyAction === "full_pipeline" ? (
 										<RefreshCw size={15} className="animate-spin" />
-										<span>Verifying Payment & Settling Escrow...</span>
-									</>
-								) : (
-									<>
-										<span>I Have Paid - Complete & Verify Checkout</span>
+									) : null}
+									Simulate payment (local dev only)
+								</button>
+							) : (
+								<>
+									<button
+										type="button"
+										disabled={busyAction !== null || secondsRemaining === 0}
+										onClick={() => void handlePayWithFlutterwave()}
+										className="btn-primary h-12 w-full"
+									>
+										{busyAction === "init_checkout" ? (
+											<RefreshCw size={15} className="animate-spin" />
+										) : null}
+										Pay ₦{fiatMajorNgn} with Flutterwave
 										<ArrowRight size={15} />
-									</>
-								)}
-							</button>
+									</button>
+									<button
+										type="button"
+										disabled={busyAction !== null || secondsRemaining === 0}
+										onClick={() => void handleVerifyPayment()}
+										className="btn-secondary h-10 w-full"
+									>
+										{busyAction === "verify_payment" || busyAction === "full_pipeline" ? (
+											<RefreshCw size={15} className="animate-spin" />
+										) : null}
+										Already paid? Check payment status
+									</button>
+									{IS_TESTNET && (
+										<div className="rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-3 text-xs text-amber-900">
+											<div className="font-medium">Flutterwave test mode: no real money is charged.</div>
+											<div className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 font-mono">
+												<span className="text-amber-700">Card</span><span>5531 8866 5214 2950</span>
+												<span className="text-amber-700">CVV / Exp</span><span>564 · 09/32</span>
+												<span className="text-amber-700">PIN / OTP</span><span>3310 · 12345</span>
+											</div>
+										</div>
+									)}
+								</>
+							)}
 
 							<div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs">
 								<button
@@ -1064,7 +1114,7 @@ function BankCheckoutContent() {
 								<span>Payment Verified - Settlement in Progress</span>
 							</div>
 							<p className="text-xs text-ink-2 leading-relaxed">
-								Your payment was confirmed. The oracle is releasing {usdcDisplay} USDC on Arc Testnet to your wallet.
+								Your payment was confirmed. The oracle is releasing {usdcDisplay} USDC on {arcChain.name} to your wallet.
 							</p>
 							<button
 								type="button"
@@ -1089,7 +1139,7 @@ function BankCheckoutContent() {
 									Settlement Completed Successfully!
 								</h3>
 								<p className="text-xs text-ink-2">
-									{usdcDisplay} USDC has been released to your wallet on Arc Testnet.
+									{usdcDisplay} USDC has been released to your wallet on {arcChain.name}.
 								</p>
 							</div>
 							{trade?.proofId && (

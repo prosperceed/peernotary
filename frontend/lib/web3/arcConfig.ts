@@ -4,10 +4,10 @@
  * Single source of truth for every Web3 constant in the Arc P2P dApp.
  *
  * Exports:
- *   arcTestnet          – Viem chain definition (USDC as native gas token)
+ *   arcChain            – Active Arc chain (testnet/mainnet via NEXT_PUBLIC_APP_NETWORK)
  *   wagmiConfig         – Wagmi v2 QueryClient-backed config (injected wallet)
  *   ESCROW_ADDRESS      – Deployed ArcP2PEscrowService contract address
- *   USDC_ADDRESS        – USDC token contract on Arc Testnet
+ *   USDC_ADDRESS        – USDC token contract on the active Arc network
  *   ESCROW_ABI          – Full typed ABI for ArcP2PEscrowService
  *   USDC_ABI            – Minimal ERC-20 ABI (approve + allowance only)
  *   ARCSCAN_TX          – Helper: build a testnet block-explorer TX link
@@ -20,61 +20,41 @@
 import { createConfig, http } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { defineChain, keccak256, toBytes } from "viem";
+import { IS_TESTNET, NETWORK } from "@/lib/env/network";
 
 // ─── ARC CHAIN DEFINITION ─────────────────────────────────────────────────────
 /**
- * Arc Chain Testnet — Circle's EVM-compatible network where USDC is the
- * native gas token (6 decimals, not 18). Every gas-estimation call made by
- * Viem will use this nativeCurrency config automatically.
+ * The active Arc chain (testnet or mainnet, from NEXT_PUBLIC_APP_NETWORK).
+ * USDC is the native gas token: the *native* balance uses 18 decimals,
+ * while the ERC-20 interface at USDC_ADDRESS uses 6.
  */
-const ARC_RPC_URL =
-	process.env.NEXT_PUBLIC_ARC_RPC_URL || "https://rpc.testnet.arc.io";
-
-export const arcTestnet = defineChain({
-	id: 5042002,
-	name: "Arc Testnet",
-	nativeCurrency: {
-		name: "USD Coin",
-		symbol: "USDC",
-		// Arc's *native* USDC balance (gas) is tracked with 18 decimals.
-		// The ERC-20 interface at USDC_ADDRESS uses 6 decimals.
-		decimals: 18,
-	},
+export const arcChain = defineChain({
+	id: NETWORK.chainId,
+	name: NETWORK.chainName,
+	nativeCurrency: { name: "USD Coin", symbol: "USDC", decimals: 18 },
 	rpcUrls: {
-		default: { http: [ARC_RPC_URL] },
-		public: { http: [ARC_RPC_URL] },
+		default: { http: [NETWORK.rpcUrl] },
+		public: { http: [NETWORK.rpcUrl] },
 	},
 	blockExplorers: {
-		default: {
-			name: "ArcScan",
-			url: "https://testnet.arcscan.app",
-		},
+		default: { name: "ArcScan", url: NETWORK.explorerUrl },
 	},
-	testnet: true,
+	testnet: IS_TESTNET,
 });
 
 // ─── WAGMI CONFIG ─────────────────────────────────────────────────────────────
-/**
- * Wagmi v2 config — supports MetaMask / any EIP-1193 injected wallet.
- * Wrap your app root with <WagmiProvider config={wagmiConfig}> and
- * <QueryClientProvider client={queryClient}>.
- */
 export const wagmiConfig = createConfig({
-	chains: [arcTestnet],
+	chains: [arcChain],
 	connectors: [injected()], // MetaMask, Rabby, Frame, etc.
 	transports: {
-		[arcTestnet.id]: http(ARC_RPC_URL),
+		[arcChain.id]: http(NETWORK.rpcUrl),
 	},
 });
 
-// ─── CONTRACT ADDRESSES ───────────────────────────────────────────────────────
-/** ArcP2PEscrowService — update after deployment */
-export const ESCROW_ADDRESS = (process.env.NEXT_PUBLIC_ESCROW_ADDRESS ||
-	"0xAEC65F8De5c5f893c6Cd5f101D290869fFEd9dAe") as `0x${string}`;
-
-/** Circle USDC ERC-20 interface on Arc Testnet (6 decimals). */
-export const USDC_ADDRESS = (process.env.NEXT_PUBLIC_USDC_ADDRESS ||
-	"0x3600000000000000000000000000000000000000") as `0x${string}`;
+// ─── CONTRACT ADDRESSES (per network) ─────────────────────────────────────────
+export const ESCROW_ADDRESS = NETWORK.escrowAddress;
+/** Circle USDC ERC-20 interface on the active Arc network (6 decimals). */
+export const USDC_ADDRESS = NETWORK.usdcAddress;
 
 export const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
 
@@ -84,10 +64,8 @@ export function isOnChainTradeId(id: string | null | undefined): id is string {
 }
 
 // ─── ARCSCAN LINK BUILDERS ────────────────────────────────────────────────────
-export const ARCSCAN_TX = (hash: string) =>
-	`https://testnet.arcscan.app/tx/${hash}`;
-export const ARCSCAN_ADDR = (address: string) =>
-	`https://testnet.arcscan.app/address/${address}`;
+export const ARCSCAN_TX = (hash: string) => `${NETWORK.explorerUrl}/tx/${hash}`;
+export const ARCSCAN_ADDR = (address: string) => `${NETWORK.explorerUrl}/address/${address}`;
 
 // ─── USDC HELPERS (6 DECIMALS) ────────────────────────────────────────────────
 /** Convert micro-USDC BigInt → human-readable string: 1_000_000n → "1.00" */
@@ -502,15 +480,15 @@ export async function signWalletMessage(
 }
 
 /**
- * Resilient chain switcher for Arc Testnet (#5042002 / 0x4cef52) that falls back to
+ * Resilient chain switcher for the active Arc network that falls back to
  * `wallet_switchEthereumChain` and `wallet_addEthereumChain` if Wagmi's connector state is stale.
  */
-export async function switchToArcTestnet(
+export async function switchToArc(
 	wagmiSwitchAsync?: (args: { chainId: number }) => Promise<unknown>,
 ): Promise<void> {
 	if (wagmiSwitchAsync) {
 		try {
-			await wagmiSwitchAsync({ chainId: arcTestnet.id });
+			await wagmiSwitchAsync({ chainId: arcChain.id });
 			return;
 		} catch (err) {
 			const msg = err instanceof Error ? err.message.toLowerCase() : "";
@@ -525,7 +503,7 @@ export async function switchToArcTestnet(
 		throw new Error("No wallet extension detected.");
 	}
 
-	const hexChainId = `0x${arcTestnet.id.toString(16)}`;
+	const hexChainId = `0x${arcChain.id.toString(16)}`;
 	try {
 		await provider.request({
 			method: "wallet_switchEthereumChain",
@@ -539,10 +517,10 @@ export async function switchToArcTestnet(
 				params: [
 					{
 						chainId: hexChainId,
-						chainName: arcTestnet.name,
-						nativeCurrency: arcTestnet.nativeCurrency,
-						rpcUrls: [arcTestnet.rpcUrls.default.http[0]],
-						blockExplorerUrls: [arcTestnet.blockExplorers.default.url],
+						chainName: arcChain.name,
+						nativeCurrency: arcChain.nativeCurrency,
+						rpcUrls: [arcChain.rpcUrls.default.http[0]],
+						blockExplorerUrls: [arcChain.blockExplorers.default.url],
 					},
 				],
 			});
@@ -606,9 +584,9 @@ export function formatUserFriendlyWalletError(
 		lower.includes("chain mismatch") ||
 		lower.includes("does not match the target chain") ||
 		(lower.includes("switch") && lower.includes("chain")) ||
-		lower.includes("arc testnet")
+		lower.includes(NETWORK.chainName.toLowerCase())
 	) {
-		return "Switch your wallet to Arc Testnet (chain 5042002) and try again.";
+		return `Switch your wallet to ${NETWORK.chainName} (chain ${NETWORK.chainId}) and try again.`;
 	}
 
 	if (lower.includes("timed out") || lower.includes("timeout")) {

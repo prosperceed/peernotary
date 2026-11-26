@@ -13,7 +13,7 @@ import TradingWidget from "@/components/trading/TradingWidget";
 import { useMonierateRate } from "@/hooks/useMonierateRate";
 import { BankSearchSelect } from "@/components/shared";
 import {
-	arcTestnet,
+	arcChain,
 	USDC_ADDRESS,
 	USDC_ABI,
 	formatUsdc,
@@ -36,7 +36,7 @@ export default function TradePage() {
 
 	const { data: nativeBalance, refetch: refetchNative } = useBalance({
 		address,
-		chainId: arcTestnet.id,
+		chainId: arcChain.id,
 	});
 	const { data: erc20BalanceRaw, refetch: refetchErc20 } = useReadContract(
 		address

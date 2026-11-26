@@ -1,3 +1,4 @@
+import { NETWORK } from "@/lib/env/network";
 import "server-only";
 
 import {
@@ -72,9 +73,7 @@ const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const COOKIE_NAME = "peernotary_session";
 const SUPABASE_TOKEN_COOKIE = "peernotary_sb_token";
 const DEFAULT_DOMAIN = "PeerNotary";
-const CHAIN_ID = Number(
-	process.env.AUTH_CHAIN_ID ?? process.env.ARC_CHAIN_ID ?? "5042002",
-);
+const CHAIN_ID = NETWORK.chainId;
 const RATE_LIMIT_WINDOW_MS = 60 * 1_000;
 const RATE_LIMIT_MAX = 120;
 

@@ -37,3 +37,5 @@ tsconfig.tsbuildinfo
 
 # Rust
 tlsn_service.key
+# Local Claude Code settings
+.claude/

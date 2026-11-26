@@ -1,103 +1,98 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap");
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-	/* Light/Green color system — from reference image */
-	--bg: #f5f9f7;
-	--bg-secondary: #edf5f1;
+	--canvas: #f7f8f7;
 	--surface: #ffffff;
-	--surface-alt: #f0f7f3;
-	--border: #d1e8dc;
-	--border-subtle: rgba(34, 139, 87, 0.12);
-
-	/* Green accent palette */
-	--green-primary: #1a9e5c;
-	--green-mid: #22c972;
-	--green-light: #4dd68c;
-	--green-pale: #d4f0e3;
-	--green-glow: rgba(34, 201, 114, 0.18);
-
-	/* Text */
-	--text-primary: #0d2b1e;
-	--text-secondary: #3d6b55;
-	--text-muted: #7aaa92;
-
-	/* Ring / orbital */
-	--ring-1: rgba(34, 201, 114, 0.13);
-	--ring-2: rgba(34, 201, 114, 0.09);
-	--ring-3: rgba(34, 201, 114, 0.06);
-	--ring-4: rgba(34, 201, 114, 0.04);
+	--subtle: #f2f4f3;
+	--line: #e3e6e4;
+	--ink: #0f1412;
+	--ink-2: #47514c;
+	--ink-3: #78817c;
+	--accent: #0e7a4b;
+	--accent-soft: #e8f3ed;
 }
 
 * {
 	box-sizing: border-box;
 }
 
+html {
+	color-scheme: light;
+}
+
 body {
-	background: var(--bg);
-	color: var(--text-primary);
-	font-family: "Inter", system-ui, sans-serif;
+	background: var(--canvas);
+	color: var(--ink);
+	font-family: "Geist", "Inter", system-ui, sans-serif;
+	font-feature-settings: "ss01", "cv11";
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom Scrollbar */
+/* Money and ids line up in columns. */
+.font-mono,
+.tabular {
+	font-variant-numeric: tabular-nums;
+}
+
+::selection {
+	background: var(--accent-soft);
+	color: var(--ink);
+}
+
+:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+}
+
 ::-webkit-scrollbar {
-	width: 4px;
-	height: 4px;
+	width: 6px;
+	height: 6px;
 }
 ::-webkit-scrollbar-track {
 	background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-	background: var(--green-pale);
+	background: var(--line);
 	border-radius: 99px;
 }
 ::-webkit-scrollbar-thumb:hover {
-	background: var(--green-light);
+	background: #cfd5d2;
 }
 
-/* Surface card base */
-.surface-card {
-	background: var(--surface);
-	border: 1px solid var(--border);
-	border-radius: 1rem;
-}
-
-/* Green glow border on hover */
-.hover-glow:hover {
-	border-color: rgba(34, 201, 114, 0.4);
-	box-shadow: 0 0 24px rgba(34, 201, 114, 0.08);
-}
-
-/* Network pulse */
-@keyframes net-pulse {
-	0%,
-	100% {
-		opacity: 1;
-		box-shadow: 0 0 0 0 rgba(26, 158, 92, 0.4);
+@layer components {
+	.card {
+		@apply rounded-card border border-line bg-surface shadow-card;
 	}
-	50% {
-		opacity: 0.7;
-		box-shadow: 0 0 0 4px rgba(26, 158, 92, 0);
+	.btn {
+		@apply inline-flex items-center justify-center gap-2 rounded-lg px-4 h-10 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+	}
+	.btn-primary {
+		@apply btn bg-accent text-white hover:bg-accent-hover;
+	}
+	.btn-secondary {
+		@apply btn border border-line bg-surface text-ink hover:bg-subtle;
+	}
+	.btn-ghost {
+		@apply btn text-ink-2 hover:bg-subtle hover:text-ink;
+	}
+	.label {
+		@apply text-xs font-medium text-ink-3;
 	}
 }
 
+/* Status dot for the network indicator — a plain dot, no glow. */
 .net-dot {
-	animation: net-pulse 2s ease-in-out infinite;
+	background: var(--accent);
 }
 
-/* Step transition */
-.step-content {
-	animation: fadeSlideIn 0.25s ease-out;
-}
-
-@keyframes fadeSlideIn {
+@keyframes dropdown-in {
 	from {
 		opacity: 0;
-		transform: translateY(8px);
+		transform: translateY(-4px);
 	}
 	to {
 		opacity: 1;
@@ -105,78 +100,16 @@ body {
 	}
 }
 
-/* Orbital ring spin */
-@keyframes orbit-slow {
-	from { transform: translate(-50%, -50%) rotate(0deg); }
-	to   { transform: translate(-50%, -50%) rotate(360deg); }
-}
-@keyframes orbit-slower {
-	from { transform: translate(-50%, -50%) rotate(0deg); }
-	to   { transform: translate(-50%, -50%) rotate(-360deg); }
-}
-
-.orbit-cw  { animation: orbit-slow   28s linear infinite; }
-.orbit-ccw { animation: orbit-slower 36s linear infinite; }
-
-/* Float icon gentle bob */
-@keyframes float-bob {
-	0%, 100% { transform: translateY(0px); }
-	50%       { transform: translateY(-8px); }
-}
-.float-icon { animation: float-bob 4s ease-in-out infinite; }
-
-/* Countdown ring */
-.ring-arc {
-	transition: stroke-dashoffset 1s linear, stroke 0.5s ease;
-}
-
-/* Chat scrollbar override */
-.chat-scroll::-webkit-scrollbar {
-	width: 3px;
-}
-.chat-scroll::-webkit-scrollbar-thumb {
-	background: var(--green-pale);
-}
-
-/* ZK terminal scanline */
-.zk-terminal::before {
-	content: "";
-	position: absolute;
-	top: 0;
-	left: 0;
-	right: 0;
-	bottom: 0;
-	background: repeating-linear-gradient(
-		0deg,
-		transparent,
-		transparent 2px,
-		rgba(26, 158, 92, 0.015) 2px,
-		rgba(26, 158, 92, 0.015) 4px
-	);
-	pointer-events: none;
-	border-radius: inherit;
-}
-
-/* Workflow connector line */
-.workflow-line {
-	background: linear-gradient(90deg, transparent, var(--green-primary), transparent);
-	height: 1px;
-	opacity: 0.3;
-}
-
-/* Wallet dropdown entrance animation */
-@keyframes dropdown-in {
-	from {
-		opacity: 0;
-		transform: translateY(-6px) scale(0.97);
-	}
-	to {
-		opacity: 1;
-		transform: translateY(0) scale(1);
-	}
-}
-
 .dropdown-enter {
-	animation: dropdown-in 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+	animation: dropdown-in 0.12s ease-out forwards;
 	transform-origin: top right;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		transition-duration: 0.01ms !important;
+	}
 }

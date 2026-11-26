@@ -20,7 +20,7 @@ export function DashboardHeader({
 	return (
 		<header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-1">
 			<div className="hidden md:block">
-				<h1 className="text-xl font-bold tracking-tight text-[#0d2b1e]">
+				<h1 className="text-xl font-semibold tracking-tight text-ink">
 					Secure, Automated P2P
 				</h1>
 			</div>
@@ -30,10 +30,10 @@ export function DashboardHeader({
 					<button
 						onClick={() => setShowDossier(!showDossier)}
 						className={cn(
-							"rounded-full px-4 py-2 text-xs font-mono font-medium border transition-all shadow-sm",
+							"rounded-md px-4 py-2 text-xs font-mono font-medium border transition-colors shadow-card",
 							showDossier
-								? "bg-[#0d2b1e] text-white border-[#0d2b1e]"
-								: "bg-white border-[#d1e8dc] text-[#0d2b1e] hover:bg-[#f0f7f3]",
+								? "bg-ink text-white border-ink"
+								: "bg-surface border-line text-ink hover:bg-subtle",
 						)}
 						title="Toggle Merchant Dossier"
 					>
@@ -42,7 +42,7 @@ export function DashboardHeader({
 				) : (
 					<button
 						onClick={onOpenUsernameModal}
-						className="rounded-full px-4 py-2 text-xs font-medium border border-[#1a9e5c] text-[#1a9e5c] hover:bg-[#f0f7f3] transition-all shadow-sm"
+						className="rounded-md px-4 py-2 text-xs font-medium border border-accent text-accent hover:bg-subtle transition-colors shadow-card"
 					>
 						Set Username
 					</button>
@@ -50,7 +50,7 @@ export function DashboardHeader({
 
 				<button
 					onClick={onOpenPostOffer}
-					className="rounded-full bg-[#1a9e5c] hover:bg-[#15854c] text-white font-medium px-4 py-2 text-xs shadow-sm transition-all"
+					className="rounded-full bg-accent hover:bg-accent-hover text-white font-medium px-4 py-2 text-xs shadow-card transition-colors"
 				>
 					+ Post Offer
 				</button>

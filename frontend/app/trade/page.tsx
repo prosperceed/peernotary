@@ -8,11 +8,9 @@ import {
 	RefreshCw,
 	ArrowLeft,
 	Search,
-	ShieldCheck,
-	Clock,
-	Lock,
 } from "lucide-react";
 import TradingWidget from "@/components/trading/TradingWidget";
+import { useMonierateRate } from "@/hooks/useMonierateRate";
 import { BankSearchSelect } from "@/components/shared";
 import {
 	arcTestnet,
@@ -25,6 +23,7 @@ import type { PeerTradeOffer, UserTransaction } from "@/types";
 
 export default function TradePage() {
 	const { address, isConnected } = useAccount();
+	const { rate: liveRate } = useMonierateRate();
 
 	const [peerOffers, setPeerOffers] = useState<PeerTradeOffer[]>([]);
 	const [transactions, setTransactions] = useState<UserTransaction[]>([]);
@@ -114,42 +113,41 @@ export default function TradePage() {
 	}, [bankFilter, peerOffers, search]);
 
 	return (
-		<div className="min-h-screen bg-[#edf2ee] py-6 sm:py-10 px-3 sm:px-6">
+		<div className="min-h-screen bg-subtle py-6 sm:py-10 px-3 sm:px-6">
 			<div className="max-w-[1380px] w-full mx-auto space-y-6">
 				{/* Top Header Strip */}
-				<div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[#d1e8dc]">
+				<div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-line">
 					<div>
 						<div className="flex items-center gap-2">
 							<Link
 								href="/dashboard"
-								className="inline-flex items-center gap-1 text-xs font-medium text-[#3d6b55] hover:text-[#0d2b1e]"
+								className="inline-flex items-center gap-1 text-xs font-medium text-ink-2 hover:text-ink"
 							>
 								<ArrowLeft size={13} />
 								<span>Dashboard</span>
 							</Link>
-							<span className="text-[#d1e8dc]">/</span>
-							<h1 className="text-base sm:text-lg font-semibold text-[#0d2b1e]">
-								P2P Escrow Trading Desk
+							<span className="text-line">/</span>
+							<h1 className="text-base sm:text-lg font-semibold text-ink">
+								Trading desk
 							</h1>
 						</div>
-						<p className="text-xs text-[#7aaa92] mt-0.5">
-							Live peer-to-peer USDC/NGN exchange with automated escrow
-							settlement
+						<p className="text-xs text-ink-3 mt-0.5">
+							Buy USDC from sellers whose funds are already locked on Arc.
 						</p>
 					</div>
 
 					<div className="flex flex-wrap items-center gap-3">
-						<div className="px-3 py-1.5 rounded-lg border border-[#d1e8dc] bg-white text-xs">
-							<span className="text-[#7aaa92] mr-2">Reference Rate:</span>
-							<span className="font-mono font-semibold text-[#0d2b1e]">
-								1 USDC = ₦{RATE.toLocaleString("en-NG")}
+						<div className="px-3 py-1.5 rounded-lg border border-line bg-surface text-xs">
+							<span className="text-ink-3 mr-2">Market rate</span>
+							<span className="font-mono font-semibold text-ink">
+								₦{(liveRate || RATE).toLocaleString("en-NG", { maximumFractionDigits: 2 })}
 							</span>
 						</div>
 
 						{isConnected && (
-							<div className="px-3 py-1.5 rounded-lg border border-[#d1e8dc] bg-white text-xs">
-								<span className="text-[#7aaa92] mr-2">Wallet:</span>
-								<span className="font-mono font-semibold text-[#1a9e5c]">
+							<div className="px-3 py-1.5 rounded-lg border border-line bg-surface text-xs">
+								<span className="text-ink-3 mr-2">Wallet:</span>
+								<span className="font-mono font-semibold text-accent">
 									{walletUsdc.toFixed(2)} USDC
 								</span>
 							</div>
@@ -163,12 +161,12 @@ export default function TradePage() {
 								void refetchErc20();
 							}}
 							disabled={loading}
-							className="p-2 rounded-lg border border-[#d1e8dc] bg-white text-[#3d6b55] hover:bg-[#f0f7f3] transition-colors"
+							className="p-2 rounded-lg border border-line bg-surface text-ink-2 hover:bg-subtle transition-colors"
 							title="Refresh order book"
 						>
 							<RefreshCw
 								size={13}
-								className={loading ? "animate-spin text-[#1a9e5c]" : ""}
+								className={loading ? "animate-spin text-accent" : ""}
 							/>
 						</button>
 					</div>
@@ -179,15 +177,14 @@ export default function TradePage() {
 					{/* Left Column: Live Order Book & User Active Escrows */}
 					<div className="lg:col-span-7 space-y-5">
 						{/* Live Peer Order Book Card */}
-						<div className="rounded-xl border border-[#d6e2dc] bg-white p-4 sm:p-5 shadow-sm space-y-4">
-							<div className="border-b border-[#eef2ee] pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+						<div className="rounded-lg border border-[#d6e2dc] bg-surface p-4 sm:p-5 shadow-card space-y-4">
+							<div className="border-b border-subtle pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
 								<div>
-									<h2 className="text-sm font-semibold text-[#0d2b1e]">
-										Open Peer Liquidity Offers ({filteredOffers.length})
+									<h2 className="text-sm font-semibold text-ink">
+										Sell offers ({filteredOffers.length})
 									</h2>
-									<p className="text-xs text-[#7aaa92]">
-										Select an offer to load its immutable terms into the
-										execution terminal
+									<p className="text-xs text-ink-3">
+										Every offer here is backed by USDC already locked on Arc.
 									</p>
 								</div>
 
@@ -203,26 +200,26 @@ export default function TradePage() {
 									<div className="relative">
 										<Search
 											size={12}
-											className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#7aaa92]"
+											className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-3"
 										/>
 										<input
 											type="text"
 											value={search}
 											onChange={(e) => setSearch(e.target.value)}
 											placeholder="Filter handle or ID..."
-											className="pl-7 pr-3 py-1.5 rounded-lg border border-[#d1e8dc] bg-[#fbfdfc] text-xs text-[#0d2b1e] placeholder:text-[#7aaa92] focus:outline-none focus:border-[#1a9e5c] w-36 sm:w-44"
+											className="pl-7 pr-3 py-1.5 rounded-lg border border-line bg-surface text-xs text-ink placeholder:text-ink-3 focus:outline-none focus:border-accent w-36 sm:w-44"
 										/>
 									</div>
 								</div>
 							</div>
 
 							{filteredOffers.length === 0 ? (
-								<div className="p-8 text-center text-xs text-[#7aaa92]">
+								<div className="p-8 text-center text-xs text-ink-3">
 									No open peer offers match your filter. Publish a new offer
 									from your dashboard.
 								</div>
 							) : (
-								<div className="divide-y divide-[#d1e8dc]/60">
+								<div className="divide-y divide-line/60">
 									{filteredOffers.map((offer) => {
 										const isSelected = selectedOffer?.tradeId === offer.tradeId;
 										const isOwnOffer =
@@ -235,31 +232,28 @@ export default function TradePage() {
 												key={offer.tradeId}
 												className={cn(
 													"p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs transition-colors",
-													isSelected ? "bg-[#f0f7f3]/70" : "hover:bg-[#fbfdfc]",
+													isSelected ? "bg-subtle/70" : "hover:bg-surface",
 												)}
 											>
 												<div className="space-y-1 min-w-0">
 													<div className="flex flex-wrap items-center gap-2">
-														<span className="font-semibold text-[#0d2b1e]">
+														<span className="font-semibold text-ink">
 															{offer.peerHandle}
 														</span>
-														<span className="font-mono text-[11px] text-[#7aaa92]">
+														<span className="font-mono text-xs text-ink-3">
 															#{offer.tradeId}
 														</span>
-														<span className="px-2 py-0.5 rounded text-[10px] font-medium bg-[#f0f7f3] text-[#1a9e5c] border border-[#d1e8dc]">
+														<span className="px-2 py-0.5 rounded text-[11px] font-medium bg-subtle text-accent border border-line">
 															{offer.bankName}
 														</span>
-														<span className="px-2 py-0.5 rounded text-[10px] font-mono bg-[#fbfdfc] text-[#3d6b55] border border-[#d1e8dc]">
-															0 USDC Buyer Bond
-														</span>
 														{offer.sellerBusy && (
-															<span className="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-50 text-amber-800 border border-amber-200">
+															<span className="px-2 py-0.5 rounded text-[11px] font-mono bg-amber-50 text-amber-800 border border-amber-200">
 																Active Slot Busy · Queue:{" "}
 																{offer.queueDepth ?? 0}
 															</span>
 														)}
 													</div>
-													<div className="text-[11px] text-[#7aaa92]">
+													<div className="text-xs text-ink-3">
 														{offer.completionRate} completion ·{" "}
 														{offer.completedTrades} settled ·{" "}
 														{offer.avgReleaseTime} avg release · Partial fills
@@ -269,17 +263,17 @@ export default function TradePage() {
 
 												<div className="flex flex-wrap items-center justify-between sm:justify-end gap-4">
 													<div className="text-left sm:text-right">
-														<div className="font-mono font-semibold text-[#0d2b1e]">
+														<div className="font-mono font-semibold text-ink">
 															{offer.availableUsdc} USDC
 														</div>
-														<div className="text-[11px] font-mono text-[#7aaa92]">
+														<div className="text-xs font-mono text-ink-3">
 															{offer.ngnAmount} @ ₦
 															{offer.rateNgn.toLocaleString("en-NG")}
 														</div>
 													</div>
 
 													{isOwnOffer ? (
-														<span className="px-2.5 py-1.5 rounded-lg border border-[#d1e8dc] bg-[#fbfdfc] text-[11px] font-medium text-[#7aaa92]">
+														<span className="px-2.5 py-1.5 rounded-lg border border-line bg-surface text-xs font-medium text-ink-3">
 															Your Published Offer
 														</span>
 													) : (
@@ -290,8 +284,8 @@ export default function TradePage() {
 																className={cn(
 																	"px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
 																	isSelected
-																		? "bg-[#1a9e5c] text-white"
-																		: "border border-[#1a9e5c] text-[#1a9e5c] hover:bg-[#f0f7f3]",
+																		? "bg-accent text-white"
+																		: "border border-accent text-accent hover:bg-subtle",
 																)}
 															>
 																{isSelected ? "Selected" : "Customize"}
@@ -306,7 +300,7 @@ export default function TradePage() {
 																)}&amountUsdc=${encodeURIComponent(
 																	offer.availableUsdc,
 																)}&returnTo=/trade`}
-																className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#1a9e5c] hover:bg-[#15854c] text-white transition-all shadow-sm"
+																className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent hover:bg-accent-hover text-white transition-colors shadow-card"
 															>
 																Buy Now
 															</Link>
@@ -322,19 +316,19 @@ export default function TradePage() {
 
 						{/* Active Escrow Trades for Connected Wallet */}
 						{activeEscrows.length > 0 && (
-							<div className="rounded-lg border border-[#d1e8dc] bg-white overflow-hidden">
-								<div className="px-4 py-3 border-b border-[#d1e8dc] flex items-center justify-between">
-									<h3 className="text-xs font-semibold text-[#0d2b1e]">
+							<div className="rounded-lg border border-line bg-surface overflow-hidden">
+								<div className="px-4 py-3 border-b border-line flex items-center justify-between">
+									<h3 className="text-xs font-semibold text-ink">
 										Your Active Escrow Positions ({activeEscrows.length})
 									</h3>
 									<Link
 										href="/dashboard"
-										className="text-xs font-medium text-[#1a9e5c] hover:underline"
+										className="text-xs font-medium text-accent hover:underline"
 									>
 										Manage in Dashboard
 									</Link>
 								</div>
-								<div className="divide-y divide-[#d1e8dc]/60">
+								<div className="divide-y divide-line/60">
 									{activeEscrows.map((tx) => (
 										<div
 											key={tx.id}
@@ -342,17 +336,17 @@ export default function TradePage() {
 										>
 											<div>
 												<div className="flex items-center gap-2">
-													<span className="font-mono font-semibold text-[#0d2b1e]">
+													<span className="font-mono font-semibold text-ink">
 														Trade #{tx.tradeId}
 													</span>
-													<span className="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-50 text-amber-700 border border-amber-200">
+													<span className="px-2 py-0.5 rounded text-[11px] font-mono bg-amber-50 text-amber-700 border border-amber-200">
 														{tx.lifecycleState ?? "AWAITING_PAYMENT"}
 													</span>
-													<span className="text-[#7aaa92]">
+													<span className="text-ink-3">
 														· {tx.bankName}
 													</span>
 												</div>
-												<div className="text-[11px] text-[#7aaa92] mt-0.5">
+												<div className="text-xs text-ink-3 mt-0.5">
 													{tx.usdcAmount} USDC · {tx.ngnAmount}
 												</div>
 											</div>
@@ -367,7 +361,7 @@ export default function TradePage() {
 												)}&amountUsdc=${encodeURIComponent(
 													tx.usdcAmount,
 												)}&returnTo=/trade`}
-												className="px-3 py-1.5 rounded-lg bg-[#1a9e5c] hover:bg-[#15854c] text-white text-xs font-medium text-center"
+												className="px-3 py-1.5 rounded-lg bg-accent hover:bg-accent-hover text-white text-xs font-medium text-center"
 											>
 												Open Settlement Portal
 											</Link>
@@ -377,46 +371,11 @@ export default function TradePage() {
 							</div>
 						)}
 
-						{/* Concise Protocol Guarantees */}
-						<div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-							<div className="p-3.5 rounded-lg border border-[#d1e8dc] bg-white">
-								<div className="flex items-center gap-2 text-xs font-semibold text-[#0d2b1e]">
-									<Lock size={14} className="text-[#1a9e5c]" />
-									<span>Seller-Funded Escrow</span>
-								</div>
-								<p className="text-[11px] text-[#7aaa92] mt-1 leading-relaxed">
-									Sellers lock 100% of available USDC inventory on Arc before
-									listing for instant buyer settlement.
-								</p>
-							</div>
-
-							<div className="p-3.5 rounded-lg border border-[#d1e8dc] bg-white">
-								<div className="flex items-center gap-2 text-xs font-semibold text-[#0d2b1e]">
-									<Clock size={14} className="text-[#1a9e5c]" />
-									<span>20-Minute Window</span>
-								</div>
-								<p className="text-[11px] text-[#7aaa92] mt-1 leading-relaxed">
-									Every initiated trade has an immutable 20-minute payment
-									deadline and automatic late-payment protection.
-								</p>
-							</div>
-
-							<div className="p-3.5 rounded-lg border border-[#d1e8dc] bg-white">
-								<div className="flex items-center gap-2 text-xs font-semibold text-[#0d2b1e]">
-									<ShieldCheck size={14} className="text-[#1a9e5c]" />
-									<span>Gated Release</span>
-								</div>
-								<p className="text-[11px] text-[#7aaa92] mt-1 leading-relaxed">
-									Escrow release requires both verified buyer payment and
-									confirmed seller fiat payout.
-								</p>
-							</div>
-						</div>
 					</div>
 
 					{/* Right Column: Order Execution Terminal */}
 					<div className="lg:col-span-5">
-						<div className="rounded-lg border border-[#d1e8dc] bg-white p-4 sm:p-5">
+						<div>
 							<TradingWidget
 								selectedOffer={selectedOffer}
 								onSelectOffer={(offer) => setSelectedOffer(offer)}

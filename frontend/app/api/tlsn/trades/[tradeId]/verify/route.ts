@@ -4,7 +4,7 @@ import { oracleSettleToBuyer, readEscrowTrade } from "@/lib/oracle/escrow";
 import {
 	completePeerTrade,
 	getOrHydrateSharedTrade,
-	resolveParentListingId,
+	resolveOnChainListingId,
 	transitionEscrowReleaseState,
 	transitionSellerPayoutState,
 } from "@/lib/trades/tradeStore";
@@ -224,28 +224,13 @@ export async function POST(
 				record.status = "oracle_pending";
 				const sharedTrade = await getOrHydrateSharedTrade(rawTradeId, address);
 				const buyerWallet = sharedTrade?.buyerAddress || address;
-				const parentListingId = resolveParentListingId(rawTradeId);
-				const onChainListingId = /^\d+$/.test(parentListingId)
-					? BigInt(parentListingId)
-					: BigInt(numericTradeId);
-
-				const usdcUnits = BigInt(
-					sharedTrade?.usdcAmountUnits ||
-						Math.max(
-							10_000,
-							Math.round(
-								(parseFloat(
-									(
-										body.cryptoAmountUsdc ||
-										sharedTrade?.usdcAmount ||
-										"1"
-									).replace(/,/g, ""),
-								) || 1) * 1_000_000,
-							),
-						),
-				);
+				const onChainListingId = resolveOnChainListingId(rawTradeId);
+				const usdcUnits = BigInt(sharedTrade?.usdcAmountUnits ?? 0);
 
 				try {
+					if (onChainListingId === null || usdcUnits <= 0n) {
+						throw new Error("Trade has no on-chain escrow listing to settle");
+					}
 					const settled = await oracleSettleToBuyer({
 						listingId: onChainListingId,
 						buyerAddress: buyerWallet,
@@ -253,10 +238,11 @@ export async function POST(
 						proofId: proofSummary.on_chain_proof_id_bytes32,
 					});
 
-					if (!settled.transactionHash) {
+					const settledHash = settled.transactionHash ?? sharedTrade?.txHash;
+					if (!settledHash) {
 						throw new Error("Escrow settlement returned no confirmed transaction hash");
 					}
-					record.oracleTransactionHash = settled.transactionHash;
+					record.oracleTransactionHash = settledHash;
 					record.status = "completed";
 				} catch (err) {
 					console.error("Oracle on-chain settlement error during TLSN verify:", err);

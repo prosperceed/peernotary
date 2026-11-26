@@ -1,28 +1,31 @@
 /**
  * hooks/useEscrow.ts
  * ─────────────────────────────────────────────────────────────────────────────
- * Typed Wagmi v2 hook that wraps every ArcP2PEscrowService interaction
- * the UI needs. Handles the two-step approve → write flow, surfaces tx
- * hashes for ArcScan links, and manages loading / error states.
+ * Every ArcP2PEscrowService write the UI performs goes through `send()`:
  *
- * Usage:
- *   const escrow = useEscrow();
- *   await escrow.initiateTrade({ cryptoAmountUsdc: "305.50", bankName: "GTBank", accountNo: "0123456789" });
- *   // escrow.txHash → link to ArcScan
+ *   1. ensureArc()   – switch the wallet to Arc Testnet (adds the chain if needed)
+ *   2. simulate      – dry-run against Arc RPC so reverts surface *before* the
+ *                      wallet prompt, with the decoded contract error
+ *   3. write         – `chainId` is pinned, so wagmi refuses to broadcast on any
+ *                      other network (previously txs silently went to whatever
+ *                      chain the wallet happened to be on)
+ *   4. receipt       – wait on Arc with a timeout; reverted receipts throw
+ *
+ * Nothing in here fabricates a hash. A failed step throws.
  */
 
 "use client";
 
 import { useState, useCallback } from "react";
-import { decodeEventLog } from "viem";
+import { decodeEventLog, type Abi } from "viem";
 import {
 	useAccount,
 	useWriteContract,
-	useWaitForTransactionReceipt,
-	useReadContract,
 	useConnect,
 	useDisconnect,
 	usePublicClient,
+	useSwitchChain,
+	useReadContract,
 } from "wagmi";
 import { injected } from "wagmi/connectors";
 import {
@@ -31,16 +34,20 @@ import {
 	ESCROW_ADDRESS,
 	USDC_ADDRESS,
 	ARCSCAN_TX,
+	ZERO_ADDRESS,
 	parseUsdc,
+	formatUsdc,
 	hashBankDetails,
-	MIN_COLLATERAL_USDC,
 	arcTestnet,
+	switchToArcTestnet,
 	formatUserFriendlyWalletError,
 } from "@/lib/web3/arcConfig";
 
-// ─── TYPES ────────────────────────────────────────────────────────────────────
+type Hex = `0x${string}`;
+
 export type EscrowTxState =
 	| "idle"
+	| "switching-network"
 	| "approving"
 	| "waiting-approval"
 	| "writing"
@@ -48,89 +55,87 @@ export type EscrowTxState =
 	| "confirmed"
 	| "error";
 
-export interface EscrowHookReturn {
-	// Wallet state
-	address: `0x${string}` | undefined;
-	isConnected: boolean;
-	connect: () => Promise<void>;
-	disconnect: () => void;
-	chainId: number | undefined;
-	isWrongChain: boolean;
-
-	// Transaction state
-	txState: EscrowTxState;
-	txHash: `0x${string}` | undefined;
-	arcScanUrl: string | undefined;
-	errorMsg: string | undefined;
-	isLoading: boolean;
-
-	// Actions
-	initiateTrade: (params: InitiateTradeParams) => Promise<InitiateTradeResult>;
-	fundBuyerCollateral: (params: FundCollateralParams) => Promise<`0x${string}`>;
-	markFiatSent: (tradeId: bigint) => Promise<`0x${string}`>;
-	releaseFunds: (tradeId: bigint) => Promise<`0x${string}`>;
-	raiseDispute: (tradeId: bigint) => Promise<`0x${string}`>;
-	reset: () => void;
-}
-
-export interface InitiateTradeResult {
-	txHash: `0x${string}`;
-	tradeId?: string;
-}
+export const TX_STATE_LABEL: Record<EscrowTxState, string> = {
+	idle: "",
+	"switching-network": "Switching wallet to Arc Testnet…",
+	approving: "Approve USDC spending in your wallet…",
+	"waiting-approval": "Waiting for approval to confirm…",
+	writing: "Confirm the transaction in your wallet…",
+	"waiting-confirmation": "Waiting for Arc to confirm…",
+	confirmed: "Confirmed on Arc",
+	error: "",
+};
 
 export interface InitiateTradeParams {
-	cryptoAmountUsdc: string; // human-readable e.g. "305.50"
+	cryptoAmountUsdc: string;
 	bankName: string;
 	accountNo: string;
 	sortCode?: string;
 }
 
-export interface FundCollateralParams {
-	tradeId: bigint;
-	collateralUsdc?: string; // defaults to "50.00" (MIN_COLLATERAL)
+export interface InitiateTradeResult {
+	txHash: Hex;
+	tradeId: string;
 }
 
-// ─── HOOK ─────────────────────────────────────────────────────────────────────
+export interface EscrowHookReturn {
+	address: Hex | undefined;
+	isConnected: boolean;
+	connect: () => Promise<void>;
+	disconnect: () => void;
+	chainId: number | undefined;
+	isWrongChain: boolean;
+	switchToArc: () => Promise<void>;
+
+	txState: EscrowTxState;
+	txHash: Hex | undefined;
+	arcScanUrl: string | undefined;
+	errorMsg: string | undefined;
+	isLoading: boolean;
+
+	/** Seller locks USDC into a new escrow listing. */
+	initiateTrade: (params: InitiateTradeParams) => Promise<InitiateTradeResult>;
+	/** Buyer claims the *entire* remaining listing on-chain (0 collateral). */
+	acceptListing: (listingId: bigint, expectedUnits?: bigint) => Promise<Hex>;
+	/** Seller pulls back unallocated USDC from a listing. */
+	withdrawInventory: (listingId: bigint, amountUnits: bigint) => Promise<Hex>;
+	/** Withdraws everything still available in a listing; null if nothing is left. */
+	withdrawAllAvailable: (listingId: bigint) => Promise<Hex | null>;
+	markFiatSent: (tradeId: bigint) => Promise<Hex>;
+	releaseFunds: (tradeId: bigint) => Promise<Hex>;
+	raiseDispute: (tradeId: bigint) => Promise<Hex>;
+	/**
+	 * Seller-signed release when the on-chain trade is Funded/FiatSent and this
+	 * wallet is its seller. Returns `null` when the trade must be settled by the
+	 * oracle instead (partial fills, buyer-side views). Throws on real failures.
+	 */
+	releaseIfSellerCan: (tradeId: string) => Promise<Hex | null>;
+	reset: () => void;
+}
+
+const RECEIPT_TIMEOUT_MS = 120_000;
+const escrowAbi = ESCROW_ABI as unknown as Abi;
+
 export function useEscrow(): EscrowHookReturn {
 	const { address, isConnected, chainId } = useAccount();
 	const { connectAsync, connectors } = useConnect();
 	const { disconnect } = useDisconnect();
-	const publicClient = usePublicClient();
+	const { switchChainAsync } = useSwitchChain();
+	const publicClient = usePublicClient({ chainId: arcTestnet.id });
+	const { writeContractAsync } = useWriteContract();
 
 	const [txState, setTxState] = useState<EscrowTxState>("idle");
-	const [txHash, setTxHash] = useState<`0x${string}` | undefined>(undefined);
+	const [txHash, setTxHash] = useState<Hex | undefined>(undefined);
 	const [errorMsg, setErrorMsg] = useState<string | undefined>(undefined);
 
 	const isWrongChain = isConnected && chainId !== arcTestnet.id;
 
-	// ── Wagmi write hooks ────────────────────────────────────────────────────
-	const { writeContractAsync: writeEscrow } = useWriteContract();
-	const { writeContractAsync: writeUsdc } = useWriteContract();
-
-	// ── Wait for receipt (reactive on txHash) ────────────────────────────────
-	const { isLoading: waitingForReceipt } = useWaitForTransactionReceipt({
-		hash: txHash,
-		onReplaced: (replacement) => {
-			setTxHash(replacement.transaction.hash);
-		},
-	} as Parameters<typeof useWaitForTransactionReceipt>[0]);
-
 	const isLoading =
+		txState === "switching-network" ||
 		txState === "approving" ||
 		txState === "waiting-approval" ||
 		txState === "writing" ||
-		txState === "waiting-confirmation" ||
-		waitingForReceipt;
-
-	// ── Helpers ──────────────────────────────────────────────────────────────
-	const setError = (e: unknown) => {
-		const msg = formatUserFriendlyWalletError(
-			e,
-			"Transaction could not be completed. Please try again.",
-		);
-		setErrorMsg(msg);
-		setTxState("error");
-	};
+		txState === "waiting-confirmation";
 
 	const reset = useCallback(() => {
 		setTxState("idle");
@@ -138,287 +143,284 @@ export function useEscrow(): EscrowHookReturn {
 		setErrorMsg(undefined);
 	}, []);
 
+	const fail = useCallback((e: unknown): never => {
+		setErrorMsg(
+			formatUserFriendlyWalletError(e, "Transaction could not be completed. Please try again."),
+		);
+		setTxState("error");
+		throw e;
+	}, []);
+
 	const connect = useCallback(async () => {
 		try {
-			const targetConnector = connectors[0] ?? injected();
-			await connectAsync({ connector: targetConnector });
+			await connectAsync({ connector: connectors[0] ?? injected() });
 		} catch (e) {
-			setError(e);
+			setErrorMsg(formatUserFriendlyWalletError(e));
+			setTxState("error");
 		}
 	}, [connectAsync, connectors]);
 
-	/**
-	 * Two-step ERC-20 approve → contract write helper.
-	 * Approves the escrow contract to pull `amount` USDC from the user,
-	 * then executes the provided `writeFn`.
-	 */
-	const approveAndWrite = useCallback(
+	const switchToArc = useCallback(async () => {
+		await switchToArcTestnet(switchChainAsync);
+	}, [switchChainAsync]);
+
+	const requireWallet = useCallback((): Hex => {
+		if (!address || !isConnected) throw new Error("Connect your wallet first.");
+		if (!publicClient) throw new Error("Arc RPC client is not ready. Reload and try again.");
+		return address;
+	}, [address, isConnected, publicClient]);
+
+	const ensureArc = useCallback(async () => {
+		if (chainId === arcTestnet.id) return;
+		setTxState("switching-network");
+		await switchToArcTestnet(switchChainAsync);
+	}, [chainId, switchChainAsync]);
+
+	const waitFor = useCallback(
+		async (hash: Hex, what: string) => {
+			const receipt = await publicClient!.waitForTransactionReceipt({
+				hash,
+				timeout: RECEIPT_TIMEOUT_MS,
+			});
+			if (receipt.status !== "success") {
+				throw new Error(`${what} reverted on Arc (tx ${hash.slice(0, 10)}…).`);
+			}
+			return receipt;
+		},
+		[publicClient],
+	);
+
+	/** Simulate → write (chain-pinned) → wait. */
+	const send = useCallback(
 		async (
-			amount: bigint,
-			writeFn: () => Promise<`0x${string}`>,
-		): Promise<`0x${string}`> => {
-			// Step 1: approve
+			functionName: string,
+			args: readonly unknown[],
+			what: string,
+			target: { address: Hex; abi: Abi } = { address: ESCROW_ADDRESS, abi: escrowAbi },
+		) => {
+			const account = requireWallet();
+			await publicClient!.simulateContract({
+				address: target.address,
+				abi: target.abi,
+				functionName,
+				args,
+				account,
+			});
+			setTxState("writing");
+			const hash = await writeContractAsync({
+				address: target.address,
+				abi: target.abi,
+				functionName,
+				args,
+				account,
+				chainId: arcTestnet.id,
+			});
+			setTxHash(hash);
+			setTxState("waiting-confirmation");
+			const receipt = await waitFor(hash, what);
+			return { hash, receipt };
+		},
+		[publicClient, requireWallet, waitFor, writeContractAsync],
+	);
+
+	/** Approve only when the current allowance is short. */
+	const ensureAllowance = useCallback(
+		async (amount: bigint) => {
+			const account = requireWallet();
+			const [balance, allowance] = await Promise.all([
+				publicClient!.readContract({
+					address: USDC_ADDRESS,
+					abi: USDC_ABI,
+					functionName: "balanceOf",
+					args: [account],
+				}),
+				publicClient!.readContract({
+					address: USDC_ADDRESS,
+					abi: USDC_ABI,
+					functionName: "allowance",
+					args: [account, ESCROW_ADDRESS],
+				}),
+			]);
+			if (balance < amount) {
+				throw new Error(
+					`You need ${formatUsdc(amount)} USDC but this wallet holds ${formatUsdc(balance)} USDC on Arc.`,
+				);
+			}
+			if (allowance >= amount) return;
+
 			setTxState("approving");
-			const approveTx = await writeUsdc({
+			const hash = await writeContractAsync({
 				address: USDC_ADDRESS,
 				abi: USDC_ABI,
 				functionName: "approve",
 				args: [ESCROW_ADDRESS, amount],
+				account,
+				chainId: arcTestnet.id,
 			});
-
+			setTxHash(hash);
 			setTxState("waiting-approval");
-			setTxHash(approveTx);
-
-			if (publicClient) {
-				const receipt = await publicClient.waitForTransactionReceipt({
-					hash: approveTx,
-				});
-				if (receipt.status === "reverted") {
-					throw new Error("Token approval reverted on-chain.");
-				}
-			}
-
-			// Step 2: write
-			setTxState("writing");
-			const writeTx = await writeFn();
-
-			setTxState("waiting-confirmation");
-			setTxHash(writeTx);
-
-			if (publicClient) {
-				const writeReceipt = await publicClient.waitForTransactionReceipt({
-					hash: writeTx,
-				});
-				if (writeReceipt.status === "reverted") {
-					throw new Error("Escrow transaction reverted on-chain.");
-				}
-			}
-
-			setTxState("confirmed");
-			return writeTx;
+			await waitFor(hash, "USDC approval");
 		},
-		[publicClient, writeUsdc],
+		[publicClient, requireWallet, waitFor, writeContractAsync],
 	);
 
-	// ── initiateTrade ─────────────────────────────────────────────────────────
+	const readListing = useCallback(
+		async (listingId: bigint) =>
+			publicClient!.readContract({
+				address: ESCROW_ADDRESS,
+				abi: ESCROW_ABI,
+				functionName: "getListingInventory",
+				args: [listingId],
+			}),
+		[publicClient],
+	);
+
+	// ── Seller: lock USDC into a new listing ─────────────────────────────────
 	const initiateTrade = useCallback(
-		async ({
-			cryptoAmountUsdc,
-			bankName,
-			accountNo,
-			sortCode = "",
-		}: InitiateTradeParams): Promise<InitiateTradeResult> => {
+		async ({ cryptoAmountUsdc, bankName, accountNo, sortCode = "" }: InitiateTradeParams) => {
 			reset();
 			try {
+				requireWallet();
 				const amount = parseUsdc(cryptoAmountUsdc);
 				const bankHash = hashBankDetails(bankName, accountNo, sortCode);
-
-				let onChainTradeId: string | undefined;
-
-				const hash = await approveAndWrite(amount, () =>
-					writeEscrow({
-						address: ESCROW_ADDRESS,
-						abi: ESCROW_ABI,
-						functionName: "initiateTrade",
-						args: [amount, bankHash],
-					}),
+				await ensureArc();
+				await ensureAllowance(amount);
+				const { hash, receipt } = await send(
+					"initiateTrade",
+					[amount, bankHash],
+					"Escrow deposit",
 				);
 
-				if (publicClient) {
+				let tradeId: string | undefined;
+				for (const log of receipt.logs) {
+					if (log.address.toLowerCase() !== ESCROW_ADDRESS.toLowerCase()) continue;
 					try {
-						const receipt = await publicClient.waitForTransactionReceipt({ hash });
-						for (const log of receipt.logs) {
-							try {
-								const decoded = decodeEventLog({
-									abi: ESCROW_ABI,
-									data: log.data,
-									topics: log.topics,
-								});
-								if (decoded.eventName === "TradeInitiated") {
-									onChainTradeId = decoded.args?.tradeId?.toString();
-									break;
-								}
-							} catch {}
+						const decoded = decodeEventLog({ abi: ESCROW_ABI, data: log.data, topics: log.topics });
+						if (decoded.eventName === "TradeInitiated") {
+							tradeId = decoded.args.tradeId.toString();
+							break;
 						}
-					} catch {}
+					} catch {
+						/* not one of ours */
+					}
 				}
-
-				setTxHash(hash);
-				setTxState("confirmed");
-				return { txHash: hash, tradeId: onChainTradeId };
-			} catch (e) {
-				setError(e);
-				throw e;
-			}
-		},
-		[reset, approveAndWrite, writeEscrow, publicClient],
-	);
-
-	// ── fundBuyerCollateral ───────────────────────────────────────────────────
-	const fundBuyerCollateral = useCallback(
-		async ({
-			tradeId,
-			collateralUsdc = "0.00",
-		}: FundCollateralParams): Promise<`0x${string}`> => {
-			reset();
-			try {
-				const cleaned = collateralUsdc.replace(/,/g, "").trim();
-				const collateral =
-					!cleaned || /^0+(\.0+)?$/.test(cleaned) ? 0n : parseUsdc(cleaned);
-				const amount =
-					collateral > MIN_COLLATERAL_USDC ? collateral : MIN_COLLATERAL_USDC;
-
-				let hash: `0x${string}`;
-				if (amount === 0n) {
-					if (publicClient && address) {
-						try {
-							await publicClient.simulateContract({
-								address: ESCROW_ADDRESS,
-								abi: ESCROW_ABI,
-								functionName: "fundBuyerCollateral",
-								args: [tradeId, 0n],
-								account: address,
-							});
-						} catch {
-							// Deployed contract enforces legacy 50 USDC SLASH_AMOUNT or tradeId is a partial-fill allocation;
-							// Seller-funded escrow requires 0 buyer collateral, so skip redundant on-chain collateral call.
-							setTxState("confirmed");
-							return "0x0" as `0x${string}`;
-						}
-					}
-					setTxState("writing");
-					hash = await writeEscrow({
-						address: ESCROW_ADDRESS,
-						abi: ESCROW_ABI,
-						functionName: "fundBuyerCollateral",
-						args: [tradeId, 0n],
-					});
-					setTxState("waiting-confirmation");
-					setTxHash(hash);
-					if (publicClient) {
-						const receipt = await publicClient.waitForTransactionReceipt({
-							hash,
-						});
-						if (receipt.status === "reverted") {
-							throw new Error("Escrow acceptance transaction reverted on-chain.");
-						}
-					}
-				} else {
-					hash = await approveAndWrite(amount, () =>
-						writeEscrow({
-							address: ESCROW_ADDRESS,
-							abi: ESCROW_ABI,
-							functionName: "fundBuyerCollateral",
-							args: [tradeId, amount],
-						}),
+				if (!tradeId) {
+					throw new Error(
+						`Deposit confirmed (tx ${hash.slice(0, 10)}…) but no TradeInitiated event was found. Check ArcScan before retrying.`,
 					);
 				}
-
-				setTxHash(hash);
 				setTxState("confirmed");
-				return hash;
+				return { txHash: hash, tradeId };
 			} catch (e) {
-				setError(e);
-				throw e;
+				return fail(e);
 			}
 		},
-		[address, reset, approveAndWrite, publicClient, writeEscrow],
+		[reset, requireWallet, ensureArc, ensureAllowance, send, fail],
 	);
 
-	// ── markFiatSent ──────────────────────────────────────────────────────────
-	const markFiatSent = useCallback(
-		async (tradeId: bigint): Promise<`0x${string}`> => {
+	// ── Buyer: take the full remaining listing on-chain ──────────────────────
+	const acceptListing = useCallback(
+		async (listingId: bigint, expectedUnits?: bigint) => {
 			reset();
 			try {
-				setTxState("writing");
-				const hash = await writeEscrow({
-					address: ESCROW_ADDRESS,
-					abi: ESCROW_ABI,
-					functionName: "markFiatSent",
-					args: [tradeId],
-				});
-				setTxHash(hash);
-				setTxState("waiting-confirmation");
-				if (publicClient) {
-					const receipt = await publicClient.waitForTransactionReceipt({
-						hash,
-					});
-					if (receipt.status === "reverted") {
-						throw new Error("Mark fiat sent transaction reverted on-chain.");
-					}
+				const account = requireWallet();
+				const inv = await readListing(listingId);
+				if (!inv.active || inv.seller === ZERO_ADDRESS) {
+					throw new Error(`Listing #${listingId} has no USDC locked on Arc.`);
 				}
+				if (inv.seller.toLowerCase() === account.toLowerCase()) {
+					throw new Error("You can't take your own listing.");
+				}
+				if (inv.activeChildTradeId !== 0n) {
+					throw new Error("This listing already has an active order on-chain.");
+				}
+				if (expectedUnits !== undefined && inv.availableAmount < expectedUnits) {
+					throw new Error(
+						`Only ${formatUsdc(inv.availableAmount)} USDC is still available on-chain.`,
+					);
+				}
+				await ensureArc();
+				const { hash } = await send("fundBuyerCollateral", [listingId, 0n], "Order acceptance");
 				setTxState("confirmed");
 				return hash;
 			} catch (e) {
-				setError(e);
-				throw e;
+				return fail(e);
 			}
 		},
-		[reset, writeEscrow, publicClient],
+		[reset, requireWallet, readListing, ensureArc, send, fail],
 	);
 
-	// ── releaseFunds ──────────────────────────────────────────────────────────
-	const releaseFunds = useCallback(
-		async (tradeId: bigint): Promise<`0x${string}`> => {
+	const withdrawInventory = useCallback(
+		async (listingId: bigint, amountUnits: bigint) => {
 			reset();
 			try {
-				setTxState("writing");
-				const hash = await writeEscrow({
-					address: ESCROW_ADDRESS,
-					abi: ESCROW_ABI,
-					functionName: "releaseFunds",
-					args: [tradeId],
-				});
-				setTxHash(hash);
-				setTxState("waiting-confirmation");
-				if (publicClient) {
-					const receipt = await publicClient.waitForTransactionReceipt({
-						hash,
-					});
-					if (receipt.status === "reverted") {
-						throw new Error("Release funds transaction reverted on-chain.");
-					}
-				}
+				requireWallet();
+				await ensureArc();
+				const { hash } = await send(
+					"withdrawAvailableInventory",
+					[listingId, amountUnits],
+					"Inventory withdrawal",
+				);
 				setTxState("confirmed");
 				return hash;
 			} catch (e) {
-				setError(e);
-				throw e;
+				return fail(e);
 			}
 		},
-		[reset, writeEscrow, publicClient],
+		[reset, requireWallet, ensureArc, send, fail],
 	);
 
-	// ── raiseDispute ──────────────────────────────────────────────────────────
-	const raiseDispute = useCallback(
-		async (tradeId: bigint): Promise<`0x${string}`> => {
+	const withdrawAllAvailable = useCallback(
+		async (listingId: bigint): Promise<Hex | null> => {
+			const account = requireWallet();
+			const inv = await readListing(listingId);
+			if (!inv.active || inv.availableAmount === 0n) return null;
+			if (inv.seller.toLowerCase() !== account.toLowerCase()) {
+				throw new Error(`Listing #${listingId} belongs to a different wallet.`);
+			}
+			return withdrawInventory(listingId, inv.availableAmount);
+		},
+		[requireWallet, readListing, withdrawInventory],
+	);
+
+	const simpleWrite = useCallback(
+		(functionName: string, what: string) => async (tradeId: bigint) => {
 			reset();
 			try {
-				setTxState("writing");
-				const hash = await writeEscrow({
-					address: ESCROW_ADDRESS,
-					abi: ESCROW_ABI,
-					functionName: "raiseDispute",
-					args: [tradeId],
-				});
-				setTxHash(hash);
-				setTxState("waiting-confirmation");
-				if (publicClient) {
-					const receipt = await publicClient.waitForTransactionReceipt({
-						hash,
-					});
-					if (receipt.status === "reverted") {
-						throw new Error("Raise dispute transaction reverted on-chain.");
-					}
-				}
+				requireWallet();
+				await ensureArc();
+				const { hash } = await send(functionName, [tradeId], what);
 				setTxState("confirmed");
 				return hash;
 			} catch (e) {
-				setError(e);
-				throw e;
+				return fail(e);
 			}
 		},
-		[reset, writeEscrow, publicClient],
+		[reset, requireWallet, ensureArc, send, fail],
+	);
+
+	const releaseFunds = simpleWrite("releaseFunds", "Escrow release");
+
+	const releaseIfSellerCan = useCallback(
+		async (tradeId: string): Promise<Hex | null> => {
+			if (!/^[1-9]\d*$/.test(tradeId) || !address || !publicClient) return null;
+			const trade = await publicClient.readContract({
+				address: ESCROW_ADDRESS,
+				abi: ESCROW_ABI,
+				functionName: "getTrade",
+				args: [BigInt(tradeId)],
+			});
+			const releasable = trade.status === 1 || trade.status === 2; // Funded | FiatSent
+			if (
+				!releasable ||
+				trade.buyer === ZERO_ADDRESS ||
+				trade.seller.toLowerCase() !== address.toLowerCase()
+			) {
+				return null;
+			}
+			return releaseFunds(BigInt(tradeId));
+		},
+		[address, publicClient, releaseFunds],
 	);
 
 	return {
@@ -428,30 +430,31 @@ export function useEscrow(): EscrowHookReturn {
 		disconnect,
 		chainId,
 		isWrongChain,
+		switchToArc,
 		txState,
 		txHash,
 		arcScanUrl: txHash ? ARCSCAN_TX(txHash) : undefined,
 		errorMsg,
 		isLoading,
 		initiateTrade,
-		fundBuyerCollateral,
-		markFiatSent,
+		acceptListing,
+		withdrawInventory,
+		withdrawAllAvailable,
+		markFiatSent: simpleWrite("markFiatSent", "Mark fiat sent"),
 		releaseFunds,
-		raiseDispute,
+		raiseDispute: simpleWrite("raiseDispute", "Dispute"),
+		releaseIfSellerCan,
 		reset,
 	};
 }
 
-// ─── READ HOOK: single trade ──────────────────────────────────────────────────
 export function useTradeData(tradeId: bigint | null) {
-	return useReadContract(
-		tradeId !== null
-			? {
-					address: ESCROW_ADDRESS,
-					abi: ESCROW_ABI,
-					functionName: "getTrade",
-					args: [tradeId],
-			  }
-			: undefined,
-	);
+	return useReadContract({
+		address: ESCROW_ADDRESS,
+		abi: ESCROW_ABI,
+		functionName: "getTrade",
+		args: tradeId !== null ? [tradeId] : undefined,
+		chainId: arcTestnet.id,
+		query: { enabled: tradeId !== null },
+	});
 }

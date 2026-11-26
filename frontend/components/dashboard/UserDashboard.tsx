@@ -13,6 +13,7 @@ import {
 	Wallet,
 	Lock,
 	RefreshCw,
+	X,
 } from "lucide-react";
 import {
 	useAccount,
@@ -24,9 +25,10 @@ import {
 } from "wagmi";
 import { formatUnits } from "viem";
 import { useEscrow } from "@/hooks/useEscrow";
+import TxStatusBanner from "@/components/web3/TxStatusBanner";
 import {
 	arcTestnet,
-	ESCROW_ADDRESS,
+	isOnChainTradeId,
 	USDC_ABI,
 	USDC_ADDRESS,
 	formatUsdc,
@@ -363,6 +365,14 @@ export default function UserDashboard() {
 		setCancellingTradeId(tradeId);
 		setActionFeedback(null);
 		try {
+			// A seller cancelling their own open listing gets the USDC back on Arc
+			// first; the off-chain record only changes once that has confirmed.
+			const tx = transactions.find((t) => t.tradeId === tradeId);
+			let withdrawHash: `0x${string}` | null = null;
+			if (tx?.role === "seller" && tx.lifecycleState === "OPEN" && isOnChainTradeId(tradeId)) {
+				withdrawHash = await escrow.withdrawAllAvailable(BigInt(tradeId));
+			}
+
 			const res = await fetch(
 				`/api/trades/${encodeURIComponent(tradeId)}/lifecycle`,
 				{
@@ -372,7 +382,7 @@ export default function UserDashboard() {
 						"x-wallet-address": address,
 					},
 					body: JSON.stringify({
-						operation: "cancel_trade",
+						operation: "cancel",
 						reason: "Cancelled by user request",
 					}),
 				},
@@ -391,7 +401,9 @@ export default function UserDashboard() {
 
 			setActionFeedback({
 				type: "success",
-				text: `Trade #${tradeId} has been successfully cancelled and unlocked.`,
+				text: withdrawHash
+					? `Listing #${tradeId} cancelled. Unsold USDC returned to your wallet (tx ${withdrawHash.slice(0, 10)}…).`
+					: `Trade #${tradeId} cancelled.`,
 			});
 			await refetchNative();
 			await refetchErc20();
@@ -399,7 +411,7 @@ export default function UserDashboard() {
 		} catch (err) {
 			setActionFeedback({
 				type: "error",
-				text: err instanceof Error ? err.message : "Could not cancel trade.",
+				text: formatUserFriendlyWalletError(err, "Could not cancel trade."),
 			});
 		} finally {
 			setCancellingTradeId(null);
@@ -476,16 +488,18 @@ export default function UserDashboard() {
 		try {
 			let txHash: `0x${string}` | undefined;
 
+			// Full take of an on-chain listing → buyer claims it on Arc first.
+			// Partial fills are reserved off-chain and settled atomically by the
+			// oracle via oracleSettleOrder once fiat payment is proven.
 			if (
 				!offer.sellerBusy &&
 				requestedNumeric === maxAvailable &&
-				ESCROW_ADDRESS !== "0x0000000000000000000000000000000000000000" &&
-				/^\d+$/.test(offer.tradeId)
+				isOnChainTradeId(offer.tradeId)
 			) {
-				txHash = await escrow.fundBuyerCollateral({
-					tradeId: BigInt(offer.tradeId),
-					collateralUsdc: "0.00",
-				});
+				txHash = await escrow.acceptListing(
+					BigInt(offer.tradeId),
+					BigInt(Math.round(requestedNumeric * 1_000_000)),
+				);
 			}
 
 			const res = await fetch("/api/user/dashboard", {
@@ -578,7 +592,7 @@ export default function UserDashboard() {
 			let txHash: `0x${string}` | undefined;
 			let onChainTradeId: string | undefined;
 
-			if (ESCROW_ADDRESS !== "0x0000000000000000000000000000000000000000") {
+			if (offerSide === "sell") {
 				const initRes = await escrow.initiateTrade({
 					cryptoAmountUsdc: numeric.toString(),
 					bankName: offerBank,
@@ -714,17 +728,9 @@ export default function UserDashboard() {
 				);
 			}
 
-			let txHash: `0x${string}` | undefined;
-			if (
-				ESCROW_ADDRESS !== "0x0000000000000000000000000000000000000000" &&
-				/^\d+$/.test(tradeId)
-			) {
-				try {
-					txHash = await escrow.releaseFunds(BigInt(tradeId));
-				} catch {
-					txHash = undefined;
-				}
-			}
+			// Seller signs the release directly when possible; otherwise the server
+			// oracle settles on Arc (partial fills / oracle-verified payments).
+			const txHash = (await escrow.releaseIfSellerCan(tradeId)) ?? undefined;
 
 			const releaseRes = await fetch(
 				`/api/trades/${encodeURIComponent(tradeId)}/lifecycle`,
@@ -774,17 +780,9 @@ export default function UserDashboard() {
 		setReleasingTradeId(tradeId);
 		setActionFeedback(null);
 		try {
-			let txHash: `0x${string}` | undefined;
-			if (
-				ESCROW_ADDRESS !== "0x0000000000000000000000000000000000000000" &&
-				/^\d+$/.test(tradeId)
-			) {
-				try {
-					txHash = await escrow.releaseFunds(BigInt(tradeId));
-				} catch {
-					txHash = undefined;
-				}
-			}
+			// Seller signs the release directly when possible; otherwise the server
+			// oracle settles on Arc (partial fills / oracle-verified payments).
+			const txHash = (await escrow.releaseIfSellerCan(tradeId)) ?? undefined;
 
 			const res = await fetch(
 				`/api/trades/${encodeURIComponent(tradeId)}/lifecycle`,
@@ -868,8 +866,8 @@ export default function UserDashboard() {
 	if (checkingSession) {
 		return (
 			<div className="py-24 flex items-center justify-center">
-				<div className="flex items-center gap-3 px-5 py-3 rounded-full border border-[#d1e8dc] bg-white text-xs font-medium text-[#3d6b55] shadow-sm">
-					<RefreshCw size={14} className="animate-spin text-[#1a9e5c]" />
+				<div className="flex items-center gap-3 px-5 py-3 rounded-md border border-line bg-surface text-xs font-medium text-ink-2 shadow-card">
+					<RefreshCw size={14} className="animate-spin text-accent" />
 					<span>Verifying wallet session on Arc Testnet...</span>
 				</div>
 			</div>
@@ -879,31 +877,31 @@ export default function UserDashboard() {
 	if (!isConnected || !address || isWrongChain || !authenticated) {
 		return (
 			<div className="max-w-md mx-auto my-12">
-				<div className="rounded-[32px] border border-[#e5ebe7] bg-white p-7 text-center shadow-xl">
-					<div className="w-12 h-12 rounded-2xl bg-[#f0f7f3] border border-[#d1e8dc] flex items-center justify-center mx-auto mb-4">
-						<Lock size={20} className="text-[#1a9e5c]" />
+				<div className="rounded-xl border border-line bg-surface p-7 text-center shadow-card">
+					<div className="w-12 h-12 rounded-xl bg-subtle border border-line flex items-center justify-center mx-auto mb-4">
+						<Lock size={20} className="text-accent" />
 					</div>
 
-					<h2 className="text-lg font-bold text-[#0d2b1e]">
+					<h2 className="text-lg font-semibold text-ink">
 						{!isConnected
-							? "Connect Wallet to Access Console"
+							? "Connect your wallet"
 							: isWrongChain
 								? "Switch to Arc Testnet"
 								: "Sign In to Verify Ownership"}
 					</h2>
 
-					<p className="text-xs text-[#7aaa92] mt-2 leading-relaxed">
+					<p className="text-xs text-ink-3 mt-2 leading-relaxed">
 						{!isConnected
-							? "Connect your Web3 wallet to manage real USDC balance, open peer trades, and cryptographic Arc escrows."
+							? "Sign in with your wallet to sell USDC, track your escrows and release payments."
 							: isWrongChain
 								? `Switch network to ${arcTestnet.name} (Chain ID ${arcTestnet.id}) to continue.`
 								: "Sign a message with your connected wallet to unlock your dashboard session."}
 					</p>
 
 					{address && (
-						<div className="mt-4 px-3.5 py-2.5 rounded-full bg-[#f8fcfa] border border-[#d1e8dc] flex items-center justify-between text-xs">
-							<span className="text-[#7aaa92]">Wallet</span>
-							<span className="font-mono text-[#0d2b1e] font-semibold">
+						<div className="mt-4 px-3.5 py-2.5 rounded-md bg-subtle border border-line flex items-center justify-between text-xs">
+							<span className="text-ink-3">Wallet</span>
+							<span className="font-mono text-ink font-semibold">
 								{address.slice(0, 6)}...{address.slice(-4)}
 							</span>
 						</div>
@@ -914,7 +912,7 @@ export default function UserDashboard() {
 							<button
 								onClick={() => void handleConnectAndSignIn()}
 								disabled={authBusy}
-								className="w-full py-3 rounded-full font-semibold text-xs text-white bg-[#1a9e5c] hover:bg-[#15854c] transition-all shadow-md disabled:opacity-60 flex items-center justify-center gap-2"
+								className="w-full py-3 rounded-full font-semibold text-xs text-white bg-accent hover:bg-accent-hover transition-colors shadow-card disabled:opacity-60 flex items-center justify-center gap-2"
 							>
 								<Wallet size={15} />
 								<span>{authBusy ? "Connecting..." : "Connect & Sign In"}</span>
@@ -923,7 +921,7 @@ export default function UserDashboard() {
 							<button
 								onClick={() => void handleSwitchNetwork()}
 								disabled={authBusy}
-								className="w-full py-3 rounded-full font-semibold text-xs text-white bg-amber-600 hover:bg-amber-700 transition-all shadow-md disabled:opacity-60"
+								className="w-full py-3 rounded-full font-semibold text-xs text-white bg-amber-600 hover:bg-amber-700 transition-colors shadow-card disabled:opacity-60"
 							>
 								{authBusy ? "Switching Network..." : "Switch to Arc Testnet"}
 							</button>
@@ -931,7 +929,7 @@ export default function UserDashboard() {
 							<button
 								onClick={() => void authenticateWallet(address)}
 								disabled={authBusy}
-								className="w-full py-3 rounded-full font-semibold text-xs text-white bg-[#1a9e5c] hover:bg-[#15854c] transition-all shadow-md disabled:opacity-60"
+								className="w-full py-3 rounded-full font-semibold text-xs text-white bg-accent hover:bg-accent-hover transition-colors shadow-card disabled:opacity-60"
 							>
 								{authBusy
 									? "Waiting for Signature..."
@@ -941,7 +939,7 @@ export default function UserDashboard() {
 					</div>
 
 					{authError && (
-						<div className="mt-3.5 p-3 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-xs text-left flex items-start gap-2">
+						<div className="mt-3.5 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs text-left flex items-start gap-2">
 							<AlertCircle size={14} className="shrink-0 mt-0.5" />
 							<span>{authError}</span>
 						</div>
@@ -982,7 +980,7 @@ export default function UserDashboard() {
 	}
 
 	return (
-		<div className="rounded-none sm:rounded-[36px] bg-transparent sm:bg-[#fbfdfc] border-0 sm:border border-[#dce7e1] p-2 sm:p-7 shadow-none sm:shadow-[0_4px_24px_rgba(13,43,30,0.06)] flex flex-col md:flex-row gap-6 relative">
+		<div className="rounded-none sm:rounded-xl bg-transparent sm:bg-surface border-0 sm:border border-line p-2 sm:p-7 shadow-none sm:shadow-card flex flex-col md:flex-row gap-6 relative">
 			{/* Left Dock / Mobile Navigation */}
 			<DashboardSidebar
 				navItems={navItems}
@@ -1036,29 +1034,37 @@ export default function UserDashboard() {
 					/>
 				)}
 
-				{/* Floating Feedback Alert */}
+				<TxStatusBanner
+					txState={escrow.txState}
+					txHash={escrow.txHash}
+					arcScanUrl={escrow.arcScanUrl}
+					errorMsg={escrow.errorMsg}
+				/>
+
 				{actionFeedback && (
 					<div
+						role="status"
 						className={cn(
-							"p-3.5 rounded-[20px] text-xs flex items-center justify-between gap-3 shadow-sm",
+							"flex items-start justify-between gap-3 rounded-lg border px-3.5 py-2.5 text-sm",
 							actionFeedback.type === "success"
-								? "bg-[#e8f7ee] border border-[#a2dfbc] text-[#0d2b1e]"
-								: "bg-red-50 border border-red-200 text-red-800",
+								? "border-accent/20 bg-accent-soft text-accent-ink"
+								: "border-red-200 bg-red-50 text-red-800",
 						)}
 					>
-						<div className="flex items-center gap-2">
+						<div className="flex items-start gap-2">
 							{actionFeedback.type === "success" ? (
-								<CheckCircle size={15} className="text-[#1a9e5c] shrink-0" />
+								<CheckCircle size={16} className="mt-0.5 shrink-0" />
 							) : (
-								<AlertCircle size={15} className="text-red-600 shrink-0" />
+								<AlertCircle size={16} className="mt-0.5 shrink-0" />
 							)}
 							<span>{actionFeedback.text}</span>
 						</div>
 						<button
 							onClick={() => setActionFeedback(null)}
-							className="text-[#7aaa92] hover:text-[#0d2b1e] text-xs font-bold"
+							aria-label="Dismiss"
+							className="rounded p-0.5 opacity-60 hover:opacity-100"
 						>
-							×
+							<X size={15} />
 						</button>
 					</div>
 				)}

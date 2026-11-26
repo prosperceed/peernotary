@@ -27,17 +27,22 @@ import { defineChain, keccak256, toBytes } from "viem";
  * native gas token (6 decimals, not 18). Every gas-estimation call made by
  * Viem will use this nativeCurrency config automatically.
  */
+const ARC_RPC_URL =
+	process.env.NEXT_PUBLIC_ARC_RPC_URL || "https://rpc.testnet.arc.io";
+
 export const arcTestnet = defineChain({
 	id: 5042002,
 	name: "Arc Testnet",
 	nativeCurrency: {
 		name: "USD Coin",
 		symbol: "USDC",
-		decimals: 6, // ← 6, not 18 — critical for gas display
+		// Arc's *native* USDC balance (gas) is tracked with 18 decimals.
+		// The ERC-20 interface at USDC_ADDRESS uses 6 decimals.
+		decimals: 18,
 	},
 	rpcUrls: {
-		default: { http: ["https://rpc.testnet.arc.io"] },
-		public: { http: ["https://rpc.testnet.arc.io"] },
+		default: { http: [ARC_RPC_URL] },
+		public: { http: [ARC_RPC_URL] },
 	},
 	blockExplorers: {
 		default: {
@@ -58,22 +63,25 @@ export const wagmiConfig = createConfig({
 	chains: [arcTestnet],
 	connectors: [injected()], // MetaMask, Rabby, Frame, etc.
 	transports: {
-		[arcTestnet.id]: http(
-			process.env.NEXT_PUBLIC_ARC_RPC_URL || "https://rpc.testnet.arc.io",
-		),
+		[arcTestnet.id]: http(ARC_RPC_URL),
 	},
 });
 
 // ─── CONTRACT ADDRESSES ───────────────────────────────────────────────────────
 /** ArcP2PEscrowService — update after deployment */
 export const ESCROW_ADDRESS = (process.env.NEXT_PUBLIC_ESCROW_ADDRESS ||
-	process.env.ESCROW_ADDRESS ||
 	"0xAEC65F8De5c5f893c6Cd5f101D290869fFEd9dAe") as `0x${string}`;
 
-/** Circle USDC on Arc Testnet — update to actual deployment address */
+/** Circle USDC ERC-20 interface on Arc Testnet (6 decimals). */
 export const USDC_ADDRESS = (process.env.NEXT_PUBLIC_USDC_ADDRESS ||
-	process.env.NEXT_PUBLIC_ARC_TREASURY_ADDRESS ||
-	"0x0000000000000000000000000000000000000001") as `0x${string}`;
+	"0x3600000000000000000000000000000000000000") as `0x${string}`;
+
+export const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
+
+/** True when a trade/listing id refers to a real on-chain escrow record. */
+export function isOnChainTradeId(id: string | null | undefined): id is string {
+	return typeof id === "string" && /^[1-9]\d*$/.test(id);
+}
 
 // ─── ARCSCAN LINK BUILDERS ────────────────────────────────────────────────────
 export const ARCSCAN_TX = (hash: string) =>
@@ -136,6 +144,29 @@ export function hashBankDetails(
  * needs to call. Extend with the full ABI if you need admin functions.
  */
 export const ESCROW_ABI = [
+	// ── Custom errors (lets viem decode reverts into readable messages) ──
+	{ type: "error", name: "Unauthorized", inputs: [] },
+	{ type: "error", name: "InvalidAmount", inputs: [] },
+	{
+		type: "error",
+		name: "InsufficientInventory",
+		inputs: [
+			{ name: "requested", type: "uint256" },
+			{ name: "available", type: "uint256" },
+		],
+	},
+	{
+		type: "error",
+		name: "InvalidState",
+		inputs: [
+			{ name: "current", type: "uint8" },
+			{ name: "required", type: "uint8" },
+		],
+	},
+	{ type: "error", name: "ZeroAddress", inputs: [] },
+	{ type: "error", name: "SlashWindowExpired", inputs: [] },
+	{ type: "error", name: "FeeTooHigh", inputs: [] },
+	{ type: "error", name: "TransferFailed", inputs: [] },
 	// ── Write functions ──
 	{
 		name: "initiateTrade",
@@ -253,6 +284,27 @@ export const ESCROW_ABI = [
 		],
 	},
 	{
+		name: "getListingInventory",
+		type: "function",
+		stateMutability: "view",
+		inputs: [{ name: "_listingId", type: "uint256" }],
+		outputs: [
+			{
+				type: "tuple",
+				components: [
+					{ name: "listingTradeId", type: "uint256" },
+					{ name: "seller", type: "address" },
+					{ name: "totalDeposited", type: "uint256" },
+					{ name: "availableAmount", type: "uint256" },
+					{ name: "allocatedAmount", type: "uint256" },
+					{ name: "activeChildTradeId", type: "uint256" },
+					{ name: "privacyHashedBankDetails", type: "bytes32" },
+					{ name: "active", type: "bool" },
+				],
+			},
+		],
+	},
+	{
 		name: "calculateNetRelease",
 		type: "function",
 		stateMutability: "view",
@@ -297,6 +349,25 @@ export const ESCROW_ABI = [
 			{ name: "buyer", type: "address", indexed: true },
 			{ name: "amountAfterFee", type: "uint256", indexed: false },
 			{ name: "fee", type: "uint256", indexed: false },
+		],
+	},
+	{
+		name: "PartialOrderAllocated",
+		type: "event",
+		inputs: [
+			{ name: "parentListingId", type: "uint256", indexed: true },
+			{ name: "childTradeId", type: "uint256", indexed: true },
+			{ name: "buyer", type: "address", indexed: true },
+			{ name: "allocatedAmount", type: "uint256", indexed: false },
+			{ name: "remainingAvailable", type: "uint256", indexed: false },
+		],
+	},
+	{
+		name: "OracleProofSubmitted",
+		type: "event",
+		inputs: [
+			{ name: "tradeId", type: "uint256", indexed: true },
+			{ name: "proofId", type: "bytes32", indexed: true },
 		],
 	},
 	{
@@ -481,6 +552,17 @@ export async function switchToArcTestnet(
 	}
 }
 
+const CONTRACT_ERROR_MESSAGES: Record<string, string> = {
+	Unauthorized:
+		"The escrow contract rejected this action for your wallet (wrong role, or the listing already has an active order).",
+	InvalidAmount: "The escrow contract rejected the amount.",
+	InsufficientInventory: "This listing doesn't have enough USDC available on-chain.",
+	InvalidState: "This trade is not in the right on-chain state for that action.",
+	ZeroAddress: "A required wallet address is missing.",
+	SlashWindowExpired: "The dispute window for this trade has closed.",
+	TransferFailed: "The USDC transfer failed. Check your balance and allowance.",
+};
+
 /**
  * Converts technical wallet/connector exceptions into clear, non-technical messages for users.
  */
@@ -488,7 +570,22 @@ export function formatUserFriendlyWalletError(
 	err: unknown,
 	fallback = "Could not complete wallet request. Please try again.",
 ): string {
-	const raw = err instanceof Error ? err.message : String(err ?? "");
+	// viem ContractFunctionRevertedError carries the decoded custom error name.
+	const walk = err as {
+		data?: { errorName?: string };
+		cause?: unknown;
+		shortMessage?: string;
+	} | null;
+	let cursor: typeof walk = walk;
+	for (let depth = 0; cursor && depth < 6; depth++) {
+		const name = cursor.data?.errorName;
+		if (name && CONTRACT_ERROR_MESSAGES[name]) return CONTRACT_ERROR_MESSAGES[name];
+		cursor = cursor.cause as typeof walk;
+	}
+
+	const raw =
+		(walk && typeof walk.shortMessage === "string" && walk.shortMessage) ||
+		(err instanceof Error ? err.message : String(err ?? ""));
 	const lower = raw.toLowerCase();
 
 	if (
@@ -506,20 +603,37 @@ export function formatUserFriendlyWalletError(
 	}
 
 	if (
+		lower.includes("chain mismatch") ||
+		lower.includes("does not match the target chain") ||
+		(lower.includes("switch") && lower.includes("chain")) ||
+		lower.includes("arc testnet")
+	) {
+		return "Switch your wallet to Arc Testnet (chain 5042002) and try again.";
+	}
+
+	if (lower.includes("timed out") || lower.includes("timeout")) {
+		return "The network didn't confirm the transaction in time. Check ArcScan before retrying.";
+	}
+
+	if (
 		lower.includes("getchainid") ||
 		lower.includes("is not a function") ||
 		lower.includes("connector") ||
 		lower.includes("provider is disconnected")
 	) {
-		return "Your wallet connection needs a quick refresh. Please disconnect and reconnect your wallet.";
+		return "Your wallet connection needs a refresh. Disconnect and reconnect your wallet.";
 	}
 
-	if (lower.includes("insufficient funds") || lower.includes("exceeds balance")) {
-		return "Insufficient USDC balance in your wallet for this transaction.";
+	if (
+		lower.includes("insufficient funds") ||
+		lower.includes("exceeds balance") ||
+		lower.includes("insufficient balance")
+	) {
+		return "Not enough USDC in your wallet for this transaction (including gas).";
 	}
 
-	if (lower.includes("switch") && lower.includes("chain")) {
-		return "Please switch your wallet network to Arc Testnet and try again.";
+	for (const [name, message] of Object.entries(CONTRACT_ERROR_MESSAGES)) {
+		if (raw.includes(name)) return message;
 	}
 
 	// Never expose raw stack traces, TypeError strings, or RPC JSON blobs
@@ -529,11 +643,10 @@ export function formatUserFriendlyWalletError(
 		lower.includes("null") ||
 		lower.includes("viem") ||
 		lower.includes("wagmi") ||
-		raw.length > 110
+		raw.length > 140
 	) {
 		return fallback;
 	}
 
 	return raw || fallback;
 }
-

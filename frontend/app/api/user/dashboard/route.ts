@@ -1,6 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth/wallet";
-import { readEscrowTrade } from "@/lib/oracle/escrow";
+import {
+	readEscrowTrade,
+	readListingInventory,
+	readNextTradeId,
+	verifySellerListing,
+} from "@/lib/oracle/escrow";
+
+const ONCHAIN_SCAN_WINDOW = 40n;
+const LISTING_CACHE_MS = 30_000;
+const listingCache = new Map<string, { live: boolean | null; at: number }>();
+
+/** null = couldn't reach Arc; keep the offer rather than blank the market. */
+async function isListingLive(tradeId: string): Promise<boolean | null> {
+	if (!/^[1-9]\d*$/.test(tradeId)) return false;
+	const hit = listingCache.get(tradeId);
+	if (hit && Date.now() - hit.at < LISTING_CACHE_MS) return hit.live;
+	let live: boolean | null;
+	try {
+		const inv = await readListingInventory(BigInt(tradeId));
+		live = Boolean(inv.active) && BigInt(inv.availableAmount) > 0n;
+	} catch {
+		live = null;
+	}
+	listingCache.set(tradeId, { live, at: Date.now() });
+	return live;
+}
+
+/** Market offers, minus sell listings that have no USDC locked on Arc. */
+async function liveOffers() {
+	const offers = getActivePeerOffers();
+	const checks = await Promise.all(
+		offers.map((o) => (o.side === "buy" ? Promise.resolve(true) : isListingLive(o.tradeId))),
+	);
+	return offers.filter((_, i) => checks[i] !== false);
+}
 import { formatUsdc } from "@/lib/web3/arcConfig";
 import { RATE } from "@/lib/utils";
 import {
@@ -32,7 +66,7 @@ export async function GET(request: NextRequest) {
 		} catch {
 			return NextResponse.json({
 				authenticated: false,
-				peerOffers: getActivePeerOffers(),
+				peerOffers: await liveOffers(),
 				transactions: [],
 			});
 		}
@@ -43,9 +77,13 @@ export async function GET(request: NextRequest) {
 		await hydrateUserTradesFromSupabase(current);
 		const transactions = [...getUserLedger(current)];
 
-		// Inspect recent on-chain trade slots 1..10 when RPC is reachable
+		// Mirror the most recent on-chain escrow records this wallet is party to.
+		const nextId = await readNextTradeId().catch(() => 1n);
+		const firstId = nextId > ONCHAIN_SCAN_WINDOW ? nextId - ONCHAIN_SCAN_WINDOW : 1n;
+		const ids: bigint[] = [];
+		for (let id = firstId; id < nextId; id++) ids.push(id);
 		const onChainChecks = await Promise.allSettled(
-			[1n, 2n, 3n, 4n, 5n, 6n, 7n, 8n, 9n, 10n].map(async (id) => {
+			ids.map(async (id) => {
 				const trade = await readEscrowTrade(id);
 				return { id: id.toString(), trade };
 			}),
@@ -65,10 +103,8 @@ export async function GET(request: NextRequest) {
 				const isCompletedOnChain = statusNum === 3;
 
 				if (isCompletedOnChain) {
-					completePeerTrade(id, {
-						proofId: String(trade.proofId ?? ""),
-						txHash: String(trade.proofId ?? ""),
-					});
+					// proofId is the payment proof, not a transaction hash.
+					completePeerTrade(id, { proofId: String(trade.proofId ?? "") });
 				}
 
 				if (!transactions.some((t) => t.tradeId === id)) {
@@ -108,7 +144,8 @@ export async function GET(request: NextRequest) {
 						verificationMethod: "Flutterwave Checkout",
 						status: mappedStatus,
 						lifecycleState: mappedLifecycle,
-						txHash: String(trade.proofId ?? "0x0"),
+						txHash: "",
+						proofId: String(trade.proofId ?? ""),
 						timestamp: isCompletedOnChain ? "Settled" : mappedLifecycle.replace(/_/g, " "),
 					});
 				}
@@ -126,7 +163,7 @@ export async function GET(request: NextRequest) {
 				lastAuthenticatedAt: user.lastAuthenticatedAt,
 			},
 			transactions,
-			peerOffers: getActivePeerOffers(),
+			peerOffers: await liveOffers(),
 			trustSummary: getUserTrustSummary(current),
 			queueEntries: getUserQueueEntries(current),
 		});
@@ -175,6 +212,26 @@ export async function POST(request: NextRequest) {
 				return NextResponse.json({ error: "INVALID_AMOUNT" }, { status: 400 });
 			}
 
+			// Sell listings must be backed by USDC the seller locked on Arc.
+			if ((body.side ?? "sell") === "sell") {
+				if (!body.tradeId || !/^[1-9]\d*$/.test(body.tradeId)) {
+					return NextResponse.json(
+						{ error: "ESCROW_NOT_FUNDED: lock USDC on Arc before publishing a sell offer." },
+						{ status: 400 },
+					);
+				}
+				const check = await verifySellerListing(
+					BigInt(body.tradeId),
+					user.walletAddress,
+					BigInt(Math.round(numericUsdc * 1_000_000)),
+				);
+				if (!check.ok) {
+					return NextResponse.json({ error: `ESCROW_NOT_VERIFIED: ${check.reason}` }, { status: 400 });
+				}
+			} else {
+				body.tradeId = undefined;
+			}
+
 			try {
 				const { offer, transaction } = createPeerOffer(user.walletAddress, {
 					usdcAmount: numericUsdc,
@@ -191,7 +248,7 @@ export async function POST(request: NextRequest) {
 					offer,
 					transaction,
 					transactions: getUserLedger(current),
-					peerOffers: getActivePeerOffers(),
+					peerOffers: await liveOffers(),
 					trustSummary: getUserTrustSummary(current),
 					queueEntries: getUserQueueEntries(current),
 				});
@@ -228,7 +285,7 @@ export async function POST(request: NextRequest) {
 					activeTradeId: result.sharedTrade?.tradeId ?? null,
 					queueEntry: result.queueEntry ?? null,
 					transactions: getUserLedger(current),
-					peerOffers: getActivePeerOffers(),
+					peerOffers: await liveOffers(),
 					trustSummary: getUserTrustSummary(current),
 					queueEntries: getUserQueueEntries(current),
 				});
@@ -252,7 +309,7 @@ export async function POST(request: NextRequest) {
 					ok: true,
 					cancelled,
 					transactions: getUserLedger(current),
-					peerOffers: getActivePeerOffers(),
+					peerOffers: await liveOffers(),
 					trustSummary: getUserTrustSummary(current),
 					queueEntries: getUserQueueEntries(current),
 				});
@@ -274,7 +331,7 @@ export async function POST(request: NextRequest) {
 					executionMode: "ACTIVE_SLOT",
 					activeTradeId: activated.sharedTrade.tradeId,
 					transactions: getUserLedger(current),
-					peerOffers: getActivePeerOffers(),
+					peerOffers: await liveOffers(),
 					trustSummary: getUserTrustSummary(current),
 					queueEntries: getUserQueueEntries(current),
 				});
@@ -296,7 +353,7 @@ export async function POST(request: NextRequest) {
 					ok: true,
 					cancelled,
 					transactions: getUserLedger(current),
-					peerOffers: getActivePeerOffers(),
+					peerOffers: await liveOffers(),
 					trustSummary: getUserTrustSummary(current),
 					queueEntries: getUserQueueEntries(current),
 				});
@@ -349,7 +406,7 @@ export async function POST(request: NextRequest) {
 			return NextResponse.json({
 				ok: true,
 				transactions: getUserLedger(current),
-				peerOffers: getActivePeerOffers(),
+				peerOffers: await liveOffers(),
 				trustSummary: getUserTrustSummary(current),
 				queueEntries: getUserQueueEntries(current),
 			});

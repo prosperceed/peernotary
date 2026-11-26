@@ -1,15 +1,14 @@
 import "server-only";
 
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { ethers } from "ethers";
-import { oracleSettleToBuyer } from "@/lib/oracle/escrow";
+import { oracleSettleToBuyer, paymentProofId } from "@/lib/oracle/escrow";
 import {
 	completePeerTrade,
 	createOrReuseCheckoutAttempt,
 	getPaymentAttemptByRef,
 	getSharedTrade,
 	recordVerifiedFlutterwavePayment,
-	resolveParentListingId,
+	resolveOnChainListingId,
 	transitionEscrowReleaseState,
 	transitionSellerPayoutState,
 	type PaymentAttemptInfo,
@@ -316,47 +315,25 @@ export async function settleAndReleaseEscrowAfterPaymentConfirmed(params: {
 	}
 
 	// 2. Oracle release / on-chain settlement of USDC to buyer
-	let releaseTxHash: string | undefined;
-	const proofIdBytes32 = ethers.keccak256(
-		ethers.toUtf8Bytes(
-			`FLW-RELEASE-${params.tradeId}-${params.txRef}-${Date.now()}`,
-		),
-	);
-
+	const proofIdBytes32 = paymentProofId("FLW", params.tradeId, params.txRef);
 	const buyerWallet = trade.buyerAddress;
-	const parentListing = resolveParentListingId(params.tradeId);
-	const numericListingId = /^\d+$/.test(parentListing)
-		? BigInt(parentListing)
-		: /^\d+$/.test(params.tradeId)
-			? BigInt(params.tradeId)
-			: 1n;
-	const usdcUnits = BigInt(
-		trade.usdcAmountUnits ||
-			Math.round(
-				(parseFloat(trade.usdcAmount.replace(/,/g, "") || "1") || 1) * 1_000_000,
-			),
-	);
-
-	if (buyerWallet) {
-		try {
-			const settled = await oracleSettleToBuyer({
-				listingId: numericListingId,
-				buyerAddress: buyerWallet,
-				amountUnits: usdcUnits,
-				proofId: proofIdBytes32,
-			});
-			if (settled.transactionHash) {
-				releaseTxHash = settled.transactionHash;
-			}
-		} catch (oracleErr) {
-			console.warn(
-				"Oracle settlement warning after payment confirmation:",
-				oracleErr,
-			);
-		}
+	const listingId = resolveOnChainListingId(params.tradeId);
+	if (!buyerWallet) throw new Error("Trade has no buyer wallet to release USDC to");
+	if (listingId === null) {
+		throw new Error(`Trade ${params.tradeId} has no on-chain escrow listing to settle`);
 	}
+	const usdcUnits = BigInt(trade.usdcAmountUnits);
 
-	if (!releaseTxHash) throw new Error("On-chain escrow settlement did not return a transaction hash");
+	const settled = await oracleSettleToBuyer({
+		listingId,
+		buyerAddress: buyerWallet,
+		amountUnits: usdcUnits,
+		proofId: proofIdBytes32,
+	});
+	const releaseTxHash = settled.transactionHash ?? trade.txHash ?? undefined;
+	if (!releaseTxHash && !settled.alreadyCompleted) {
+		throw new Error("On-chain escrow settlement did not return a transaction hash");
+	}
 
 	// 3. Complete escrow release lifecycle and update order
 	try {

@@ -106,7 +106,20 @@ const sellerInventoryMap = new Map<string, SellerInventoryRecord>();
 const childTradeToParentListingMap = new Map<string, string>();
 
 export function resolveParentListingId(tradeId: string): string {
-	return childTradeToParentListingMap.get(tradeId) ?? tradeId;
+	const mapped = childTradeToParentListingMap.get(tradeId);
+	if (mapped) return mapped;
+	// Child ids are "<listingId>-<n>", so the parent survives a server restart.
+	const child = /^(\d+)-\d+$/.exec(tradeId);
+	return child ? child[1] : tradeId;
+}
+
+/**
+ * The on-chain ArcP2PEscrowService listing id backing a trade, or null when the
+ * trade has no on-chain escrow (and therefore must never be oracle-settled).
+ */
+export function resolveOnChainListingId(tradeId: string): bigint | null {
+	const parent = resolveParentListingId(tradeId);
+	return /^[1-9]\d*$/.test(parent) ? BigInt(parent) : null;
 }
 const queueEntriesStore = new Map<string, QueueEntryItem>();
 const userTrustStore = new Map<string, UserTrustSummary>();
@@ -1153,7 +1166,9 @@ export function createPeerOffer(
 	},
 ): { offer: PeerTradeOffer; transaction: UserTransaction } {
 	const sAddr = sellerAddress.toLowerCase();
-	const newTradeId = params.tradeId || String(1001 + sharedTradesMap.size);
+	// Sell listings carry their verified on-chain id. Anything else gets a
+	// non-numeric id so it can never be mistaken for an on-chain escrow.
+	const newTradeId = params.tradeId || `P-${1001 + sharedTradesMap.size}`;
 	const usdcUnits = Math.round(params.usdcAmount * 1_000_000);
 	if (usdcUnits <= 0) {
 		throw new Error("AMOUNT_MUST_BE_POSITIVE");
@@ -1386,7 +1401,7 @@ export function takePeerOffer(
 		inv.filledUnits > 0 ||
 		inv.reservedQueuedUnits > 0;
 	const activeTradeId = isPartialFill
-		? `${tradeId}${Math.floor(10 + Math.random() * 89)}`
+		? `${tradeId}-${Date.now()}`
 		: tradeId;
 
 	inv.availableUnits -= reqUnits;

@@ -246,10 +246,10 @@ export function BankSearchSelect({
 				onClick={() => setIsOpen((prev) => !prev)}
 				className={
 					compact
-						? `inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-[#d1e8dc] text-xs font-medium text-[#0d2b1e] bg-white hover:border-[#1a9e5c] transition-all shadow-sm focus:outline-none focus:ring-1 focus:ring-[#1a9e5c] ${
+						? `inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-line text-xs font-medium text-ink bg-surface hover:border-accent transition-colors shadow-card focus:outline-none focus:ring-1 focus:ring-accent ${
 								disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
 						  }`
-						: `w-full px-3.5 py-2.5 rounded-2xl border border-[#d1e8dc] text-xs text-[#0d2b1e] bg-white hover:border-[#1a9e5c] transition-all shadow-sm flex items-center justify-between gap-2 focus:outline-none focus:ring-2 focus:ring-[#1a9e5c]/20 ${
+						: `w-full px-3.5 py-2.5 rounded-xl border border-line text-xs text-ink bg-surface hover:border-accent transition-colors shadow-card flex items-center justify-between gap-2 focus:outline-none focus:ring-2 focus:ring-accent/20 ${
 								disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
 						  }`
 				}
@@ -257,13 +257,13 @@ export function BankSearchSelect({
 				<span className="flex items-center gap-2 truncate text-left">
 					<Landmark
 						size={compact ? 12 : 14}
-						className={value && value !== "all" ? "text-[#1a9e5c]" : "text-[#7aaa92]"}
+						className={value && value !== "all" ? "text-accent" : "text-ink-3"}
 					/>
 					<span
 						className={`truncate ${
 							!value || (allowAll && value === "all")
-								? "text-[#0d2b1e]"
-								: "font-semibold text-[#0d2b1e]"
+								? "text-ink"
+								: "font-semibold text-ink"
 						}`}
 					>
 						{displayValue}
@@ -271,20 +271,20 @@ export function BankSearchSelect({
 				</span>
 				<ChevronDown
 					size={13}
-					className={`text-[#7aaa92] transition-transform duration-200 shrink-0 ${
-						isOpen ? "rotate-180 text-[#1a9e5c]" : ""
+					className={`text-ink-3 transition-transform duration-200 shrink-0 ${
+						isOpen ? "rotate-180 text-accent" : ""
 					}`}
 				/>
 			</button>
 
 			{/* Dropdown Popover */}
 			{isOpen && (
-				<div className="absolute top-full mt-1.5 left-0 z-50 w-72 sm:w-84 max-w-[90vw] rounded-2xl bg-white border border-[#d1e8dc] shadow-xl overflow-hidden p-2.5 animate-in fade-in zoom-in-95 duration-150">
+				<div className="absolute top-full mt-1.5 left-0 z-50 w-72 sm:w-84 max-w-[90vw] rounded-xl bg-surface border border-line shadow-card overflow-hidden p-2.5 animate-in fade-in zoom-in-95 duration-150">
 					{/* Search input header */}
 					<div className="relative mb-2">
 						<Search
 							size={13}
-							className="absolute left-3 top-1/2 -translate-y-1/2 text-[#7aaa92]"
+							className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3"
 						/>
 						<input
 							ref={searchInputRef}
@@ -292,13 +292,13 @@ export function BankSearchSelect({
 							value={searchQuery}
 							onChange={(e) => setSearchQuery(e.target.value)}
 							placeholder="Type bank name or code..."
-							className="w-full pl-8 pr-7 py-2 rounded-xl bg-[#f0f7f3] border border-[#d1e8dc]/60 text-xs text-[#0d2b1e] placeholder:text-[#7aaa92] focus:outline-none focus:border-[#1a9e5c] focus:bg-white transition-all"
+							className="w-full pl-8 pr-7 py-2 rounded-lg bg-subtle border border-line/60 text-xs text-ink placeholder:text-ink-3 focus:outline-none focus:border-accent focus:bg-surface transition-colors"
 						/>
 						{searchQuery && (
 							<button
 								type="button"
 								onClick={() => setSearchQuery("")}
-								className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#7aaa92] hover:text-[#0d2b1e]"
+								className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-3 hover:text-ink"
 							>
 								<X size={12} />
 							</button>
@@ -306,14 +306,14 @@ export function BankSearchSelect({
 					</div>
 
 					{/* Quick Category Filters */}
-					<div className="flex items-center gap-1 mb-2 pb-2 border-b border-[#eef5f1] text-[10px] font-medium">
+					<div className="flex items-center gap-1 mb-2 pb-2 border-b border-[#eef5f1] text-[11px] font-medium">
 						<button
 							type="button"
 							onClick={() => setActiveCategory("all")}
-							className={`px-2 py-0.5 rounded-full transition-all ${
+							className={`px-2 py-0.5 rounded-md transition-colors ${
 								activeCategory === "all"
-									? "bg-[#0d2b1e] text-white"
-									: "bg-[#f0f7f3] text-[#4a6b5d] hover:bg-[#e2f1e9]"
+									? "bg-ink text-white"
+									: "bg-subtle text-ink-2 hover:bg-accent-soft"
 							}`}
 						>
 							All
@@ -321,10 +321,10 @@ export function BankSearchSelect({
 						<button
 							type="button"
 							onClick={() => setActiveCategory("popular")}
-							className={`px-2.5 py-0.5 rounded-full transition-all ${
+							className={`px-2.5 py-0.5 rounded-md transition-colors ${
 								activeCategory === "popular"
-									? "bg-[#1a9e5c] text-white"
-									: "bg-[#f0f7f3] text-[#4a6b5d] hover:bg-[#e2f1e9]"
+									? "bg-accent text-white"
+									: "bg-subtle text-ink-2 hover:bg-accent-soft"
 							}`}
 						>
 							Popular
@@ -332,46 +332,46 @@ export function BankSearchSelect({
 						<button
 							type="button"
 							onClick={() => setActiveCategory("fintech")}
-							className={`px-2 py-0.5 rounded-full transition-all ${
+							className={`px-2 py-0.5 rounded-md transition-colors ${
 								activeCategory === "fintech"
-									? "bg-[#1a9e5c] text-white"
-									: "bg-[#f0f7f3] text-[#4a6b5d] hover:bg-[#e2f1e9]"
+									? "bg-accent text-white"
+									: "bg-subtle text-ink-2 hover:bg-accent-soft"
 							}`}
 						>
 							Digital/MFB
 						</button>
-						<span className="ml-auto text-[10px] text-[#7aaa92] font-normal">
+						<span className="ml-auto text-[11px] text-ink-3 font-normal">
 							{loading ? "Loading..." : `${filteredBanks.length} banks`}
 						</span>
 					</div>
 
 					{/* Bank List */}
-					<div className="max-h-56 overflow-y-auto space-y-0.5 scrollbar-thin scrollbar-thumb-[#d1e8dc] pr-0.5">
+					<div className="max-h-56 overflow-y-auto space-y-0.5 scrollbar-thin scrollbar-thumb-line pr-0.5">
 						{/* Optional "All Banks" item */}
 						{allowAll && !searchQuery && activeCategory === "all" && (
 							<button
 								type="button"
 								onClick={() => handleSelect("all")}
-								className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-xl text-left text-xs transition-colors ${
+								className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left text-xs transition-colors ${
 									!value || value === "all"
-										? "bg-[#e3f4ec] text-[#0d2b1e] font-semibold"
-										: "text-[#0d2b1e] hover:bg-[#f0f7f3]"
+										? "bg-accent-soft text-ink font-semibold"
+										: "text-ink hover:bg-subtle"
 								}`}
 							>
 								<span className="flex items-center gap-2">
-									<span className="w-5 h-5 rounded-lg bg-[#e3f4ec] flex items-center justify-center text-[10px] text-[#1a9e5c]">
+									<span className="w-5 h-5 rounded-lg bg-accent-soft flex items-center justify-center text-[11px] text-accent">
 										<Landmark size={10} />
 									</span>
 									<span>{allLabel}</span>
 								</span>
 								{(!value || value === "all") && (
-									<Check size={13} className="text-[#1a9e5c]" />
+									<Check size={13} className="text-accent" />
 								)}
 							</button>
 						)}
 
 						{filteredBanks.length === 0 ? (
-							<div className="py-6 text-center text-xs text-[#7aaa92]">
+							<div className="py-6 text-center text-xs text-ink-3">
 								<p>No banks matching &ldquo;{searchQuery}&rdquo;</p>
 								<button
 									type="button"
@@ -379,7 +379,7 @@ export function BankSearchSelect({
 										setSearchQuery("");
 										setActiveCategory("all");
 									}}
-									className="mt-2 text-[11px] text-[#1a9e5c] hover:underline font-medium"
+									className="mt-2 text-xs text-accent hover:underline font-medium"
 								>
 									Clear filters
 								</button>
@@ -395,24 +395,24 @@ export function BankSearchSelect({
 										key={`${bank.code}-${bank.id}`}
 										type="button"
 										onClick={() => handleSelect(bank.name, bank.code)}
-										className={`w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-left text-xs transition-colors ${
+										className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-left text-xs transition-colors ${
 											isSelected
-												? "bg-[#e3f4ec] text-[#0d2b1e] font-semibold"
-												: "text-[#0d2b1e] hover:bg-[#f0f7f3]"
+												? "bg-accent-soft text-ink font-semibold"
+												: "text-ink hover:bg-subtle"
 										}`}
 									>
 										<span className="flex items-center gap-2.5 truncate">
-											<span className="w-6 h-6 rounded-lg bg-[#f0f7f3] border border-[#d1e8dc]/70 flex items-center justify-center text-[10px] font-bold text-[#0d2b1e] shrink-0">
+											<span className="w-6 h-6 rounded-lg bg-subtle border border-line/70 flex items-center justify-center text-[11px] font-semibold text-ink shrink-0">
 												{bank.name.charAt(0)}
 											</span>
 											<span className="truncate">{bank.name}</span>
 										</span>
 										<div className="flex items-center gap-1.5 shrink-0 ml-2">
-											<span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-[#f0f7f3] text-[#4a6b5d] border border-[#d1e8dc]/50">
+											<span className="px-1.5 py-0.5 rounded text-[11px] font-mono bg-subtle text-ink-2 border border-line/50">
 												{bank.code}
 											</span>
 											{isSelected && (
-												<Check size={13} className="text-[#1a9e5c]" />
+												<Check size={13} className="text-accent" />
 											)}
 										</div>
 									</button>

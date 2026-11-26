@@ -7,58 +7,37 @@ const config = {
 	],
 	theme: {
 		extend: {
+			/*
+			 * One neutral ink scale + one accent. Status colours come from
+			 * Tailwind's amber/red/sky scales. Keep new colours out of components.
+			 */
 			colors: {
-				/* Light background system */
-				bg: "#f5f9f7",
-				"bg-secondary": "#edf5f1",
+				canvas: "#f7f8f7",
 				surface: "#ffffff",
-				"surface-alt": "#f0f7f3",
+				subtle: "#f2f4f3",
+				line: "#e3e6e4",
+				"line-strong": "#cfd5d2",
 
-				/* Green accent palette */
-				"green-primary": "#1a9e5c",
-				"green-mid": "#22c972",
-				"green-light": "#4dd68c",
-				"green-pale": "#d4f0e3",
+				ink: "#0f1412",
+				"ink-2": "#47514c",
+				"ink-3": "#78817c",
+				"ink-4": "#a3aba7",
 
-				/* Text */
-				"text-primary": "#0d2b1e",
-				"text-secondary": "#3d6b55",
-				"text-muted": "#7aaa92",
-
-				/* Borders */
-				border: "#d1e8dc",
+				accent: "#0e7a4b",
+				"accent-hover": "#0a6540",
+				"accent-soft": "#e8f3ed",
+				"accent-ink": "#0a5c39",
 			},
 			fontFamily: {
-				sans: ["Inter", "system-ui", "sans-serif"],
-				mono: ["SF Mono", "Fira Code", "ui-monospace", "monospace"],
+				sans: ["Geist", "Inter", "system-ui", "sans-serif"],
+				mono: ["Geist Mono", "ui-monospace", "SFMono-Regular", "monospace"],
 			},
-			backgroundImage: {
-				"glow-green":
-					"radial-gradient(ellipse at 50% 0%, rgba(34,201,114,0.18) 0%, transparent 65%)",
-				"glow-green-bottom":
-					"radial-gradient(ellipse at 50% 100%, rgba(34,201,114,0.12) 0%, transparent 60%)",
-				"ring-gradient":
-					"radial-gradient(ellipse at center, rgba(34,201,114,0.15) 0%, rgba(245,249,247,0) 70%)",
+			boxShadow: {
+				card: "0 1px 2px rgba(15, 20, 18, 0.04)",
+				pop: "0 8px 24px -8px rgba(15, 20, 18, 0.16), 0 1px 2px rgba(15, 20, 18, 0.06)",
 			},
-			animation: {
-				"pulse-slow": "pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite",
-				"float-bob": "float-bob 4s ease-in-out infinite",
-				"orbit-cw": "orbit-slow 28s linear infinite",
-				"orbit-ccw": "orbit-slower 36s linear infinite",
-			},
-			keyframes: {
-				"float-bob": {
-					"0%, 100%": { transform: "translateY(0px)" },
-					"50%": { transform: "translateY(-8px)" },
-				},
-				"orbit-slow": {
-					from: { transform: "translate(-50%, -50%) rotate(0deg)" },
-					to:   { transform: "translate(-50%, -50%) rotate(360deg)" },
-				},
-				"orbit-slower": {
-					from: { transform: "translate(-50%, -50%) rotate(0deg)" },
-					to:   { transform: "translate(-50%, -50%) rotate(-360deg)" },
-				},
+			borderRadius: {
+				card: "12px",
 			},
 		},
 	},

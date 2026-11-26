@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { useAccount } from "wagmi";
 import { useEscrow } from "@/hooks/useEscrow";
+import TxStatusBanner from "@/components/web3/TxStatusBanner";
 import { Badge, ToastAlert } from "@/components/shared";
 import { subscribeToTradeUpdates } from "@/lib/supabase/client";
 import { ARCSCAN_TX, ESCROW_ADDRESS } from "@/lib/web3/arcConfig";
@@ -89,49 +90,49 @@ function CheckoutSkeleton() {
 	return (
 		<div className="max-w-6xl mx-auto space-y-6 animate-pulse">
 			<div className="flex items-center justify-between">
-				<div className="h-8 w-28 bg-[#e2f0e8] rounded-full" />
+				<div className="h-8 w-28 bg-accent-soft rounded-full" />
 				<div className="flex gap-2">
-					<div className="h-8 w-28 bg-[#e2f0e8] rounded-full" />
-					<div className="h-8 w-32 bg-[#e2f0e8] rounded-full" />
+					<div className="h-8 w-28 bg-accent-soft rounded-full" />
+					<div className="h-8 w-32 bg-accent-soft rounded-full" />
 				</div>
 			</div>
 			<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
 				{[...Array(4)].map((_, i) => (
 					<div
 						key={i}
-						className="h-36 rounded-[28px] bg-white border border-[#e5ebe7] p-6 space-y-3"
+						className="h-36 rounded-xl bg-surface border border-line p-6 space-y-3"
 					>
-						<div className="h-4 w-24 bg-[#e2f0e8] rounded" />
-						<div className="h-8 w-36 bg-[#e2f0e8] rounded" />
-						<div className="h-3 w-40 bg-[#e2f0e8] rounded" />
+						<div className="h-4 w-24 bg-accent-soft rounded" />
+						<div className="h-8 w-36 bg-accent-soft rounded" />
+						<div className="h-3 w-40 bg-accent-soft rounded" />
 					</div>
 				))}
 			</div>
-			<div className="rounded-[28px] border border-[#e5ebe7] bg-white p-6 space-y-3">
-				<div className="h-3 w-40 bg-[#e2f0e8] rounded" />
+			<div className="rounded-xl border border-line bg-surface p-6 space-y-3">
+				<div className="h-3 w-40 bg-accent-soft rounded" />
 				<div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
 					{[...Array(6)].map((_, i) => (
 						<div
 							key={i}
-							className="h-16 rounded-2xl bg-[#f0f7f3] border border-[#d1e8dc]"
+							className="h-16 rounded-xl bg-subtle border border-line"
 						/>
 					))}
 				</div>
 			</div>
 			<div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-				<div className="lg:col-span-7 rounded-[32px] border border-[#e5ebe7] bg-white p-7 space-y-5">
-					<div className="h-6 w-48 bg-[#e2f0e8] rounded" />
+				<div className="lg:col-span-7 rounded-xl border border-line bg-surface p-7 space-y-5">
+					<div className="h-6 w-48 bg-accent-soft rounded" />
 					<div className="grid grid-cols-2 gap-3">
-						<div className="h-20 bg-[#fbfdfc] rounded-2xl border border-[#e5ebe7]" />
-						<div className="h-20 bg-[#fbfdfc] rounded-2xl border border-[#e5ebe7]" />
-						<div className="h-20 bg-[#fbfdfc] rounded-2xl border border-[#e5ebe7]" />
-						<div className="h-20 bg-[#fbfdfc] rounded-2xl border border-[#e5ebe7]" />
+						<div className="h-20 bg-surface rounded-xl border border-line" />
+						<div className="h-20 bg-surface rounded-xl border border-line" />
+						<div className="h-20 bg-surface rounded-xl border border-line" />
+						<div className="h-20 bg-surface rounded-xl border border-line" />
 					</div>
-					<div className="h-12 bg-[#1a9e5c]/20 rounded-full" />
+					<div className="h-12 bg-accent/20 rounded-full" />
 				</div>
-				<div className="lg:col-span-5 rounded-[32px] border border-[#e5ebe7] bg-white p-7 space-y-4">
-					<div className="h-5 w-32 bg-[#e2f0e8] rounded" />
-					<div className="h-48 bg-[#fbfdfc] rounded-2xl border border-[#e5ebe7]" />
+				<div className="lg:col-span-5 rounded-xl border border-line bg-surface p-7 space-y-4">
+					<div className="h-5 w-32 bg-accent-soft rounded" />
+					<div className="h-48 bg-surface rounded-xl border border-line" />
 				</div>
 			</div>
 		</div>
@@ -588,21 +589,10 @@ function BankCheckoutContent() {
 			// 2. If seller is connected directly on-chain and oracle didn't settle yet, allow direct release
 			if (
 				!releaseTxHash &&
-				escrow.isConnected &&
-				!escrow.isWrongChain &&
-				ESCROW_ADDRESS !== "0x0000000000000000000000000000000000000000" &&
 				tradeId &&
-				/^\d+$/.test(tradeId)
+				trade?.sellerAddress?.toLowerCase() === address.toLowerCase()
 			) {
-				const isSeller =
-					trade?.sellerAddress?.toLowerCase() === address.toLowerCase();
-				if (isSeller) {
-					try {
-						releaseTxHash = await escrow.releaseFunds(BigInt(tradeId));
-					} catch (e) {
-						console.warn("Direct on-chain release error:", e);
-					}
-				}
+				releaseTxHash = (await escrow.releaseIfSellerCan(tradeId)) ?? undefined;
 			}
 
 			await handleLifecycleOperation("escrow_request_release", {
@@ -676,20 +666,20 @@ function BankCheckoutContent() {
 
 	if (authenticated === false || !isConnected) {
 		return (
-			<div className="max-w-md mx-auto my-14 p-6 rounded-xl bg-white border border-[#d1e8dc] text-center space-y-4">
-				<div className="w-11 h-11 rounded-xl bg-[#f0f7f3] border border-[#d1e8dc] flex items-center justify-center mx-auto">
-					<Lock size={18} className="text-[#1a9e5c]" />
+			<div className="max-w-md mx-auto my-14 p-6 rounded-lg bg-surface border border-line text-center space-y-4">
+				<div className="w-11 h-11 rounded-lg bg-subtle border border-line flex items-center justify-center mx-auto">
+					<Lock size={18} className="text-accent" />
 				</div>
-				<h2 className="text-sm font-bold text-[#0d2b1e]">
+				<h2 className="text-sm font-semibold text-ink">
 					Wallet Sign-In Required for Checkout
 				</h2>
-				<p className="text-xs text-[#7aaa92]">
+				<p className="text-xs text-ink-3">
 					Connect your wallet and sign the challenge in the dashboard before
 					initiating a Flutterwave payment session.
 				</p>
 				<Link
 					href="/dashboard"
-					className="inline-flex items-center justify-center w-full py-2.5 rounded-lg bg-[#1a9e5c] text-white text-xs font-semibold"
+					className="inline-flex items-center justify-center w-full py-2.5 rounded-lg bg-accent text-white text-xs font-semibold"
 				>
 					Return to Dashboard Sign-In
 				</Link>
@@ -699,20 +689,20 @@ function BankCheckoutContent() {
 
 	if (!tradeId || (!loading && !trade)) {
 		return (
-			<div className="max-w-md mx-auto my-14 p-6 rounded-xl bg-white border border-[#d1e8dc] text-center space-y-4">
-				<div className="w-11 h-11 rounded-xl bg-[#f0f7f3] border border-[#d1e8dc] flex items-center justify-center mx-auto">
-					<Lock size={18} className="text-[#1a9e5c]" />
+			<div className="max-w-md mx-auto my-14 p-6 rounded-lg bg-surface border border-line text-center space-y-4">
+				<div className="w-11 h-11 rounded-lg bg-subtle border border-line flex items-center justify-center mx-auto">
+					<Lock size={18} className="text-accent" />
 				</div>
-				<h2 className="text-sm font-bold text-[#0d2b1e]">
+				<h2 className="text-sm font-semibold text-ink">
 					No Active Trade Order Found
 				</h2>
-				<p className="text-xs text-[#7aaa92]">
+				<p className="text-xs text-ink-3">
 					Please select an order from the Trading Desk or place an order from
 					your Dashboard before accessing the settlement portal.
 				</p>
 				<Link
 					href="/trade"
-					className="inline-flex items-center justify-center w-full py-2.5 rounded-lg bg-[#1a9e5c] text-white text-xs font-semibold"
+					className="inline-flex items-center justify-center w-full py-2.5 rounded-lg bg-accent text-white text-xs font-semibold"
 				>
 					Go to Trading Desk
 				</Link>
@@ -746,12 +736,12 @@ function BankCheckoutContent() {
 				<div className="flex items-center gap-3">
 					<Link
 						href={returnTo}
-						className="inline-flex items-center gap-2 rounded-full px-4 py-2 border border-[#d1e8dc] bg-white text-xs font-semibold text-[#0d2b1e] hover:bg-[#f0f7f3] hover:border-[#1a9e5c] transition-all shadow-sm"
+						className="inline-flex items-center gap-2 rounded-md px-4 py-2 border border-line bg-surface text-xs font-semibold text-ink hover:bg-subtle hover:border-accent transition-colors shadow-card"
 					>
 						<ArrowLeft size={14} />
 						<span>Dashboard</span>
 					</Link>
-					<span className="text-xs font-mono font-semibold text-[#7aaa92]">
+					<span className="text-xs font-mono font-semibold text-ink-3">
 						Order #{tradeId}
 					</span>
 				</div>
@@ -759,29 +749,29 @@ function BankCheckoutContent() {
 				<div className="flex items-center gap-2">
 					<span
 						className={cn(
-							"px-3.5 py-1.5 rounded-full text-xs font-semibold border flex items-center gap-1.5",
+							"px-3.5 py-1.5 rounded-md text-xs font-semibold border flex items-center gap-1.5",
 							currentLifecycle === "COMPLETED"
-								? "bg-[#e8f7ee] border-[#1a9e5c] text-[#0d2b1e]"
+								? "bg-accent-soft border-accent text-ink"
 								: currentLifecycle.includes("HOLD") ||
 									  currentLifecycle === "REFUND_PENDING" ||
 									  currentLifecycle === "LATE_PAYMENT_REVIEW"
 									? "bg-red-50 border-red-200 text-red-800"
-									: "bg-[#f0f7f3] border-[#d1e8dc] text-[#0d2b1e]",
+									: "bg-subtle border-line text-ink",
 						)}
 					>
 						<span
 							className={cn(
 								"w-2 h-2 rounded-full",
 								currentLifecycle === "COMPLETED"
-									? "bg-[#1a9e5c]"
+									? "bg-accent"
 									: currentLifecycle.includes("HOLD")
 										? "bg-red-500"
-										: "bg-[#1a9e5c] animate-pulse",
+										: "bg-accent",
 							)}
 						/>
 						<span>{currentLifecycle.replace(/_/g, " ")}</span>
 					</span>
-					<span className="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#0d2b1e] text-white">
+					<span className="px-3.5 py-1.5 rounded-md text-xs font-semibold bg-ink text-white">
 						Protected Escrow
 					</span>
 				</div>
@@ -790,85 +780,85 @@ function BankCheckoutContent() {
 			{/* 4 Metric Pill Cards matching the Dashboard Layout */}
 			<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
 				{/* Card 1: Payable Amount */}
-				<div className="rounded-[28px] p-6 bg-gradient-to-br from-[#0d2b1e] via-[#113827] to-[#1a4a35] text-white shadow-sm flex flex-col justify-between min-h-[148px]">
+				<div className="rounded-xl p-6 bg-ink text-white flex flex-col justify-between min-h-[148px]">
 					<div className="flex items-center justify-between text-xs text-[#a0c4b3]">
 						<span>Payable Amount</span>
-						<span className="px-2 py-0.5 rounded-full bg-white/10 text-[10px] font-mono font-semibold text-[#d1e8dc]">
+						<span className="px-2 py-0.5 rounded-md bg-white/10 text-[11px] font-mono font-semibold text-line">
 							Fiat NGN
 						</span>
 					</div>
 					<div className="my-2">
-						<div className="text-2xl sm:text-3xl font-extrabold font-mono tracking-tight">
+						<div className="text-2xl sm:text-3xl font-semibold font-mono tracking-tight">
 							₦{fiatMajorNgn}
 						</div>
 					</div>
-					<div className="flex items-center gap-1.5 text-[11px] text-[#d1e8dc] font-mono">
+					<div className="flex items-center gap-1.5 text-xs text-line font-mono">
 						<CheckCircle2 size={12} className="text-[#34d399]" />
 						<span>≈ {usdcDisplay} USDC (Rate: ₦{(trade?.rateNgn ?? RATE).toLocaleString("en-NG")})</span>
 					</div>
 				</div>
 
 				{/* Card 2: Release SLA / Timer */}
-				<div className="rounded-[28px] p-6 bg-white border border-[#e5ebe7] shadow-sm flex flex-col justify-between min-h-[148px]">
-					<div className="flex items-center justify-between text-xs text-[#7aaa92]">
+				<div className="rounded-xl p-6 bg-surface border border-line shadow-card flex flex-col justify-between min-h-[148px]">
+					<div className="flex items-center justify-between text-xs text-ink-3">
 						<span>Payment Window</span>
-						<span className="px-2 py-0.5 rounded-full bg-[#f0f7f3] text-[10px] font-mono font-semibold text-[#1a9e5c]">
+						<span className="px-2 py-0.5 rounded-md bg-subtle text-[11px] font-mono font-semibold text-accent">
 							20m Auto-Cancel
 						</span>
 					</div>
 					<div className="my-2 flex items-baseline gap-2">
-						<div className="text-2xl sm:text-3xl font-extrabold font-mono text-[#0d2b1e] tracking-tight">
+						<div className="text-2xl sm:text-3xl font-semibold font-mono text-ink tracking-tight">
 							{formattedCountdown}
 						</div>
 					</div>
-					<div className="flex items-center gap-1.5 text-[11px] text-[#3d6b55]">
-						<Clock size={12} className="text-[#1a9e5c]" />
+					<div className="flex items-center gap-1.5 text-xs text-ink-2">
+						<Clock size={12} className="text-accent" />
 						<span>Instant Release SLA · 4.1s Avg Settlement</span>
 					</div>
 				</div>
 
 				{/* Card 3: Settlement Bank */}
-				<div className="rounded-[28px] p-6 bg-white border border-[#e5ebe7] shadow-sm flex flex-col justify-between min-h-[148px]">
-					<div className="flex items-center justify-between text-xs text-[#7aaa92]">
+				<div className="rounded-xl p-6 bg-surface border border-line shadow-card flex flex-col justify-between min-h-[148px]">
+					<div className="flex items-center justify-between text-xs text-ink-3">
 						<span>Settlement Bank</span>
-						<span className="px-2 py-0.5 rounded-full bg-[#f0f7f3] text-[10px] font-mono text-[#4a6b5d]">
+						<span className="px-2 py-0.5 rounded-md bg-subtle text-[11px] font-mono text-ink-2">
 							CBN {trade?.bankCode ?? "058"}
 						</span>
 					</div>
 					<div className="my-2">
-						<div className="text-xl sm:text-2xl font-bold text-[#0d2b1e] truncate">
+						<div className="text-xl sm:text-2xl font-semibold text-ink truncate">
 							{trade?.bankName ?? "Bank Transfer"}
 						</div>
 					</div>
-					<div className="flex items-center gap-1.5 text-[11px] font-mono text-[#7aaa92]">
-						<Landmark size={12} className="text-[#1a9e5c]" />
+					<div className="flex items-center gap-1.5 text-xs font-mono text-ink-3">
+						<Landmark size={12} className="text-accent" />
 						<span>Account: {trade?.accountMasked ?? "******"}</span>
 					</div>
 				</div>
 
 				{/* Card 4: Arc Escrow Lock */}
-				<div className="rounded-[28px] p-6 bg-white border border-[#e5ebe7] shadow-sm flex flex-col justify-between min-h-[148px]">
-					<div className="flex items-center justify-between text-xs text-[#7aaa92]">
+				<div className="rounded-xl p-6 bg-surface border border-line shadow-card flex flex-col justify-between min-h-[148px]">
+					<div className="flex items-center justify-between text-xs text-ink-3">
 						<span>Escrow Inventory</span>
-						<span className="px-2 py-0.5 rounded-full bg-[#f0f7f3] text-[10px] font-mono text-[#1a9e5c]">
+						<span className="px-2 py-0.5 rounded-md bg-subtle text-[11px] font-mono text-accent">
 							Arc Testnet
 						</span>
 					</div>
 					<div className="my-2">
-						<div className="text-2xl sm:text-3xl font-extrabold font-mono text-[#0d2b1e] tracking-tight">
+						<div className="text-2xl sm:text-3xl font-semibold font-mono text-ink tracking-tight">
 							{usdcDisplay} USDC
 						</div>
 					</div>
-					<div className="flex items-center gap-1.5 text-[11px] text-[#3d6b55]">
-						<ShieldCheck size={12} className="text-[#1a9e5c]" />
+					<div className="flex items-center gap-1.5 text-xs text-ink-2">
+						<ShieldCheck size={12} className="text-accent" />
 						<span>0 USDC Buyer Bond · Zero Collateral</span>
 					</div>
 				</div>
 			</div>
 
 			{/* Authoritative 6-Stage Progress Stepper */}
-			<div className="rounded-[28px] border border-[#e5ebe7] bg-white p-6 shadow-sm">
-				<div className="text-[11px] font-bold uppercase tracking-wider text-[#7aaa92] mb-3">
+			<div className="rounded-xl border border-line bg-surface p-6 shadow-card">
+				<div className="text-xs font-semibold uppercase tracking-wider text-ink-3 mb-3">
 					Settlement Pipeline (Trade #{tradeId})
 				</div>
 				<div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
@@ -884,30 +874,37 @@ function BankCheckoutContent() {
 							<div
 								key={s.state}
 								className={cn(
-									"p-3.5 rounded-2xl border text-[11px] font-medium transition-all",
+									"p-3.5 rounded-xl border text-xs font-medium transition-colors",
 									isDone
-										? "border-[#1a9e5c]/40 bg-[#f0f7f3] text-[#0d2b1e]"
+										? "border-accent/40 bg-subtle text-ink"
 										: isCurrent
-											? "border-[#1a9e5c] bg-[#e3f5ec] text-[#0d2b1e] font-bold shadow-sm ring-2 ring-[#1a9e5c]/20"
-											: "border-[#e5ebe7] bg-[#fafdfc] text-[#7aaa92]",
+											? "border-accent bg-[#e3f5ec] text-ink font-semibold shadow-card ring-2 ring-accent/20"
+											: "border-line bg-surface text-ink-3",
 								)}
 							>
 								<div className="flex items-center justify-between mb-1.5">
-									<span className="font-mono text-[10px] text-[#7aaa92]">
+									<span className="font-mono text-[11px] text-ink-3">
 										STAGE {idx + 1}
 									</span>
 									{isDone ? (
-										<CheckCircle2 size={13} className="text-[#1a9e5c]" />
+										<CheckCircle2 size={13} className="text-accent" />
 									) : isCurrent ? (
-										<span className="w-2 h-2 rounded-full bg-[#1a9e5c] animate-ping" />
+										<span className="w-2 h-2 rounded-full bg-accent" />
 									) : null}
 								</div>
-								<div className="leading-snug text-[#0d2b1e]">{s.label.slice(3)}</div>
+								<div className="leading-snug text-ink">{s.label.slice(3)}</div>
 							</div>
 						);
 					})}
 				</div>
 			</div>
+
+			<TxStatusBanner
+				txState={escrow.txState}
+				txHash={escrow.txHash}
+				arcScanUrl={escrow.arcScanUrl}
+				errorMsg={escrow.errorMsg}
+			/>
 
 			<ToastAlert
 				type={errorMsg ? "error" : "success"}
@@ -921,23 +918,23 @@ function BankCheckoutContent() {
 			{/* Main Two-Column Layout */}
 			<div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 				{/* Left Column: Bank Settlement Card */}
-				<div className="lg:col-span-7 rounded-[32px] border border-[#e5ebe7] bg-white p-6 sm:p-8 space-y-6 shadow-[0_4px_24px_rgba(13,43,30,0.06)]">
-					<div className="flex items-start justify-between border-b border-[#eef2ee] pb-4">
+				<div className="lg:col-span-7 rounded-xl border border-line bg-surface p-6 sm:p-8 space-y-6 shadow-card">
+					<div className="flex items-start justify-between border-b border-subtle pb-4">
 						<div className="flex items-center gap-3">
-							<div className="w-11 h-11 rounded-2xl bg-[#f0f7f3] border border-[#d1e8dc] flex items-center justify-center text-[#1a9e5c]">
+							<div className="w-11 h-11 rounded-xl bg-subtle border border-line flex items-center justify-center text-accent">
 								<CreditCard size={20} />
 							</div>
 							<div>
-								<h1 className="text-base font-bold text-[#0d2b1e]">
+								<h1 className="text-base font-semibold text-ink">
 									Fiat Payment Settlement
 								</h1>
-								<p className="text-xs text-[#7aaa92]">
+								<p className="text-xs text-ink-3">
 									Transfer exact NGN amount using the details below
 								</p>
 							</div>
 						</div>
-						<div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#f0f7f3] border border-[#d1e8dc] text-xs font-mono font-semibold text-[#0d2b1e]">
-							<Clock size={13} className="text-[#1a9e5c]" />
+						<div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-subtle border border-line text-xs font-mono font-semibold text-ink">
+							<Clock size={13} className="text-accent" />
 							<span>{formattedCountdown}</span>
 						</div>
 					</div>
@@ -945,64 +942,64 @@ function BankCheckoutContent() {
 					{/* Bank Transfer Details Cards */}
 					<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
 						{/* Bank Name */}
-						<div className="p-4 rounded-2xl bg-[#fbfdfc] border border-[#e5ebe7] space-y-1">
-							<span className="text-[11px] font-medium text-[#7aaa92]">
+						<div className="p-4 rounded-xl bg-surface border border-line space-y-1">
+							<span className="text-xs font-medium text-ink-3">
 								Beneficiary Bank
 							</span>
-							<div className="text-sm font-bold text-[#0d2b1e] flex items-center justify-between">
+							<div className="text-sm font-semibold text-ink flex items-center justify-between">
 								<span>{trade?.bankName ?? "Bank Transfer"}</span>
-								<span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-[#f0f7f3] text-[#4a6b5d] border border-[#d1e8dc]">
+								<span className="px-1.5 py-0.5 rounded text-[11px] font-mono bg-subtle text-ink-2 border border-line">
 									{trade?.bankCode ?? "058"}
 								</span>
 							</div>
 						</div>
 
 						{/* Account Number */}
-						<div className="p-4 rounded-2xl bg-[#fbfdfc] border border-[#e5ebe7] space-y-1">
-							<span className="text-[11px] font-medium text-[#7aaa92]">
+						<div className="p-4 rounded-xl bg-surface border border-line space-y-1">
+							<span className="text-xs font-medium text-ink-3">
 								Account Number
 							</span>
-							<div className="text-sm font-mono font-bold text-[#0d2b1e] flex items-center justify-between">
+							<div className="text-sm font-mono font-semibold text-ink flex items-center justify-between">
 								<span>{trade?.accountMasked ?? "******"}</span>
 								<button
 									type="button"
 									onClick={() => copyReference(trade?.accountMasked ?? "")}
-									className="p-1 rounded-full text-[#7aaa92] hover:text-[#0d2b1e] hover:bg-[#f0f7f3] transition-colors"
+									className="p-1 rounded-full text-ink-3 hover:text-ink hover:bg-subtle transition-colors"
 									title="Copy account"
 								>
-									{copiedRef ? <Check size={12} className="text-[#1a9e5c]" /> : <Copy size={12} />}
+									{copiedRef ? <Check size={12} className="text-accent" /> : <Copy size={12} />}
 								</button>
 							</div>
 						</div>
 
 						{/* Payable Exact Amount */}
-						<div className="p-4 rounded-2xl bg-[#fbfdfc] border border-[#e5ebe7] space-y-1">
-							<span className="text-[11px] font-medium text-[#7aaa92]">
+						<div className="p-4 rounded-xl bg-surface border border-line space-y-1">
+							<span className="text-xs font-medium text-ink-3">
 								Exact Amount to Pay
 							</span>
-							<div className="text-base font-mono font-extrabold text-[#1a9e5c] flex items-center justify-between">
+							<div className="text-base font-mono font-semibold text-accent flex items-center justify-between">
 								<span>₦{fiatMajorNgn}</span>
-								<span className="text-[10px] font-normal text-[#7aaa92]">
+								<span className="text-[11px] font-normal text-ink-3">
 									{usdcDisplay} USDC
 								</span>
 							</div>
 						</div>
 
 						{/* Payment Reference */}
-						<div className="p-4 rounded-2xl bg-[#fbfdfc] border border-[#e5ebe7] space-y-1">
-							<span className="text-[11px] font-medium text-[#7aaa92]">
+						<div className="p-4 rounded-xl bg-surface border border-line space-y-1">
+							<span className="text-xs font-medium text-ink-3">
 								Payment Reference (tx_ref)
 							</span>
-							<div className="text-xs font-mono font-semibold text-[#0d2b1e] flex items-center justify-between">
+							<div className="text-xs font-mono font-semibold text-ink flex items-center justify-between">
 								<span className="truncate max-w-[150px]">{activeTxRef}</span>
 								{activeTxRef !== "Not initialized" && (
 									<button
 										type="button"
 										onClick={() => copyReference(activeTxRef)}
-										className="p-1 rounded-full text-[#7aaa92] hover:text-[#0d2b1e] hover:bg-[#f0f7f3] transition-colors"
+										className="p-1 rounded-full text-ink-3 hover:text-ink hover:bg-subtle transition-colors"
 										title="Copy reference"
 									>
-										{copiedRef ? <Check size={12} className="text-[#1a9e5c]" /> : <Copy size={12} />}
+										{copiedRef ? <Check size={12} className="text-accent" /> : <Copy size={12} />}
 									</button>
 								)}
 							</div>
@@ -1016,7 +1013,7 @@ function BankCheckoutContent() {
 								type="button"
 								disabled={busyAction !== null || secondsRemaining === 0}
 								onClick={() => void handleVerifyPayment("exact")}
-								className="w-full py-4 px-6 rounded-full bg-[#1a9e5c] hover:bg-[#15854c] text-white text-sm font-bold shadow-lg shadow-[#1a9e5c]/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+								className="w-full py-4 px-6 rounded-md bg-accent hover:bg-accent-hover text-white text-sm font-semibold shadow-card shadow-accent/20 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
 							>
 								{busyAction === "verify_payment" || busyAction === "full_pipeline" ? (
 									<>
@@ -1036,7 +1033,7 @@ function BankCheckoutContent() {
 									type="button"
 									disabled={busyAction !== null || secondsRemaining === 0}
 									onClick={() => void initializeCheckoutSession()}
-									className="px-4 py-2 rounded-full border border-[#d1e8dc] text-[#3d6b55] hover:border-[#1a9e5c] hover:text-[#0d2b1e] transition-all flex items-center gap-1.5"
+									className="px-4 py-2 rounded-md border border-line text-ink-2 hover:border-accent hover:text-ink transition-colors flex items-center gap-1.5"
 								>
 									<RefreshCw
 										size={12}
@@ -1049,7 +1046,7 @@ function BankCheckoutContent() {
 									type="button"
 									disabled={busyAction !== null}
 									onClick={() => void handleCancelOrder()}
-									className="px-4 py-2 rounded-full text-red-600 hover:bg-red-50 hover:text-red-700 transition-all font-medium"
+									className="px-4 py-2 rounded-md text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors font-medium"
 								>
 									Cancel Order & Release Escrow
 								</button>
@@ -1061,19 +1058,19 @@ function BankCheckoutContent() {
 						currentLifecycle === "SELLER_PAYOUT_PENDING" ||
 						currentLifecycle === "SELLER_PAYOUT_CONFIRMED" ||
 						currentLifecycle === "RELEASE_PENDING") && (
-						<div className="p-5 rounded-2xl bg-[#f0f7f3] border border-[#1a9e5c]/30 space-y-3">
-							<div className="text-xs font-bold text-[#0d2b1e] flex items-center gap-2">
-								<CheckCircle2 size={16} className="text-[#1a9e5c]" />
+						<div className="p-5 rounded-xl bg-subtle border border-accent/30 space-y-3">
+							<div className="text-xs font-semibold text-ink flex items-center gap-2">
+								<CheckCircle2 size={16} className="text-accent" />
 								<span>Payment Verified - Settlement in Progress</span>
 							</div>
-							<p className="text-xs text-[#3d6b55] leading-relaxed">
+							<p className="text-xs text-ink-2 leading-relaxed">
 								Your payment was confirmed. The oracle is releasing {usdcDisplay} USDC on Arc Testnet to your wallet.
 							</p>
 							<button
 								type="button"
 								disabled={busyAction !== null}
 								onClick={() => void handleCompleteFullSettlementPipeline()}
-								className="py-2.5 px-5 rounded-full bg-[#1a9e5c] text-white text-xs font-semibold hover:bg-[#15854c] shadow-sm transition-all"
+								className="py-2.5 px-5 rounded-md bg-accent text-white text-xs font-semibold hover:bg-accent-hover shadow-card transition-colors"
 							>
 								{busyAction === "full_pipeline"
 									? "Executing Settlement..."
@@ -1083,25 +1080,25 @@ function BankCheckoutContent() {
 					)}
 
 					{currentLifecycle === "COMPLETED" && (
-						<div className="p-6 rounded-[24px] bg-[#f0f7f3] border border-[#1a9e5c]/40 space-y-4 text-center">
-							<div className="w-12 h-12 rounded-full bg-[#1a9e5c]/10 text-[#1a9e5c] flex items-center justify-center mx-auto">
+						<div className="p-6 rounded-xl bg-subtle border border-accent/40 space-y-4 text-center">
+							<div className="w-12 h-12 rounded-full bg-accent/10 text-accent flex items-center justify-center mx-auto">
 								<CheckCircle2 size={24} />
 							</div>
 							<div className="space-y-1">
-								<h3 className="text-base font-bold text-[#0d2b1e]">
+								<h3 className="text-base font-semibold text-ink">
 									Settlement Completed Successfully!
 								</h3>
-								<p className="text-xs text-[#3d6b55]">
+								<p className="text-xs text-ink-2">
 									{usdcDisplay} USDC has been released to your wallet on Arc Testnet.
 								</p>
 							</div>
 							{trade?.proofId && (
-								<div className="mx-auto max-w-md rounded-xl bg-white/90 border border-[#d1e8dc] px-3.5 py-2.5 text-left space-y-1">
-									<div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-[#1a9e5c]">
+								<div className="mx-auto max-w-md rounded-lg bg-white/90 border border-line px-3.5 py-2.5 text-left space-y-1">
+									<div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-accent">
 										<span>TLSNotary Cryptographic Proof ID</span>
 										<span>Verified On-Chain</span>
 									</div>
-									<div className="text-[11px] font-mono text-[#0d2b1e] truncate">
+									<div className="text-xs font-mono text-ink truncate">
 										{trade.proofId}
 									</div>
 								</div>
@@ -1112,7 +1109,7 @@ function BankCheckoutContent() {
 										href={ARCSCAN_TX(trade.txHash)}
 										target="_blank"
 										rel="noopener noreferrer"
-										className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-white border border-[#d1e8dc] text-xs font-semibold text-[#1a9e5c] hover:border-[#1a9e5c] transition-all shadow-sm"
+										className="inline-flex items-center gap-1.5 px-4 py-2 rounded-md bg-surface border border-line text-xs font-semibold text-accent hover:border-accent transition-colors shadow-card"
 									>
 										<span>View On-Chain Receipt ({trade.txHash.slice(0, 10)}...)</span>
 										<ExternalLink size={12} />
@@ -1122,7 +1119,7 @@ function BankCheckoutContent() {
 							<div className="pt-2">
 								<Link
 									href="/dashboard"
-									className="inline-flex items-center justify-center rounded-full px-6 py-2.5 bg-[#0d2b1e] hover:bg-[#153e2c] text-white text-xs font-semibold shadow-sm transition-all"
+									className="inline-flex items-center justify-center rounded-md px-6 py-2.5 bg-ink hover:bg-[#153e2c] text-white text-xs font-semibold shadow-card transition-colors"
 								>
 									Return to Dashboard
 								</Link>
@@ -1134,45 +1131,45 @@ function BankCheckoutContent() {
 				{/* Right Column: Counterparty Dossier & Audit Log */}
 				<div className="lg:col-span-5 space-y-6">
 					{/* Counterparty Trust Card */}
-					<div className="rounded-[32px] border border-[#e5ebe7] bg-white p-6 sm:p-7 shadow-[0_4px_24px_rgba(13,43,30,0.06)] space-y-4">
-						<div className="flex items-center justify-between border-b border-[#eef2ee] pb-3">
+					<div className="rounded-xl border border-line bg-surface p-6 sm:p-7 shadow-card space-y-4">
+						<div className="flex items-center justify-between border-b border-subtle pb-3">
 							<div className="flex items-center gap-2">
-								<ShieldCheck size={16} className="text-[#1a9e5c]" />
-								<h2 className="text-sm font-bold text-[#0d2b1e]">
+								<ShieldCheck size={16} className="text-accent" />
+								<h2 className="text-sm font-semibold text-ink">
 									Settlement Guarantees
 								</h2>
 							</div>
-							<span className="text-[11px] font-mono text-[#7aaa92]">
+							<span className="text-xs font-mono text-ink-3">
 								Verified Peer
 							</span>
 						</div>
 
-						<div className="space-y-3 text-xs text-[#3d6b55]">
-							<div className="flex items-center justify-between py-1.5 border-b border-[#f0f4f2]">
-								<span className="text-[#7aaa92]">Seller Counterparty</span>
-								<span className="font-mono font-semibold text-[#0d2b1e]">
+						<div className="space-y-3 text-xs text-ink-2">
+							<div className="flex items-center justify-between py-1.5 border-b border-subtle">
+								<span className="text-ink-3">Seller Counterparty</span>
+								<span className="font-mono font-semibold text-ink">
 									{trade?.sellerAddress ? `${trade.sellerAddress.slice(0, 6)}...${trade.sellerAddress.slice(-4)}` : "Verified Merchant"}
 								</span>
 							</div>
-							<div className="flex items-center justify-between py-1.5 border-b border-[#f0f4f2]">
-								<span className="text-[#7aaa92]">Order Completion SLA</span>
-								<span className="font-semibold text-[#0d2b1e]">100% Guaranteed</span>
+							<div className="flex items-center justify-between py-1.5 border-b border-subtle">
+								<span className="text-ink-3">Order Completion SLA</span>
+								<span className="font-semibold text-ink">100% Guaranteed</span>
 							</div>
-							<div className="flex items-center justify-between py-1.5 border-b border-[#f0f4f2]">
-								<span className="text-[#7aaa92]">Buyer Bond Required</span>
-								<span className="font-semibold text-[#1a9e5c]">0.00 USDC</span>
+							<div className="flex items-center justify-between py-1.5 border-b border-subtle">
+								<span className="text-ink-3">Buyer Bond Required</span>
+								<span className="font-semibold text-accent">0.00 USDC</span>
 							</div>
 							<div className="flex items-center justify-between py-1.5">
-								<span className="text-[#7aaa92]">Escrow Contract</span>
-								<span className="font-mono text-[11px] text-[#0d2b1e] truncate max-w-[140px]">
+								<span className="text-ink-3">Escrow Contract</span>
+								<span className="font-mono text-xs text-ink truncate max-w-[140px]">
 									{ESCROW_ADDRESS}
 								</span>
 							</div>
 						</div>
 
-						<div className="p-3.5 rounded-2xl bg-[#f0f7f3] border border-[#d1e8dc]/70 text-[11px] text-[#3d6b55] space-y-1">
-							<div className="font-bold text-[#0d2b1e] flex items-center gap-1.5">
-								<Sparkles size={12} className="text-[#1a9e5c]" />
+						<div className="p-3.5 rounded-xl bg-subtle border border-line/70 text-xs text-ink-2 space-y-1">
+							<div className="font-semibold text-ink flex items-center gap-1.5">
+								<Sparkles size={12} className="text-accent" />
 								<span>Zero Counterparty Risk</span>
 							</div>
 							<p className="leading-relaxed">
@@ -1182,46 +1179,46 @@ function BankCheckoutContent() {
 					</div>
 
 					{/* Real-Time Audit Log Card */}
-					<div className="rounded-[32px] border border-[#e5ebe7] bg-white p-6 sm:p-7 shadow-[0_4px_24px_rgba(13,43,30,0.06)] space-y-4">
-						<div className="flex items-center justify-between border-b border-[#eef2ee] pb-3">
-							<h2 className="text-sm font-bold text-[#0d2b1e]">
+					<div className="rounded-xl border border-line bg-surface p-6 sm:p-7 shadow-card space-y-4">
+						<div className="flex items-center justify-between border-b border-subtle pb-3">
+							<h2 className="text-sm font-semibold text-ink">
 								Authoritative Audit Trail
 							</h2>
-							<span className="text-[11px] font-mono font-semibold text-[#7aaa92]">
+							<span className="text-xs font-mono font-semibold text-ink-3">
 								v{trade?.version ?? 1}
 							</span>
 						</div>
 
 						<div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
 							{loading ? (
-								<div className="text-xs text-[#7aaa92] py-8 text-center">
+								<div className="text-xs text-ink-3 py-8 text-center">
 									Loading trade lifecycle history...
 								</div>
 							) : auditEvents.length === 0 ? (
-								<div className="text-xs text-[#7aaa92] py-8 text-center">
+								<div className="text-xs text-ink-3 py-8 text-center">
 									No state transitions recorded yet for Order #{tradeId}.
 								</div>
 							) : (
 								auditEvents.map((ev) => (
 									<div
 										key={ev.id}
-										className="p-3 rounded-2xl border border-[#eef2ee] bg-[#fafdfc] space-y-1 text-xs"
+										className="p-3 rounded-xl border border-subtle bg-surface space-y-1 text-xs"
 									>
 										<div className="flex items-center justify-between">
-											<span className="font-mono font-bold text-[#0d2b1e] text-[11px]">
+											<span className="font-mono font-semibold text-ink text-xs">
 												{ev.eventType}
 											</span>
-											<span className="text-[10px] text-[#7aaa92] uppercase font-semibold">
+											<span className="text-[11px] text-ink-3 uppercase font-semibold">
 												{ev.actorRole}
 											</span>
 										</div>
-										<div className="text-[11px] text-[#3d6b55]">
+										<div className="text-xs text-ink-2">
 											{ev.previousState ? `${ev.previousState} -> ` : ""}
-											<span className="font-semibold text-[#0d2b1e]">
+											<span className="font-semibold text-ink">
 												{ev.newState}
 											</span>
 										</div>
-										<div className="text-[10px] text-[#7aaa92] font-mono">
+										<div className="text-[11px] text-ink-3 font-mono">
 											{new Date(ev.createdAt).toLocaleTimeString()}
 										</div>
 									</div>
@@ -1237,7 +1234,7 @@ function BankCheckoutContent() {
 
 export default function BankCheckoutPage() {
 	return (
-		<div className="min-h-screen bg-[#f5f9f7] text-[#0d2b1e] py-8 px-4 sm:px-6">
+		<div className="min-h-screen bg-subtle text-ink py-8 px-4 sm:px-6">
 			<Suspense fallback={<CheckoutSkeleton />}>
 				<BankCheckoutContent />
 			</Suspense>

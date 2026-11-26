@@ -26,7 +26,7 @@ export function TransactionsTab({
 	onCancelTrade,
 }: TransactionsTabProps) {
 	return (
-		<div className="rounded-[28px] border border-[#e5ebe7] bg-white p-6 shadow-sm space-y-4">
+		<div className="rounded-xl border border-line bg-surface p-6 shadow-card space-y-4">
 			<div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
 				<div className="flex flex-wrap items-center gap-1.5">
 					{(["all", "buy", "sell", "release"] as const).map((t) => (
@@ -34,10 +34,10 @@ export function TransactionsTab({
 							key={t}
 							onClick={() => setTxTypeFilter(t)}
 							className={cn(
-								"rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all capitalize",
+								"rounded-md px-3.5 py-1.5 text-xs font-semibold transition-colors capitalize",
 								txTypeFilter === t
-									? "bg-[#0d2b1e] text-white"
-									: "bg-[#f0f7f3] text-[#3d6b55] hover:bg-[#e4f2eb]",
+									? "bg-ink text-white"
+									: "bg-subtle text-ink-2 hover:bg-accent-soft",
 							)}
 						>
 							{t}
@@ -48,14 +48,14 @@ export function TransactionsTab({
 				<div className="relative w-full sm:w-64">
 					<Search
 						size={13}
-						className="absolute left-3 top-1/2 -translate-y-1/2 text-[#7aaa92]"
+						className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3"
 					/>
 					<input
 						type="text"
 						value={txSearch}
 						onChange={(e) => setTxSearch(e.target.value)}
 						placeholder="Search by ID or bank..."
-						className="w-full pl-8 pr-3 py-2 rounded-full border border-[#d1e8dc] text-xs text-[#0d2b1e] placeholder:text-[#7aaa92] focus:outline-none focus:border-[#1a9e5c]"
+						className="w-full pl-8 pr-3 py-2 rounded-full border border-line text-xs text-ink placeholder:text-ink-3 focus:outline-none focus:border-accent"
 					/>
 				</div>
 			</div>
@@ -63,7 +63,7 @@ export function TransactionsTab({
 			<div className="overflow-x-auto">
 				<table className="w-full text-xs text-left">
 					<thead>
-						<tr className="border-b border-[#eef2ee] text-[#7aaa92]">
+						<tr className="border-b border-subtle text-ink-3">
 							<th className="py-3 px-4 font-medium">Trade</th>
 							<th className="py-3 px-4 font-medium">Type</th>
 							<th className="py-3 px-4 font-medium">Counterparty</th>
@@ -74,10 +74,10 @@ export function TransactionsTab({
 							<th className="py-3 px-4 font-medium text-right">Action</th>
 						</tr>
 					</thead>
-					<tbody className="divide-y divide-[#eef2ee]">
+					<tbody className="divide-y divide-subtle">
 						{transactions.length === 0 ? (
 							<tr>
-								<td colSpan={8} className="py-8 text-center text-[#7aaa92]">
+								<td colSpan={8} className="py-8 text-center text-ink-3">
 									No transactions found matching your filter criteria.
 								</td>
 							</tr>
@@ -85,17 +85,17 @@ export function TransactionsTab({
 							transactions.map((tx) => (
 								<tr
 									key={tx.id}
-									className="hover:bg-[#fbfdfc] transition-colors"
+									className="hover:bg-surface transition-colors"
 								>
-									<td className="py-3 px-4 font-mono font-bold text-[#0d2b1e]">
+									<td className="py-3 px-4 font-mono font-semibold text-ink">
 										#{tx.tradeId}
 									</td>
-									<td className="py-3 px-4 capitalize font-semibold text-[#3d6b55]">
+									<td className="py-3 px-4 capitalize font-semibold text-ink-2">
 										{tx.type}
 									</td>
-									<td className="py-3 px-4 text-[#0d2b1e]">
+									<td className="py-3 px-4 text-ink">
 										<div>{tx.counterparty}</div>
-										<div className="text-[10px] text-[#7aaa92] font-mono">
+										<div className="text-[11px] text-ink-3 font-mono">
 											{tx.counterpartyAddress ? (
 												<>
 													{tx.counterpartyAddress.slice(0, 6)}...
@@ -106,17 +106,17 @@ export function TransactionsTab({
 											)}
 										</div>
 									</td>
-									<td className="py-3 px-4 text-[#0d2b1e]">{tx.bankName}</td>
-									<td className="py-3 px-4 font-mono font-bold text-right text-[#0d2b1e]">
+									<td className="py-3 px-4 text-ink">{tx.bankName}</td>
+									<td className="py-3 px-4 font-mono font-semibold text-right text-ink">
 										<div>{tx.usdcAmount} USDC</div>
-										<div className="text-[10px] text-[#7aaa92]">
+										<div className="text-[11px] text-ink-3">
 											{tx.ngnAmount}
 										</div>
 									</td>
 									<td className="py-3 px-4 text-center">
 										<span
 											className={cn(
-												"px-2.5 py-0.5 rounded-full text-[10px] font-semibold capitalize",
+												"px-2.5 py-0.5 rounded-md text-[11px] font-semibold capitalize",
 												tx.status === "completed" &&
 													"bg-green-50 text-green-700",
 												tx.status === "escrow" && "bg-amber-50 text-amber-700",
@@ -138,7 +138,7 @@ export function TransactionsTab({
 												href={ARCSCAN_TX(tx.txHash)}
 												target="_blank"
 												rel="noopener noreferrer"
-												className="inline-flex items-center gap-1 font-mono text-[11px] text-[#1a9e5c] hover:underline"
+												className="inline-flex items-center gap-1 font-mono text-xs text-accent hover:underline"
 											>
 												<span>
 													{tx.txHash.slice(0, 6)}...{tx.txHash.slice(-4)}
@@ -146,7 +146,7 @@ export function TransactionsTab({
 												<ArrowUpRight size={11} />
 											</a>
 										) : (
-											<span className="text-[#7aaa92] text-[11px]">N/A</span>
+											<span className="text-ink-3 text-xs">N/A</span>
 										)}
 									</td>
 									<td className="py-3 px-4 text-right">
@@ -157,7 +157,7 @@ export function TransactionsTab({
 														href={`/bank-checkout?tradeId=${encodeURIComponent(
 															tx.tradeId,
 														)}&returnTo=/dashboard`}
-														className="rounded-full px-3 py-1 text-[11px] font-semibold bg-[#1a9e5c] text-white hover:bg-[#15854c]"
+														className="rounded-md px-3 py-1 text-xs font-semibold bg-accent text-white hover:bg-accent-hover"
 													>
 														Pay
 													</Link>
@@ -170,7 +170,7 @@ export function TransactionsTab({
 													<button
 														onClick={() => onCancelTrade(tx.tradeId)}
 														disabled={cancellingTradeId === tx.tradeId}
-														className="rounded-full px-2.5 py-1 text-[11px] font-semibold border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+														className="rounded-md px-2.5 py-1 text-xs font-semibold border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
 													>
 														Cancel
 													</button>

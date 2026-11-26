@@ -27,16 +27,17 @@ import {
 	Search,
 	ChevronRight,
 	ArrowUpRight,
-	Layers,
 	Users,
 	SlidersHorizontal,
 	Check,
 } from "lucide-react";
 import { StepBar, ToastAlert, BankSearchSelect } from "@/components/shared";
 import { useEscrow } from "@/hooks/useEscrow";
+import TxStatusBanner from "@/components/web3/TxStatusBanner";
 import {
 	arcTestnet,
-	ESCROW_ADDRESS,
+	isOnChainTradeId,
+	DEFAULT_FEE_BPS,
 	USDC_ADDRESS,
 	USDC_ABI,
 	formatUsdc,
@@ -226,10 +227,10 @@ function ZKProofPanel({
 	}, [runRealTlsnVerification]);
 
 	return (
-		<div className="bg-[#fbfdfc] rounded-2xl p-4 border border-[#d1e8dc] font-mono text-xs">
-			<div className="text-[#0d2b1e] mb-2.5 font-semibold flex items-center justify-between gap-2">
+		<div className="bg-surface rounded-xl p-4 border border-line font-mono text-xs">
+			<div className="text-ink mb-2.5 font-semibold flex items-center justify-between gap-2">
 				<span>TLSNotary Verifier (Rust :7047)</span>
-				<span className="text-[10px] text-[#1a9e5c] bg-[#f0f7f3] px-2 py-0.5 rounded-full border border-[#d1e8dc]">
+				<span className="text-[11px] text-accent bg-subtle px-2 py-0.5 rounded-md border border-line">
 					tlsn-core
 				</span>
 			</div>
@@ -243,16 +244,16 @@ function ZKProofPanel({
 						<div
 							key={s}
 							className={cn(
-								"flex items-start gap-2 text-[11px] leading-relaxed",
+								"flex items-start gap-2 text-xs leading-relaxed",
 								isActive
 									? "text-amber-700"
 									: isVerified
-										? "text-[#1a9e5c] font-medium"
-										: "text-[#3d6b55]",
+										? "text-accent font-medium"
+										: "text-ink-2",
 							)}
 						>
 							<span className="shrink-0">
-								{i < stage || isVerified ? "✓" : "→"}
+								{i < stage || isVerified ? <Check size={13} strokeWidth={2.25} /> : <ChevronRight size={13} />}
 							</span>
 							<span className="break-words">{s}</span>
 						</div>
@@ -261,12 +262,12 @@ function ZKProofPanel({
 			</div>
 
 			{error && (
-				<div className="mt-3 p-2.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-[11px] space-y-2 font-sans">
+				<div className="mt-3 p-2.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs space-y-2 font-sans">
 					<div>{error}</div>
 					<button
 						type="button"
 						onClick={() => void runRealTlsnVerification()}
-						className="px-3 py-1 rounded-full bg-red-600 text-white text-[11px] font-medium"
+						className="px-3 py-1 rounded-md bg-red-600 text-white text-xs font-medium"
 					>
 						Retry Verification
 					</button>
@@ -274,15 +275,15 @@ function ZKProofPanel({
 			)}
 
 			{proofMeta && (
-				<div className="mt-3 p-2.5 rounded-xl bg-[#f0f7f3] border border-[#1a9e5c]/30 text-[#0d2b1e] space-y-1 text-[11px]">
+				<div className="mt-3 p-2.5 rounded-lg bg-subtle border border-accent/30 text-ink space-y-1 text-xs">
 					<div className="flex items-center justify-between gap-2">
-						<span className="text-[#7aaa92]">Proof ID</span>
-						<span className="font-semibold text-[#1a9e5c]">
+						<span className="text-ink-3">Proof ID</span>
+						<span className="font-semibold text-accent">
 							{proofMeta.proofId.slice(0, 10)}...{proofMeta.proofId.slice(-6)}
 						</span>
 					</div>
 					{proofMeta.checksCount && (
-						<div className="text-[10px] text-[#3d6b55]">
+						<div className="text-[11px] text-ink-2">
 							{proofMeta.checksCount} cryptographic checks passed · Chain #5042002
 						</div>
 					)}
@@ -517,12 +518,10 @@ export default function TradingWidget({
 	const computedUsdc =
 		activeRate > 0 ? Math.min(maxOfferUsdc, rawNgn / activeRate) : 0;
 	const usdcAmount = computedUsdc > 0 ? computedUsdc.toFixed(2) : "0.00";
-	const collateralUsdc =
-		lifecycleTrade?.requiredCollateralUsdc ??
-		activeOffer?.requiredCollateralUsdc ??
-		"0.00";
+	// Matches the escrow contract's feeBps (100 = 1%), deducted from the buyer's USDC on release.
 	const platformFee = (
-		parseFloat(usdcAmount.replace(/,/g, "") || "0") * 0.005
+		(parseFloat(usdcAmount.replace(/,/g, "") || "0") * DEFAULT_FEE_BPS) /
+		10_000
 	).toFixed(2);
 
 	// Restore verified state when returning from /bank-checkout redirect
@@ -632,16 +631,18 @@ export default function TradingWidget({
 		setCreatingOrder(true);
 		try {
 			let txHash: `0x${string}` | undefined;
-			if (
-				escrow.isConnected &&
-				!escrow.isWrongChain &&
-				ESCROW_ADDRESS !== "0x0000000000000000000000000000000000000000" &&
-				/^\d+$/.test(activeTradeId)
-			) {
-				txHash = await escrow.fundBuyerCollateral({
-					tradeId: BigInt(activeTradeId),
-					collateralUsdc,
-				});
+			// Full take of an on-chain listing → claim it on Arc (switches network
+			// if needed). Partial fills are reserved off-chain and settled
+			// atomically by the oracle once payment is proven.
+			const requestedUnits = Math.round(parseFloat(usdcAmount) * 1_000_000);
+			const isFullTake =
+				!!activeOffer?.availableUsdcUnits &&
+				requestedUnits >= activeOffer.availableUsdcUnits;
+			if (isFullTake && !activeOffer?.sellerBusy && isOnChainTradeId(activeTradeId)) {
+				txHash = await escrow.acceptListing(
+					BigInt(activeTradeId),
+					BigInt(activeOffer!.availableUsdcUnits!),
+				);
 			}
 
 			const res = await fetch("/api/user/dashboard", {
@@ -912,18 +913,9 @@ export default function TradingWidget({
 				operation = "payout_confirm";
 			} else if (action === "release_escrow") {
 				operation = "escrow_confirm_on_chain";
-				if (
-					escrow.isConnected &&
-					!escrow.isWrongChain &&
-					ESCROW_ADDRESS !== "0x0000000000000000000000000000000000000000" &&
-					/^\d+$/.test(activeTradeId)
-				) {
-					try {
-						txHash = await escrow.releaseFunds(BigInt(activeTradeId));
-					} catch (e) {
-						console.warn("Direct releaseFunds failed:", e);
-					}
-				}
+				// Seller signs directly when the on-chain trade allows it;
+				// otherwise the server oracle settles on Arc.
+				txHash = txHash ?? (await escrow.releaseIfSellerCan(activeTradeId)) ?? undefined;
 			}
 
 			const res = await fetch(
@@ -1007,59 +999,56 @@ export default function TradingWidget({
 	return (
 		<div
 			className={cn(
-				"flex flex-col w-full rounded-[32px] border border-[#dce7e1] bg-[#fbfdfc] p-4 sm:p-7 shadow-[0_4px_24px_rgba(13,43,30,0.06)] space-y-5",
+				"flex flex-col w-full rounded-xl border border-line bg-surface p-4 sm:p-7 shadow-card space-y-5",
 				embedded ? "" : "",
 			)}
 		>
 			{/* Top Bar: Clean Terminal Header with Tab Navigation */}
-			<div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-[#eef2ee]">
+			<div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-subtle">
 				<div className="flex items-center gap-2">
-					<div className="w-8 h-8 rounded-full bg-[#0d2b1e] text-white flex items-center justify-center shrink-0">
-						<Layers size={15} />
-					</div>
 					<div>
 						<div className="flex items-center gap-2">
-							<span className="text-base font-bold text-[#0d2b1e]">
-								P2P Trading Terminal
+							<span className="text-base font-semibold text-ink">
+								{activeTradeId ? `Order #${activeTradeId}` : "Order"}
 							</span>
-							<span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-[#f0f7f3] text-[#1a9e5c] border border-[#d1e8dc]">
-								{lifecycleTrade?.lifecycleState ?? (isConnected ? "LIVE" : "SIGN-IN REQUIRED")}
-							</span>
+							{lifecycleTrade?.lifecycleState && (
+								<span className="rounded-md bg-subtle px-2 py-0.5 text-xs font-medium text-ink-2">
+									{lifecycleTrade.lifecycleState.replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase())}
+								</span>
+							)}
 						</div>
-						<div className="text-[11px] text-[#7aaa92]">
-							Arc Testnet #5042002 {activeTradeId ? `· Trade #${activeTradeId}` : ""}
-						</div>
+						<div className="text-xs text-ink-3">Settles on Arc Testnet</div>
 					</div>
 				</div>
 
 				{/* Primary Tabs */}
-				<div className="flex items-center gap-1.5 p-1 rounded-full bg-[#f0f7f3] border border-[#d1e8dc]">
+				<div className="flex items-center gap-1.5 p-1 rounded-full bg-subtle border border-line">
 					<button
 						type="button"
 						onClick={() => setWidgetTab("market")}
 						className={cn(
-							"px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all",
+							"px-3.5 py-1.5 rounded-md text-xs font-semibold transition-colors",
 							widgetTab === "market"
-								? "bg-[#0d2b1e] text-white shadow-sm"
-								: "text-[#3d6b55] hover:text-[#0d2b1e]",
+								? "bg-ink text-white shadow-card"
+								: "text-ink-2 hover:text-ink",
 						)}
 					>
-						Market Activity ({peerOffers.length})
+						Market ({peerOffers.length})
 					</button>
 
 					<button
 						type="button"
 						onClick={() => setWidgetTab("terminal")}
 						className={cn(
-							"px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center gap-1",
+							"px-3.5 py-1.5 rounded-md text-xs font-semibold transition-colors flex items-center gap-1",
 							widgetTab === "terminal"
-								? "bg-[#0d2b1e] text-white shadow-sm"
-								: "text-[#3d6b55] hover:text-[#0d2b1e]",
+								? "bg-ink text-white shadow-card"
+								: "text-ink-2 hover:text-ink",
 						)}
 					>
-						<span>Order Execution</span>
+						<span>Order</span>
 						{activeOffer && (
-							<span className="w-2 h-2 rounded-full bg-[#1a9e5c]" />
+							<span className="w-2 h-2 rounded-full bg-accent" />
 						)}
 					</button>
 				</div>
@@ -1067,8 +1056,8 @@ export default function TradingWidget({
 				<div className="flex items-center gap-2 ml-auto">
 					{isConnected && (
 						<div className="hidden sm:block text-right">
-							<div className="text-[10px] text-[#7aaa92]">Wallet Balance</div>
-							<div className="text-xs font-mono font-bold text-[#0d2b1e]">
+							<div className="text-[11px] text-ink-3">Wallet Balance</div>
+							<div className="text-xs font-mono font-semibold text-ink">
 								{walletUsdc.toFixed(2)} USDC
 							</div>
 						</div>
@@ -1077,16 +1066,23 @@ export default function TradingWidget({
 						type="button"
 						onClick={() => void loadLiveMarket()}
 						disabled={loadingMarket}
-						className="w-8 h-8 rounded-full border border-[#d1e8dc] text-[#3d6b55] hover:bg-[#f0f7f3] transition-colors flex items-center justify-center shrink-0"
+						className="w-8 h-8 rounded-full border border-line text-ink-2 hover:bg-subtle transition-colors flex items-center justify-center shrink-0"
 						title="Refresh market activities"
 					>
 						<RefreshCw
 							size={13}
-							className={loadingMarket ? "animate-spin text-[#1a9e5c]" : ""}
+							className={loadingMarket ? "animate-spin text-accent" : ""}
 						/>
 					</button>
 				</div>
 			</div>
+
+			<TxStatusBanner
+				txState={escrow.txState}
+				txHash={escrow.txHash}
+				arcScanUrl={escrow.arcScanUrl}
+				errorMsg={escrow.errorMsg}
+			/>
 
 			{/* Toast Notification Alert */}
 			<ToastAlert
@@ -1097,26 +1093,21 @@ export default function TradingWidget({
 
 			{/* ── WALLET AUTHENTICATION GUARD ── */}
 			{!isConnected && (
-				<div className="rounded-[28px] border border-[#d1e8dc] bg-[#f4fbf7] p-5 sm:p-6 text-center space-y-3.5 shadow-sm">
-					<div className="w-12 h-12 mx-auto rounded-full bg-[#0d2b1e] text-white flex items-center justify-center shadow-md">
-						<Wallet size={20} />
-					</div>
-					<div className="max-w-md mx-auto space-y-1">
-						<h3 className="text-sm font-bold text-[#0d2b1e]">
-							Sign In Required to Trade
-						</h3>
-						<p className="text-xs text-[#7aaa92]">
-							Connect your wallet to browse active peer market activities, take buy/sell offers, and execute escrow settlements.
+				<div className="flex items-center justify-between gap-4 rounded-lg border border-line bg-subtle px-4 py-3.5">
+					<div>
+						<h3 className="text-sm font-medium text-ink">Connect a wallet to trade</h3>
+						<p className="mt-0.5 text-xs text-ink-3">
+							You&apos;ll sign a message to prove ownership. No transaction, no gas.
 						</p>
 					</div>
 					<button
 						type="button"
 						onClick={() => void handleConnectAndSignIn()}
 						disabled={signingIn}
-						className="rounded-full px-6 py-2.5 bg-[#1a9e5c] hover:bg-[#15854c] text-white text-xs font-bold shadow-sm transition-all inline-flex items-center gap-2 disabled:opacity-60"
+						className="btn-primary h-9 shrink-0 px-3.5"
 					>
-						<Wallet size={14} />
-						<span>{signingIn ? "Signing In..." : "Connect & Sign In"}</span>
+						<Wallet size={15} strokeWidth={1.75} />
+						{signingIn ? "Check wallet…" : "Connect"}
 					</button>
 				</div>
 			)}
@@ -1131,10 +1122,10 @@ export default function TradingWidget({
 								type="button"
 								onClick={() => setMarketSideFilter("all")}
 								className={cn(
-									"px-3 py-1 rounded-full text-xs font-semibold transition-all",
+									"px-3 py-1 rounded-md text-xs font-semibold transition-colors",
 									marketSideFilter === "all"
-										? "bg-[#0d2b1e] text-white"
-										: "bg-white border border-[#d1e8dc] text-[#3d6b55] hover:bg-[#f0f7f3]",
+										? "bg-ink text-white"
+										: "bg-surface border border-line text-ink-2 hover:bg-subtle",
 								)}
 							>
 								All ({peerOffers.length})
@@ -1143,10 +1134,10 @@ export default function TradingWidget({
 								type="button"
 								onClick={() => setMarketSideFilter("sell")}
 								className={cn(
-									"px-3 py-1 rounded-full text-xs font-semibold transition-all",
+									"px-3 py-1 rounded-md text-xs font-semibold transition-colors",
 									marketSideFilter === "sell"
-										? "bg-[#1a9e5c] text-white"
-										: "bg-white border border-[#d1e8dc] text-[#3d6b55] hover:bg-[#f0f7f3]",
+										? "bg-accent text-white"
+										: "bg-surface border border-line text-ink-2 hover:bg-subtle",
 								)}
 							>
 								Sellers ({sellerCount})
@@ -1155,10 +1146,10 @@ export default function TradingWidget({
 								type="button"
 								onClick={() => setMarketSideFilter("buy")}
 								className={cn(
-									"px-3 py-1 rounded-full text-xs font-semibold transition-all",
+									"px-3 py-1 rounded-md text-xs font-semibold transition-colors",
 									marketSideFilter === "buy"
 										? "bg-amber-600 text-white"
-										: "bg-white border border-[#d1e8dc] text-[#3d6b55] hover:bg-[#f0f7f3]",
+										: "bg-surface border border-line text-ink-2 hover:bg-subtle",
 								)}
 							>
 								Buyers ({buyerCount})
@@ -1169,30 +1160,30 @@ export default function TradingWidget({
 						<div className="relative w-full sm:w-60">
 							<Search
 								size={13}
-								className="absolute left-3 top-1/2 -translate-y-1/2 text-[#7aaa92]"
+								className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3"
 							/>
 							<input
 								type="text"
 								value={marketSearch}
 								onChange={(e) => setMarketSearch(e.target.value)}
 								placeholder="Search peer or bank..."
-								className="w-full pl-8 pr-3 py-1.5 rounded-full border border-[#d1e8dc] bg-white text-xs text-[#0d2b1e] placeholder:text-[#7aaa92] focus:outline-none focus:border-[#1a9e5c]"
+								className="w-full pl-8 pr-3 py-1.5 rounded-full border border-line bg-surface text-xs text-ink placeholder:text-ink-3 focus:outline-none focus:border-accent"
 							/>
 						</div>
 					</div>
 
 					{/* Market Activity Cards Grid */}
 					{filteredMarketOffers.length === 0 ? (
-						<div className="py-12 px-4 text-center rounded-[24px] bg-white border border-[#e5ebe7] space-y-3">
-							<div className="w-10 h-10 mx-auto rounded-full bg-[#f0f7f3] border border-[#d1e8dc] flex items-center justify-center text-[#1a9e5c]">
+						<div className="py-12 px-4 text-center rounded-xl bg-surface border border-line space-y-3">
+							<div className="w-10 h-10 mx-auto rounded-full bg-subtle border border-line flex items-center justify-center text-accent">
 								<Users size={18} />
 							</div>
-							<p className="text-xs text-[#7aaa92]">
+							<p className="text-xs text-ink-3">
 								No active market offers matching your search criteria.
 							</p>
 							<Link
 								href="/dashboard"
-								className="inline-block rounded-full px-5 py-2 bg-[#1a9e5c] hover:bg-[#15854c] text-white text-xs font-semibold shadow-sm transition-all"
+								className="inline-block rounded-md px-5 py-2 bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-card transition-colors"
 							>
 								Post Offer in Dashboard
 							</Link>
@@ -1209,10 +1200,10 @@ export default function TradingWidget({
 									<div
 										key={offer.tradeId}
 										className={cn(
-											"p-4 rounded-[24px] border transition-all space-y-3",
+											"p-4 rounded-xl border transition-colors space-y-3",
 											isSelected
-												? "border-[#1a9e5c] bg-[#f0f7f3] shadow-sm"
-												: "border-[#e5ebe7] bg-white hover:border-[#d1e8dc]",
+												? "border-accent bg-subtle shadow-card"
+												: "border-line bg-surface hover:border-line",
 										)}
 									>
 										{/* Card Header: Side & Trader info */}
@@ -1220,19 +1211,19 @@ export default function TradingWidget({
 											<div className="flex items-center gap-2">
 												<span
 													className={cn(
-														"px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase",
+														"px-2.5 py-0.5 rounded-md text-[11px] font-semibold uppercase",
 														offer.side === "sell"
-															? "bg-[#e2f4ea] text-[#1a9e5c] border border-[#c1e8d3]"
+															? "bg-accent-soft text-accent border border-line"
 															: "bg-[#fef4e8] text-amber-700 border border-[#fbdcb7]",
 													)}
 												>
 													{offer.side === "sell" ? "Sell USDC" : "Buy USDC"}
 												</span>
-												<span className="font-semibold text-xs text-[#0d2b1e]">
+												<span className="font-semibold text-xs text-ink">
 													{offer.peerHandle}
 												</span>
 											</div>
-											<span className="text-[10px] font-mono text-[#7aaa92]">
+											<span className="text-[11px] font-mono text-ink-3">
 												#{offer.tradeId}
 											</span>
 										</div>
@@ -1240,27 +1231,27 @@ export default function TradingWidget({
 										{/* Pricing & Liquidity Metrics */}
 										<div className="grid grid-cols-2 gap-2 text-xs">
 											<div>
-												<div className="text-[10px] text-[#7aaa92]">Available</div>
-												<div className="font-mono font-bold text-[#0d2b1e] text-sm">
+												<div className="text-[11px] text-ink-3">Available</div>
+												<div className="font-mono font-semibold text-ink text-sm">
 													{offer.availableUsdc} USDC
 												</div>
 											</div>
 											<div>
-												<div className="text-[10px] text-[#7aaa92]">Rate</div>
-												<div className="font-mono font-bold text-[#1a9e5c] text-sm">
+												<div className="text-[11px] text-ink-3">Rate</div>
+												<div className="font-mono font-semibold text-accent text-sm">
 													₦{offer.rateNgn.toLocaleString("en-NG")}
 												</div>
 											</div>
 										</div>
 
 										{/* Rail & Action Row */}
-										<div className="flex items-center justify-between pt-1 border-t border-[#f0f4f2]">
-											<div className="text-[11px] text-[#4a6b5d] font-medium truncate max-w-[140px]">
+										<div className="flex items-center justify-between pt-1 border-t border-subtle">
+											<div className="text-xs text-ink-2 font-medium truncate max-w-[140px]">
 												{offer.bankName}
 											</div>
 
 											{isUserOffer ? (
-												<span className="px-3 py-1 rounded-full text-[10px] font-bold bg-[#f0f4f2] text-[#7aaa92]">
+												<span className="px-3 py-1 rounded-md text-[11px] font-semibold bg-subtle text-ink-3">
 													Your Offer
 												</span>
 											) : (
@@ -1274,9 +1265,9 @@ export default function TradingWidget({
 														}
 													}}
 													className={cn(
-														"px-4 py-1.5 rounded-full text-xs font-bold transition-all shadow-sm flex items-center gap-1",
+														"px-4 py-1.5 rounded-md text-xs font-semibold transition-colors shadow-card flex items-center gap-1",
 														offer.side === "sell"
-															? "bg-[#1a9e5c] hover:bg-[#15854c] text-white"
+															? "bg-accent hover:bg-accent-hover text-white"
 															: "bg-amber-600 hover:bg-amber-700 text-white",
 													)}
 												>
@@ -1303,24 +1294,24 @@ export default function TradingWidget({
 			{widgetTab === "terminal" && (
 				<>
 					{!activeOffer && !lifecycleTrade ? (
-						<div className="py-12 px-4 text-center rounded-[28px] bg-white border border-[#e5ebe7] space-y-3">
-							<div className="w-12 h-12 mx-auto rounded-full bg-[#f0f7f3] border border-[#d1e8dc] flex items-center justify-center text-[#1a9e5c]">
+						<div className="py-12 px-4 text-center rounded-xl bg-surface border border-line space-y-3">
+							<div className="w-12 h-12 mx-auto rounded-full bg-subtle border border-line flex items-center justify-center text-accent">
 								<Lock size={20} />
 							</div>
 							<div className="space-y-1">
-								<h3 className="text-sm font-bold text-[#0d2b1e]">
-									No Order Selected
+								<h3 className="text-sm font-semibold text-ink">
+									No offer selected
 								</h3>
-								<p className="text-xs text-[#7aaa92] max-w-sm mx-auto">
-									Select an active offer from the market activity list to execute an instant escrow trade.
+								<p className="text-xs text-ink-3 max-w-sm mx-auto">
+									Pick an offer from the market to start an order.
 								</p>
 							</div>
 							<button
 								type="button"
 								onClick={() => setWidgetTab("market")}
-								className="rounded-full px-5 py-2.5 bg-[#1a9e5c] hover:bg-[#15854c] text-white text-xs font-semibold shadow-sm transition-all inline-flex items-center gap-1.5"
+								className="rounded-md px-5 py-2.5 bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-card transition-colors inline-flex items-center gap-1.5"
 							>
-								<span>Browse Market Activities</span>
+								<span>Browse offers</span>
 								<ArrowRight size={13} />
 							</button>
 						</div>
@@ -1331,27 +1322,27 @@ export default function TradingWidget({
 
 							{/* Active Offer Capsule */}
 							{activeOffer && (
-								<div className="p-3.5 rounded-2xl bg-[#f4fbf7] border border-[#d1e8dc] flex flex-wrap items-center justify-between gap-2 text-xs">
+								<div className="p-3.5 rounded-xl bg-subtle border border-line flex flex-wrap items-center justify-between gap-2 text-xs">
 									<div className="flex items-center gap-2">
 										<span
 											className={cn(
-												"px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase",
+												"px-2.5 py-0.5 rounded-md text-[11px] font-semibold uppercase",
 												activeOffer.side === "sell"
-													? "bg-[#e2f4ea] text-[#1a9e5c] border border-[#c1e8d3]"
+													? "bg-accent-soft text-accent border border-line"
 													: "bg-[#fef4e8] text-amber-700 border border-[#fbdcb7]",
 											)}
 										>
 											{activeOffer.side === "sell" ? "BUY USDC" : "SELL USDC"}
 										</span>
-										<span className="font-bold text-[#0d2b1e]">
+										<span className="font-semibold text-ink">
 											#{activeOffer.tradeId} · {activeOffer.peerHandle}
 										</span>
-										<span className="text-[#7aaa92]">({activeOffer.bankName})</span>
+										<span className="text-ink-3">({activeOffer.bankName})</span>
 									</div>
 									<button
 										type="button"
 										onClick={() => setWidgetTab("market")}
-										className="text-[11px] font-semibold text-[#1a9e5c] hover:underline"
+										className="text-xs font-semibold text-accent hover:underline"
 									>
 										Switch Offer
 									</button>
@@ -1363,8 +1354,8 @@ export default function TradingWidget({
 								<div className="space-y-4">
 									{/* Amount Input Cards */}
 									<div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-										<div className="p-4 rounded-[24px] border border-[#e5ebe7] bg-white shadow-sm space-y-2">
-											<div className="flex items-center justify-between text-[11px] text-[#7aaa92]">
+										<div className="p-4 rounded-xl border border-line bg-surface shadow-card space-y-2">
+											<div className="flex items-center justify-between text-xs text-ink-3">
 												<span>You Pay (Fiat)</span>
 												<div className="flex items-center gap-1 font-mono">
 													<button
@@ -1376,7 +1367,7 @@ export default function TradingWidget({
 																).toLocaleString("en-NG"),
 															)
 														}
-														className="px-2 py-0.5 rounded-full border border-[#d1e8dc] text-[10px] hover:bg-[#f0f7f3] text-[#3d6b55]"
+														className="px-2 py-0.5 rounded-md border border-line text-[11px] hover:bg-subtle text-ink-2"
 													>
 														25%
 													</button>
@@ -1389,7 +1380,7 @@ export default function TradingWidget({
 																).toLocaleString("en-NG"),
 															)
 														}
-														className="px-2 py-0.5 rounded-full border border-[#d1e8dc] text-[10px] hover:bg-[#f0f7f3] text-[#3d6b55]"
+														className="px-2 py-0.5 rounded-md border border-line text-[11px] hover:bg-subtle text-ink-2"
 													>
 														50%
 													</button>
@@ -1402,33 +1393,33 @@ export default function TradingWidget({
 																).toLocaleString("en-NG"),
 															)
 														}
-														className="px-2.5 py-0.5 rounded-full border border-[#1a9e5c] text-[10px] hover:bg-[#f0f7f3] text-[#1a9e5c] font-semibold"
+														className="px-2.5 py-0.5 rounded-md border border-accent text-[11px] hover:bg-subtle text-accent font-semibold"
 													>
 														MAX
 													</button>
 												</div>
 											</div>
 											<div className="flex items-center gap-2">
-												<span className="text-base font-mono font-bold text-[#3d6b55]">
+												<span className="text-base font-mono font-semibold text-ink-2">
 													₦
 												</span>
 												<input
 													type="text"
 													value={ngnInput}
 													onChange={(e) => setNgnInput(e.target.value)}
-													className="w-full bg-transparent font-mono text-lg font-bold text-[#0d2b1e] focus:outline-none min-w-0"
+													className="w-full bg-transparent font-mono text-lg font-semibold text-ink focus:outline-none min-w-0"
 												/>
 											</div>
 										</div>
 
-										<div className="p-4 rounded-[24px] border border-[#e5ebe7] bg-white shadow-sm flex flex-col justify-between">
-											<div className="flex items-center justify-between text-[11px] text-[#7aaa92]">
+										<div className="p-4 rounded-xl border border-line bg-surface shadow-card flex flex-col justify-between">
+											<div className="flex items-center justify-between text-xs text-ink-3">
 												<span>You Receive</span>
-												<span className="font-mono text-[10px]">
+												<span className="font-mono text-[11px]">
 													Max {activeOffer?.availableUsdc ?? maxOfferUsdc.toFixed(2)} USDC
 												</span>
 											</div>
-											<div className="font-mono text-lg font-bold text-[#1a9e5c] truncate mt-2">
+											<div className="font-mono text-lg font-semibold text-accent truncate mt-2">
 												{usdcAmount} USDC
 											</div>
 										</div>
@@ -1436,30 +1427,30 @@ export default function TradingWidget({
 
 									{/* Concise KPI Grid */}
 									<div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
-										<div className="p-3 rounded-2xl border border-[#e5ebe7] bg-white">
-											<div className="text-[10px] text-[#7aaa92]">Rate</div>
-											<div className="font-mono font-bold text-[#0d2b1e] mt-0.5 truncate">
+										<div className="p-3 rounded-xl border border-line bg-surface">
+											<div className="text-[11px] text-ink-3">Rate</div>
+											<div className="font-mono font-semibold text-ink mt-0.5 truncate">
 												₦{activeRate.toLocaleString("en-NG")}
 											</div>
 										</div>
 
-										<div className="p-3 rounded-2xl border border-[#e5ebe7] bg-white">
-											<div className="text-[10px] text-[#7aaa92]">Bank Rail</div>
-											<div className="font-bold text-[#0d2b1e] mt-0.5 truncate">
+										<div className="p-3 rounded-xl border border-line bg-surface">
+											<div className="text-[11px] text-ink-3">Bank Rail</div>
+											<div className="font-semibold text-ink mt-0.5 truncate">
 												{activeOffer?.bankName ?? lifecycleTrade?.bankName ?? selectedBank}
 											</div>
 										</div>
 
-										<div className="p-3 rounded-2xl border border-[#e5ebe7] bg-white">
-											<div className="text-[10px] text-[#7aaa92]">Counterparty</div>
-											<div className="font-bold text-[#0d2b1e] mt-0.5 truncate">
+										<div className="p-3 rounded-xl border border-line bg-surface">
+											<div className="text-[11px] text-ink-3">Counterparty</div>
+											<div className="font-semibold text-ink mt-0.5 truncate">
 												{activeOffer?.peerHandle ?? lifecycleTrade?.sellerHandle ?? "Peer Trader"}
 											</div>
 										</div>
 
-										<div className="p-3 rounded-2xl border border-[#e5ebe7] bg-white">
-											<div className="text-[10px] text-[#7aaa92]">SLA Window</div>
-											<div className="font-bold text-[#1a9e5c] mt-0.5">
+										<div className="p-3 rounded-xl border border-line bg-surface">
+											<div className="text-[11px] text-ink-3">SLA Window</div>
+											<div className="font-semibold text-accent mt-0.5">
 												20 Minutes
 											</div>
 										</div>
@@ -1467,12 +1458,12 @@ export default function TradingWidget({
 
 									{/* Queue Notice if applicable */}
 									{queuedOrderInfo && (
-										<div className="p-4 rounded-2xl border border-amber-300 bg-amber-50/70 space-y-2 text-xs">
+										<div className="p-4 rounded-xl border border-amber-300 bg-amber-50/70 space-y-2 text-xs">
 											<div className="flex items-center justify-between">
-												<span className="font-bold text-[#0d2b1e]">
+												<span className="font-semibold text-ink">
 													Queue Position #{queuedOrderInfo.queuePosition} ({queuedOrderInfo.queueRef})
 												</span>
-												<span className="font-mono text-[11px] text-amber-800 font-semibold">
+												<span className="font-mono text-xs text-amber-800 font-semibold">
 													Est. wait ~{Math.max(1, Math.ceil(queuedOrderInfo.estimatedWaitSeconds / 60))}m
 												</span>
 											</div>
@@ -1482,7 +1473,7 @@ export default function TradingWidget({
 														type="button"
 														disabled={actionBusy !== null}
 														onClick={() => void handleActivateQueueInWidget(queuedOrderInfo.queueRef)}
-														className="rounded-full px-4 py-2 bg-[#1a9e5c] hover:bg-[#15854c] text-white font-semibold text-xs shadow-sm"
+														className="rounded-md px-4 py-2 bg-accent hover:bg-accent-hover text-white font-semibold text-xs shadow-card"
 													>
 														{actionBusy === "activate_queue" ? "Activating..." : "Activate & Proceed"}
 													</button>
@@ -1491,7 +1482,7 @@ export default function TradingWidget({
 													type="button"
 													disabled={actionBusy !== null}
 													onClick={() => void handleCancelQueueInWidget(queuedOrderInfo.queueRef)}
-													className="rounded-full px-4 py-2 border border-red-200 bg-white hover:bg-red-50 text-red-700 font-semibold text-xs"
+													className="rounded-md px-4 py-2 border border-red-200 bg-surface hover:bg-red-50 text-red-700 font-semibold text-xs"
 												>
 													{actionBusy === "cancel_queue" ? "Cancelling..." : "Cancel Queue"}
 												</button>
@@ -1510,7 +1501,7 @@ export default function TradingWidget({
 											}
 										}}
 										disabled={creatingOrder}
-										className="w-full py-3.5 px-6 rounded-full bg-[#1a9e5c] hover:bg-[#15854c] text-white font-bold text-xs transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-60"
+										className="w-full py-3.5 px-6 rounded-md bg-accent hover:bg-accent-hover text-white font-semibold text-xs transition-colors shadow-card flex items-center justify-center gap-2 disabled:opacity-60"
 									>
 										<span>
 											{!isConnected
@@ -1528,12 +1519,12 @@ export default function TradingWidget({
 							{step === 1 && (
 								<div className="space-y-4">
 									{/* Payment Deadline Bar */}
-									<div className="p-3 rounded-2xl border border-[#d1e8dc] bg-white flex items-center justify-between text-xs">
-										<div className="flex items-center gap-2 text-[#3d6b55]">
-											<Clock size={14} className="text-[#1a9e5c]" />
+									<div className="p-3 rounded-xl border border-line bg-surface flex items-center justify-between text-xs">
+										<div className="flex items-center gap-2 text-ink-2">
+											<Clock size={14} className="text-accent" />
 											<span>Payment Window</span>
 										</div>
-										<span className="font-mono font-bold text-[#0d2b1e]">
+										<span className="font-mono font-semibold text-ink">
 											{formatDeadline(remainingSeconds)} remaining
 										</span>
 									</div>
@@ -1544,22 +1535,22 @@ export default function TradingWidget({
 											type="button"
 											onClick={() => setVerifyMode("bank")}
 											className={cn(
-												"p-3 rounded-2xl border text-left transition-colors",
+												"p-3 rounded-xl border text-left transition-colors",
 												verifyMode === "bank"
-													? "border-[#1a9e5c] bg-[#f0f7f3]"
-													: "border-[#d1e8dc] bg-white hover:bg-[#fbfdfc]",
+													? "border-accent bg-subtle"
+													: "border-line bg-surface hover:bg-surface",
 											)}
 										>
 											<div className="flex items-center justify-between">
 												<CreditCard
 													size={15}
-													className={verifyMode === "bank" ? "text-[#1a9e5c]" : "text-[#7aaa92]"}
+													className={verifyMode === "bank" ? "text-accent" : "text-ink-3"}
 												/>
-												<span className="text-[10px] font-mono text-[#1a9e5c]">
+												<span className="text-[11px] font-mono text-accent">
 													Direct
 												</span>
 											</div>
-											<div className="text-xs font-semibold text-[#0d2b1e] mt-1">
+											<div className="text-xs font-semibold text-ink mt-1">
 												Bank Checkout
 											</div>
 										</button>
@@ -1571,38 +1562,38 @@ export default function TradingWidget({
 												setZkDone(false);
 											}}
 											className={cn(
-												"p-3 rounded-2xl border text-left transition-colors",
+												"p-3 rounded-xl border text-left transition-colors",
 												verifyMode === "zk"
-													? "border-[#1a9e5c] bg-[#f0f7f3]"
-													: "border-[#d1e8dc] bg-white hover:bg-[#fbfdfc]",
+													? "border-accent bg-subtle"
+													: "border-line bg-surface hover:bg-surface",
 											)}
 										>
 											<div className="flex items-center justify-between">
 												<Fingerprint
 													size={15}
-													className={verifyMode === "zk" ? "text-[#1a9e5c]" : "text-[#7aaa92]"}
+													className={verifyMode === "zk" ? "text-accent" : "text-ink-3"}
 												/>
-												<span className="text-[10px] font-mono text-[#7aaa92]">
+												<span className="text-[11px] font-mono text-ink-3">
 													Zero-Knowledge
 												</span>
 											</div>
-											<div className="text-xs font-semibold text-[#0d2b1e] mt-1">
+											<div className="text-xs font-semibold text-ink mt-1">
 												TLSNotary ZK
 											</div>
 										</button>
 									</div>
 
 									{verifyMode === "bank" && (
-										<div className="p-4 rounded-2xl border border-[#d1e8dc] bg-white space-y-3 text-xs">
+										<div className="p-4 rounded-xl border border-line bg-surface space-y-3 text-xs">
 											<div className="flex items-center justify-between">
-												<span className="text-[#7aaa92]">Beneficiary Bank</span>
-												<span className="font-semibold text-[#0d2b1e]">
+												<span className="text-ink-3">Beneficiary Bank</span>
+												<span className="font-semibold text-ink">
 													{lifecycleTrade?.bankName ?? selectedBank}
 												</span>
 											</div>
 											<div className="flex items-center justify-between">
-												<span className="text-[#7aaa92]">Amount Due</span>
-												<span className="font-mono font-bold text-[#0d2b1e]">
+												<span className="text-ink-3">Amount Due</span>
+												<span className="font-mono font-semibold text-ink">
 													₦{rawNgn.toLocaleString("en-NG")}
 												</span>
 											</div>
@@ -1612,7 +1603,7 @@ export default function TradingWidget({
 													type="button"
 													onClick={() => void handleFlutterwaveCheckout()}
 													disabled={redirectingBank}
-													className="flex-1 py-2.5 px-4 rounded-full bg-[#1a9e5c] hover:bg-[#15854c] text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-60"
+													className="flex-1 py-2.5 px-4 rounded-md bg-accent hover:bg-accent-hover text-white font-semibold text-xs flex items-center justify-center gap-1.5 shadow-card disabled:opacity-60"
 												>
 													<span>
 														{redirectingBank ? "Opening..." : "Proceed to Payment"}
@@ -1624,7 +1615,7 @@ export default function TradingWidget({
 													type="button"
 													onClick={() => void handleCancelTradeInWidget()}
 													disabled={actionBusy === "cancel_trade"}
-													className="py-2.5 px-4 rounded-full border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 font-semibold text-xs disabled:opacity-50"
+													className="py-2.5 px-4 rounded-md border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 font-semibold text-xs disabled:opacity-50"
 												>
 													Cancel Trade
 												</button>
@@ -1644,9 +1635,9 @@ export default function TradingWidget({
 									)}
 
 									{canProceedStep1 && (
-										<div className="p-3 rounded-2xl bg-[#f0f7f3] border border-[#1a9e5c]/30 flex items-center gap-2 text-xs">
-											<CheckCircle size={15} className="text-[#1a9e5c] shrink-0" />
-											<span className="font-semibold text-[#0d2b1e]">
+										<div className="p-3 rounded-xl bg-subtle border border-accent/30 flex items-center gap-2 text-xs">
+											<CheckCircle size={15} className="text-accent shrink-0" />
+											<span className="font-semibold text-ink">
 												Payment Verified
 											</span>
 										</div>
@@ -1656,14 +1647,14 @@ export default function TradingWidget({
 										<button
 											type="button"
 											onClick={() => setStep(0)}
-											className="flex-1 py-2.5 rounded-full border border-[#d1e8dc] text-[#3d6b55] text-xs font-semibold hover:bg-[#f0f7f3]"
+											className="flex-1 py-2.5 rounded-full border border-line text-ink-2 text-xs font-semibold hover:bg-subtle"
 										>
 											Back
 										</button>
 										<button
 											type="button"
 											onClick={() => setStep(2)}
-											className="flex-1 py-2.5 rounded-full bg-[#1a9e5c] hover:bg-[#15854c] text-white text-xs font-semibold"
+											className="flex-1 py-2.5 rounded-full bg-accent hover:bg-accent-hover text-white text-xs font-semibold"
 										>
 											Proceed to Settlement
 										</button>
@@ -1674,31 +1665,31 @@ export default function TradingWidget({
 							{/* ── STEP 2: Escrow Settlement ── */}
 							{step === 2 && (
 								<div className="space-y-4">
-									<div className="p-4 rounded-2xl border border-[#d1e8dc] bg-white space-y-2.5 text-xs">
+									<div className="p-4 rounded-xl border border-line bg-surface space-y-2.5 text-xs">
 										<div className="flex items-center justify-between">
-											<span className="text-[#7aaa92]">Lifecycle State</span>
-											<span className="px-2.5 py-0.5 rounded-full font-mono text-[10px] font-bold bg-[#f0f7f3] text-[#1a9e5c] border border-[#d1e8dc]">
+											<span className="text-ink-3">Lifecycle State</span>
+											<span className="px-2.5 py-0.5 rounded-md font-mono text-[11px] font-semibold bg-subtle text-accent border border-line">
 												{lifecycleTrade?.lifecycleState ?? "AWAITING_PAYMENT"}
 											</span>
 										</div>
 
 										<div className="flex items-center justify-between">
-											<span className="text-[#7aaa92]">USDC Amount</span>
-											<span className="font-mono font-bold text-[#0d2b1e]">
+											<span className="text-ink-3">USDC Amount</span>
+											<span className="font-mono font-semibold text-ink">
 												{usdcAmount} USDC
 											</span>
 										</div>
 
 										<div className="flex items-center justify-between">
-											<span className="text-[#7aaa92]">Payment Status</span>
-											<span className="font-mono font-semibold text-[#0d2b1e]">
+											<span className="text-ink-3">Payment Status</span>
+											<span className="font-mono font-semibold text-ink">
 												{lifecycleTrade?.paymentState ?? (canProceedStep1 ? "CONFIRMED" : "PENDING")}
 											</span>
 										</div>
 
 										<div className="flex items-center justify-between">
-											<span className="text-[#7aaa92]">Escrow Status</span>
-											<span className="font-mono text-[#1a9e5c] font-semibold">
+											<span className="text-ink-3">Escrow Status</span>
+											<span className="font-mono text-accent font-semibold">
 												{lifecycleTrade?.escrowState ?? "LOCKED"}
 											</span>
 										</div>
@@ -1709,7 +1700,7 @@ export default function TradingWidget({
 											type="button"
 											disabled={actionBusy !== null}
 											onClick={() => void handleLifecycleAction("confirm_payout")}
-											className="py-2.5 px-4 rounded-full border border-[#d1e8dc] bg-white hover:bg-[#f0f7f3] text-[#0d2b1e] text-xs font-semibold disabled:opacity-50"
+											className="py-2.5 px-4 rounded-md border border-line bg-surface hover:bg-subtle text-ink text-xs font-semibold disabled:opacity-50"
 										>
 											{actionBusy === "confirm_payout" ? "Confirming..." : "Confirm Payout"}
 										</button>
@@ -1718,7 +1709,7 @@ export default function TradingWidget({
 											type="button"
 											disabled={actionBusy !== null}
 											onClick={() => void handleLifecycleAction("release_escrow")}
-											className="py-2.5 px-4 rounded-full bg-[#1a9e5c] hover:bg-[#15854c] text-white text-xs font-bold disabled:opacity-50 shadow-sm"
+											className="py-2.5 px-4 rounded-md bg-accent hover:bg-accent-hover text-white text-xs font-semibold disabled:opacity-50 shadow-card"
 										>
 											{actionBusy === "release_escrow" ? "Releasing..." : "Release Escrow"}
 										</button>
@@ -1728,14 +1719,14 @@ export default function TradingWidget({
 										<button
 											type="button"
 											onClick={() => setStep(1)}
-											className="flex-1 py-2.5 rounded-full border border-[#d1e8dc] text-[#3d6b55] text-xs font-semibold hover:bg-[#f0f7f3]"
+											className="flex-1 py-2.5 rounded-full border border-line text-ink-2 text-xs font-semibold hover:bg-subtle"
 										>
 											Back
 										</button>
 										<button
 											type="button"
 											onClick={() => setStep(3)}
-											className="flex-1 py-2.5 rounded-full border border-[#1a9e5c] text-[#1a9e5c] hover:bg-[#f0f7f3] text-xs font-semibold"
+											className="flex-1 py-2.5 rounded-full border border-accent text-accent hover:bg-subtle text-xs font-semibold"
 										>
 											Audit Trail
 										</button>
@@ -1746,18 +1737,18 @@ export default function TradingWidget({
 							{/* ── STEP 3: Audit Trail ── */}
 							{step === 3 && (
 								<div className="space-y-4">
-									<div className="rounded-2xl border border-[#d1e8dc] bg-white p-4">
+									<div className="rounded-xl border border-line bg-surface p-4">
 										<div className="flex items-center justify-between mb-3">
-											<span className="text-xs font-bold text-[#0d2b1e]">
+											<span className="text-xs font-semibold text-ink">
 												Trade Audit Trail (#{activeTradeId})
 											</span>
-											<span className="text-[10px] font-mono text-[#7aaa92]">
+											<span className="text-[11px] font-mono text-ink-3">
 												{(lifecycleTrade?.auditLog ?? []).length} events
 											</span>
 										</div>
 
 										{(lifecycleTrade?.auditLog ?? []).length === 0 ? (
-											<div className="py-6 text-center text-xs text-[#7aaa92]">
+											<div className="py-6 text-center text-xs text-ink-3">
 												No state transitions recorded yet for Trade #{activeTradeId}.
 											</div>
 										) : (
@@ -1765,21 +1756,21 @@ export default function TradingWidget({
 												{(lifecycleTrade?.auditLog ?? []).map((ev) => (
 													<div
 														key={ev.id}
-														className="p-2.5 rounded-xl border border-[#e5ebe7] bg-[#fbfdfc] text-xs flex items-start justify-between gap-2"
+														className="p-2.5 rounded-lg border border-line bg-surface text-xs flex items-start justify-between gap-2"
 													>
 														<div className="min-w-0">
-															<div className="font-mono font-medium text-[#0d2b1e] truncate">
+															<div className="font-mono font-medium text-ink truncate">
 																{ev.eventType}
 															</div>
-															<div className="text-[10px] text-[#7aaa92] mt-0.5">
+															<div className="text-[11px] text-ink-3 mt-0.5">
 																{ev.previousState ? `${ev.previousState} → ` : ""}
-																<span className="font-mono text-[#1a9e5c]">
+																<span className="font-mono text-accent">
 																	{ev.newState}
 																</span>{" "}
 																· {ev.actorRole}
 															</div>
 														</div>
-														<span className="text-[10px] font-mono text-[#7aaa92] shrink-0">
+														<span className="text-[11px] font-mono text-ink-3 shrink-0">
 															{new Date(ev.createdAt).toLocaleTimeString([], {
 																hour: "2-digit",
 																minute: "2-digit",
@@ -1795,7 +1786,7 @@ export default function TradingWidget({
 										<button
 											type="button"
 											onClick={() => setStep(2)}
-											className="flex-1 py-2.5 rounded-full border border-[#d1e8dc] text-[#3d6b55] text-xs font-semibold hover:bg-[#f0f7f3]"
+											className="flex-1 py-2.5 rounded-full border border-line text-ink-2 text-xs font-semibold hover:bg-subtle"
 										>
 											Back to Settlement
 										</button>
@@ -1808,7 +1799,7 @@ export default function TradingWidget({
 													reason: "Dispute opened from trading terminal.",
 												})
 											}
-											className="flex-1 py-2.5 px-4 rounded-full border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-semibold flex items-center justify-center gap-1.5"
+											className="flex-1 py-2.5 px-4 rounded-md border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-semibold flex items-center justify-center gap-1.5"
 										>
 											<AlertTriangle size={13} />
 											<span>Place Trade on Hold</span>

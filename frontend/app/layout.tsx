@@ -17,7 +17,7 @@ export default function RootLayout({
 }>) {
 	return (
 		<html lang="en">
-			<body className="bg-[#f5f9f7] text-[#0d2b1e] antialiased">
+			<body className="bg-canvas text-ink antialiased">
 				<Providers>
 					<PostHogAnalytics />
 					<GlobalNav />

@@ -32,12 +32,12 @@ export function CreateOfferTab({
 	const { rate } = useMonierateRate();
 	const activeRate = rate || RATE;
 	return (
-		<div className="max-w-md mx-auto rounded-[32px] border border-[#e5ebe7] bg-white p-7 space-y-5 shadow-xl">
+		<div className="max-w-md mx-auto rounded-xl border border-line bg-surface p-7 space-y-5 shadow-card">
 			<div>
-				<h2 className="text-base font-bold text-[#0d2b1e]">
+				<h2 className="text-base font-semibold text-ink">
 					Create Peer Offer
 				</h2>
-				<p className="text-xs text-[#7aaa92] mt-0.5">
+				<p className="text-xs text-ink-3 mt-0.5">
 					Lock USDC into Arc Escrow and publish an active offer for NGN
 					settlement.
 				</p>
@@ -46,7 +46,7 @@ export function CreateOfferTab({
 			<form onSubmit={onSubmit} className="space-y-4">
 				<div>
 					<div className="flex items-center justify-between mb-1">
-						<label className="block text-xs font-semibold text-[#0d2b1e]">
+						<label className="block text-xs font-semibold text-ink">
 							USDC Amount
 						</label>
 					</div>
@@ -55,10 +55,10 @@ export function CreateOfferTab({
 							type="text"
 							value={offerUsdc}
 							onChange={(e) => setOfferUsdc(e.target.value)}
-							className="w-full px-4 py-2.5 rounded-2xl border border-[#d1e8dc] text-xs font-mono text-[#0d2b1e] focus:outline-none focus:border-[#1a9e5c]"
+							className="w-full px-4 py-2.5 rounded-xl border border-line text-xs font-mono text-ink focus:outline-none focus:border-accent"
 							placeholder="Enter USDC amount"
 						/>
-						<span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-mono text-[#7aaa92]">
+						<span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-mono text-ink-3">
 							{offerUsdc.trim()
 								? `≈ ₦${Math.round(parseNumericUsdc(offerUsdc) * activeRate).toLocaleString("en-NG")}`
 								: `1 USDC = ₦${activeRate.toLocaleString("en-NG", { minimumFractionDigits: 2 })}`}
@@ -68,7 +68,7 @@ export function CreateOfferTab({
 
 				<div className="grid grid-cols-2 gap-3">
 					<div>
-						<label className="block text-xs font-semibold text-[#0d2b1e] mb-1">
+						<label className="block text-xs font-semibold text-ink mb-1">
 							Settlement Bank
 						</label>
 						<BankSearchSelect
@@ -79,7 +79,7 @@ export function CreateOfferTab({
 					</div>
 
 					<div>
-						<label className="block text-xs font-semibold text-[#0d2b1e] mb-1">
+						<label className="block text-xs font-semibold text-ink mb-1">
 							Account Number
 						</label>
 						<input
@@ -90,28 +90,30 @@ export function CreateOfferTab({
 								setOfferAccountNo(e.target.value.replace(/\D/g, ""))
 							}
 							placeholder="0123456789"
-							className="w-full px-4 py-2.5 rounded-2xl border border-[#d1e8dc] text-xs font-mono text-[#0d2b1e] focus:outline-none focus:border-[#1a9e5c]"
+							className="w-full px-4 py-2.5 rounded-xl border border-line text-xs font-mono text-ink focus:outline-none focus:border-accent"
 						/>
 					</div>
 				</div>
 
-				<div className="p-3.5 rounded-2xl bg-[#fbfdfc] border border-[#d1e8dc] text-xs space-y-1">
-					<div className="flex justify-between text-[#7aaa92]">
-						<span>Platform Peg (Monierate Live)</span>
-						<span className="font-mono font-bold text-[#0d2b1e]">
-							1 USDC = ₦{activeRate.toLocaleString("en-NG", { minimumFractionDigits: 2 })}
-						</span>
+				<dl className="divide-y divide-line rounded-lg border border-line text-xs">
+					<div className="flex justify-between px-3.5 py-2.5">
+						<dt className="text-ink-3">Rate (Monierate)</dt>
+						<dd className="font-mono text-ink">
+							₦{activeRate.toLocaleString("en-NG", { minimumFractionDigits: 2 })} / USDC
+						</dd>
 					</div>
-				</div>
+					<div className="flex justify-between px-3.5 py-2.5">
+						<dt className="text-ink-3">Wallet prompts</dt>
+						<dd className="text-ink">Approve USDC, then deposit to escrow</dd>
+					</div>
+					<div className="flex justify-between px-3.5 py-2.5">
+						<dt className="text-ink-3">Withdrawable</dt>
+						<dd className="text-ink">Any unsold USDC, at any time</dd>
+					</div>
+				</dl>
 
-				<button
-					type="submit"
-					disabled={creatingOffer}
-					className="w-full py-3 rounded-full font-semibold text-xs text-white bg-[#1a9e5c] hover:bg-[#15854c] transition-all shadow-md disabled:opacity-60"
-				>
-					{creatingOffer
-						? "Publishing on Arc Testnet..."
-						: "Lock USDC & Publish Offer"}
+				<button type="submit" disabled={creatingOffer} className="btn-primary h-11 w-full">
+					{creatingOffer ? "Waiting for Arc…" : "Lock USDC and publish"}
 				</button>
 			</form>
 		</div>

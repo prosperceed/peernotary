@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import { ArrowUpRight, ShieldCheck, Star } from "lucide-react";
+import { ArrowUpRight, ShieldCheck, Star , Check} from "lucide-react";
 import { cn, RATE } from "@/lib/utils";
 import { useMonierateRate } from "@/hooks/useMonierateRate";
 import type { PeerTradeOffer, UserTransaction, UserTrustSummary } from "@/types";
@@ -106,12 +106,12 @@ export function OverviewTab({
 			{/* Row 1: Orders and Performance Split */}
 			<div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
 				{/* Left 65%: Orders Card */}
-				<div className="lg:col-span-8 rounded-[28px] border border-[#e5ebe7] bg-white p-5 shadow-sm space-y-4">
+				<div className="lg:col-span-8 rounded-xl border border-line bg-surface p-5 shadow-card space-y-4">
 					<div className="flex items-center justify-between">
-						<h2 className="text-base font-bold text-[#0d2b1e]">Orders</h2>
+						<h2 className="text-base font-semibold text-ink">Orders</h2>
 						<button
 							onClick={onViewAllTransactions}
-							className="w-8 h-8 rounded-full bg-[#f4f7f5] flex items-center justify-center text-[#3d6b55] hover:bg-[#e2f0e8] transition-colors"
+							className="w-8 h-8 rounded-full bg-subtle flex items-center justify-center text-ink-2 hover:bg-accent-soft transition-colors"
 							title="View all transactions"
 						>
 							<ArrowUpRight size={14} />
@@ -120,7 +120,7 @@ export function OverviewTab({
 
 					<div className="space-y-2.5">
 						{transactions.length === 0 ? (
-							<div className="py-10 text-center text-xs text-[#7aaa92]">
+							<div className="py-10 text-center text-xs text-ink-3">
 								No active orders recorded yet. Explore peer offers or post your
 								own.
 							</div>
@@ -129,20 +129,20 @@ export function OverviewTab({
 								return (
 									<div
 										key={tx.id}
-										className="p-3.5 rounded-2xl bg-[#fbfdfc] border border-[#eef2ee] hover:border-[#d1e8dc] transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+										className="p-3.5 rounded-xl bg-surface border border-subtle hover:border-line transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
 									>
 										<div className="flex items-center gap-3">
-											<div className="w-10 h-10 rounded-full bg-[#e2f5ec] text-[#1a9e5c] flex items-center justify-center font-bold text-xs shrink-0">
+											<div className="w-10 h-10 rounded-full bg-[#e2f5ec] text-accent flex items-center justify-center font-semibold text-xs shrink-0">
 												$
 											</div>
 											<div>
-												<div className="font-semibold text-[#0d2b1e] flex items-center gap-1.5">
+												<div className="font-semibold text-ink flex items-center gap-1.5">
 													<span>USDC</span>
-													<span className="text-[#7aaa92] font-mono text-[11px]">
+													<span className="text-ink-3 font-mono text-xs">
 														#{tx.tradeId}
 													</span>
 												</div>
-												<div className="text-[11px] text-[#7aaa92]">
+												<div className="text-xs text-ink-3">
 													{tx.counterparty}
 												</div>
 											</div>
@@ -150,19 +150,19 @@ export function OverviewTab({
 
 										<div className="flex items-center gap-4">
 											<div>
-												<div className="font-bold text-[#0d2b1e] font-mono">
+												<div className="font-semibold text-ink font-mono">
 													{tx.ngnAmount}
 												</div>
-												<div className="text-[11px] text-[#7aaa92] font-mono">
+												<div className="text-xs text-ink-3 font-mono">
 													{tx.usdcAmount} USDC
 												</div>
 											</div>
 
-											<div className="hidden sm:block text-[11px] text-[#3d6b55] font-medium">
+											<div className="hidden sm:block text-xs text-ink-2 font-medium">
 												{tx.bankName} Direct
 											</div>
 
-											<span className="px-3 py-1 rounded-full text-[11px] font-semibold bg-[#f0f7f3] text-[#1a9e5c] border border-[#d1e8dc]">
+											<span className="px-3 py-1 rounded-md text-xs font-semibold bg-subtle text-accent border border-line">
 												{tx.status === "completed"
 													? "Settled"
 													: tx.status === "escrow"
@@ -185,7 +185,7 @@ export function OverviewTab({
 														)}&accountNo=${encodeURIComponent(
 															tx.sellerAccountNumber || "",
 														)}&returnTo=/dashboard`}
-														className="rounded-full px-4 py-1.5 text-xs font-semibold bg-[#1a9e5c] text-white hover:bg-[#15854c] transition-all shadow-sm"
+														className="rounded-md px-4 py-1.5 text-xs font-semibold bg-accent text-white hover:bg-accent-hover transition-colors shadow-card"
 													>
 														Pay
 													</Link>
@@ -196,7 +196,7 @@ export function OverviewTab({
 													<button
 														onClick={() => onReleaseEscrow(tx)}
 														disabled={releasingTradeId === tx.tradeId}
-														className="rounded-full px-4 py-1.5 text-xs font-semibold bg-[#0d2b1e] text-white hover:bg-[#1a9e5c] transition-all disabled:opacity-60"
+														className="rounded-md px-4 py-1.5 text-xs font-semibold bg-ink text-white hover:bg-accent transition-colors disabled:opacity-60"
 													>
 														{releasingTradeId === tx.tradeId
 															? "Releasing..."
@@ -215,7 +215,7 @@ export function OverviewTab({
 														)}&accountNo=${encodeURIComponent(
 															tx.sellerAccountNumber || "",
 														)}&returnTo=/dashboard`}
-														className="rounded-full px-3.5 py-1.5 text-xs font-semibold border border-[#d1e8dc] text-[#0d2b1e] hover:bg-[#f0f7f3] transition-all"
+														className="rounded-md px-3.5 py-1.5 text-xs font-semibold border border-line text-ink hover:bg-subtle transition-colors"
 													>
 														View
 													</Link>
@@ -232,18 +232,18 @@ export function OverviewTab({
 				{/* Right 35%: Performance & Spread Edge */}
 				<div className="lg:col-span-4 space-y-4">
 					{/* Performance Card */}
-					<div className="rounded-[28px] relative overflow-hidden h-[240px] p-5 flex flex-col justify-between shadow-sm bg-gradient-to-br from-[#0d2b1e] via-[#145a3a] to-[#082015] text-white">
+					<div className="rounded-xl relative overflow-hidden h-[240px] p-5 flex flex-col justify-between bg-ink text-white">
 						<div>
 							<div className="flex items-center justify-between">
-								<span className="text-lg font-bold text-white tracking-tight block">
+								<span className="text-lg font-semibold text-white tracking-tight block">
 									Performance
 								</span>
-								<span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-white/10 border border-white/20 text-[#4dd68c]">
+								<span className="px-2.5 py-0.5 rounded-md text-[11px] font-mono font-semibold bg-white/10 border border-white/20 text-accent">
 									{performanceMetrics.tier}
 								</span>
 							</div>
 							<div className="flex items-center gap-1.5 text-xs text-white/80 mt-1">
-								<ShieldCheck size={14} className="text-[#4dd68c]" />
+								<ShieldCheck size={14} className="text-accent" />
 								<span>
 									{performanceMetrics.completedCount > 0
 										? `Verified P2P Merchant (@${username || "trader"})`
@@ -254,13 +254,11 @@ export function OverviewTab({
 
 						<div className="rounded-full bg-black/40 backdrop-blur-md px-4 py-2 border border-white/20 text-white flex items-center justify-between text-xs">
 							<div className="flex items-center gap-1.5">
-								<div className="w-3.5 h-3.5 rounded-full bg-[#1a9e5c] text-white flex items-center justify-center text-[9px] font-bold">
-									✓
-								</div>
+								<Check size={13} className="text-white/80" />
 								<span className="font-semibold text-white/95">
 									{performanceMetrics.completionRate}
 								</span>
-								<span className="text-white/70 text-[10px]">
+								<span className="text-white/70 text-[11px]">
 									30D Completion
 									{performanceMetrics.totalCount > 0
 										? ` (${performanceMetrics.completedCount}/${performanceMetrics.totalCount})`
@@ -272,30 +270,29 @@ export function OverviewTab({
 								<span className="font-semibold text-white/95">
 									{performanceMetrics.positiveRate}
 								</span>
-								<span className="text-white/70 text-[10px]">Positive</span>
+								<span className="text-white/70 text-[11px]">Positive</span>
 							</div>
 						</div>
 					</div>
 
 					{/* Spread Edge Card */}
-					<div className="rounded-[28px] border border-[#e5ebe7] bg-white p-5 shadow-sm space-y-3">
+					<div className="rounded-xl border border-line bg-surface p-5 shadow-card space-y-3">
 						<div className="flex items-center justify-between">
-							<span className="text-xs font-semibold text-[#0d2b1e]">
+							<span className="text-xs font-semibold text-ink">
 								Spread Edge
 							</span>
-							<span className="rounded-full bg-[#f0f7f3] border border-[#d1e8dc] px-3 py-0.5 text-[10px] font-semibold text-[#1a9e5c] flex items-center gap-1.5">
-								<span className="w-1.5 h-1.5 rounded-full bg-[#1a9e5c] animate-pulse" />
-								Auto-Peg ✓
+							<span className="rounded-full bg-subtle border border-line px-3 py-0.5 text-[11px] font-semibold text-accent flex items-center gap-1.5">
+								Auto-peg on
 							</span>
 						</div>
 
 						<div className="relative pt-2 pb-1">
-							<div className="h-1.5 w-full bg-[#eef4f0] rounded-full relative">
-								<div className="h-full bg-[#1a9e5c] rounded-full w-[65%]" />
-								<div className="absolute top-1/2 -translate-y-1/2 left-[25%] w-3 h-3 rounded-full bg-[#1a9e5c] border-2 border-white" />
-								<div className="absolute top-1/2 -translate-y-1/2 left-[65%] w-3.5 h-3.5 rounded-full bg-[#0d2b1e] border-2 border-white shadow-sm" />
+							<div className="h-1.5 w-full bg-subtle rounded-full relative">
+								<div className="h-full bg-accent rounded-full w-[65%]" />
+								<div className="absolute top-1/2 -translate-y-1/2 left-[25%] w-3 h-3 rounded-full bg-accent border-2 border-white" />
+								<div className="absolute top-1/2 -translate-y-1/2 left-[65%] w-3.5 h-3.5 rounded-full bg-ink border-2 border-white shadow-card" />
 							</div>
-							<div className="flex items-center justify-between text-[10px] text-[#7aaa92] pt-2">
+							<div className="flex items-center justify-between text-[11px] text-ink-3 pt-2">
 								<span>{competitor1 ? `${competitor1.name} ${competitor1.formattedDiff}` : "Our Ad +₦0.00"}</span>
 								<span>{competitor2 ? `Rank 2 (${competitor2.name}): ${competitor2.formattedDiff}` : "Rank 2: -₦2.98"}</span>
 								<span>Rank 1: Best Rate</span>
@@ -304,15 +301,15 @@ export function OverviewTab({
 
 						<div className="flex items-center justify-between pt-1">
 							<div className="flex items-baseline gap-2">
-								<span className="font-mono text-lg font-bold text-[#0d2b1e]">
+								<span className="font-mono text-lg font-semibold text-ink">
 									₦ {liveRate.toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
 								</span>
-								<span className={cn("text-[10px] font-bold", isPositive ? "text-[#1a9e5c]" : "text-rose-600")}>
+								<span className={cn("text-[11px] font-semibold", isPositive ? "text-accent" : "text-rose-600")}>
 									{rateData?.change24hText ?? "+0.85%"}
 								</span>
 							</div>
 							<div className="flex items-center gap-1.5">
-								<span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#e8f7ee] text-[#1a9e5c]">
+								<span className="px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-accent-soft text-accent">
 									Rank 1
 								</span>
 							</div>
@@ -324,35 +321,35 @@ export function OverviewTab({
 			{/* Row 2: Asset Inventory & My Active Offers */}
 			<div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
 				{/* Asset Inventory */}
-				<div className="lg:col-span-6 rounded-[28px] border border-[#e5ebe7] bg-white p-5 shadow-sm space-y-3">
+				<div className="lg:col-span-6 rounded-xl border border-line bg-surface p-5 shadow-card space-y-3">
 					<div className="flex items-center justify-between">
-						<h3 className="text-sm font-bold text-[#0d2b1e]">
+						<h3 className="text-sm font-semibold text-ink">
 							Asset Inventory
 						</h3>
 						<button
 							onClick={onViewEscrows}
-							className="w-7 h-7 rounded-full bg-[#f4f7f5] flex items-center justify-center text-[#7aaa92] hover:text-[#0d2b1e]"
+							className="w-7 h-7 rounded-full bg-subtle flex items-center justify-center text-ink-3 hover:text-ink"
 						>
 							<ArrowUpRight size={13} />
 						</button>
 					</div>
 
 					<div className="space-y-2 pt-1">
-						<div className="flex h-3 w-full rounded-full overflow-hidden bg-[#eef4f0] gap-1">
+						<div className="flex h-3 w-full rounded-full overflow-hidden bg-subtle gap-1">
 							<div
-								className="h-full bg-[#0d2b1e] rounded-full"
+								className="h-full bg-ink rounded-full"
 								style={{ width: "35%" }}
 							/>
 							<div
-								className="h-full bg-[#1a9e5c] rounded-full"
+								className="h-full bg-accent rounded-full"
 								style={{ width: "45%" }}
 							/>
 							<div
-								className="h-full bg-[#4dd68c] rounded-full"
+								className="h-full bg-accent rounded-full"
 								style={{ width: "20%" }}
 							/>
 						</div>
-						<div className="flex items-center justify-between text-[11px] text-[#7aaa92]">
+						<div className="flex items-center justify-between text-xs text-ink-3">
 							<span>Escrow (35%)</span>
 							<span>Wallet (45%)</span>
 							<span>Vault (20%)</span>
@@ -360,12 +357,12 @@ export function OverviewTab({
 					</div>
 
 					<div className="flex items-center justify-between pt-2">
-						<span className="text-xs text-[#7aaa92]">
+						<span className="text-xs text-ink-3">
 							Dynamic threshold &lt; 15%
 						</span>
 						<button
 							onClick={onRebalance}
-							className="rounded-full px-4 py-1.5 text-xs font-semibold bg-[#0d2b1e] text-white hover:bg-[#1a9e5c] transition-all"
+							className="rounded-md px-4 py-1.5 text-xs font-semibold bg-ink text-white hover:bg-accent transition-colors"
 						>
 							Rebalance
 						</button>
@@ -373,47 +370,47 @@ export function OverviewTab({
 				</div>
 
 				{/* My Active Offers */}
-				<div className="lg:col-span-6 rounded-[28px] border border-[#e5ebe7] bg-white p-5 shadow-sm space-y-3">
+				<div className="lg:col-span-6 rounded-xl border border-line bg-surface p-5 shadow-card space-y-3">
 					<div className="flex items-center justify-between">
-						<h3 className="text-sm font-bold text-[#0d2b1e]">
+						<h3 className="text-sm font-semibold text-ink">
 							My Active Offers
 						</h3>
-						<span className="text-xs font-mono text-[#7aaa92]">
+						<span className="text-xs font-mono text-ink-3">
 							{userOffers.length}/10 Active
 						</span>
 					</div>
 
 					<div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-						<div className="p-3.5 rounded-2xl bg-[#f4fbf7] border border-[#d1e8dc] space-y-1.5">
+						<div className="p-3.5 rounded-xl bg-subtle border border-line space-y-1.5">
 							<div className="flex items-center justify-between">
-								<span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white text-[#1a9e5c] border border-[#d1e8dc]">
+								<span className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-surface text-accent border border-line">
 									BUY USDC #9901
 								</span>
-								<span className="text-[10px] font-mono text-[#7aaa92]">
+								<span className="text-[11px] font-mono text-ink-3">
 									Instant
 								</span>
 							</div>
-							<div className="text-base font-bold text-[#0d2b1e] font-mono">
+							<div className="text-base font-semibold text-ink font-mono">
 								₦ 1,550.00
 							</div>
-							<div className="text-[10px] text-[#7aaa92]">
+							<div className="text-[11px] text-ink-3">
 								GTBank, OPay, Kuda
 							</div>
 						</div>
 
-						<div className="p-3.5 rounded-2xl bg-[#fdfaf4] border border-[#edd5be] space-y-1.5">
+						<div className="p-3.5 rounded-xl bg-[#fdfaf4] border border-[#edd5be] space-y-1.5">
 							<div className="flex items-center justify-between">
-								<span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white text-amber-800 border border-[#edd5be]">
+								<span className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-surface text-amber-800 border border-[#edd5be]">
 									SELL USDC #9902
 								</span>
-								<span className="text-[10px] font-mono text-[#7aaa92]">
+								<span className="text-[11px] font-mono text-ink-3">
 									Auto-Peg
 								</span>
 							</div>
-							<div className="text-base font-bold text-[#0d2b1e] font-mono">
+							<div className="text-base font-semibold text-ink font-mono">
 								₦ 1,545.00
 							</div>
-							<div className="text-[10px] text-[#7aaa92]">
+							<div className="text-[11px] text-ink-3">
 								Zenith, Access Bank
 							</div>
 						</div>

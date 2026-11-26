@@ -1,14 +1,18 @@
+import { ARCSCAN_ADDR, ESCROW_ADDRESS } from "@/lib/web3/arcConfig";
+
 export default function Footer() {
 	return (
-		<footer className="bg-[#f5f9f7] border-t border-[#d1e8dc] mt-12 py-4">
-			<div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-3">
-				<div className="text-[11px] text-[#7aaa92]">
-					© 2026 Arc Network · PeerNotary · NGN/USDC Escrow Protocol
-				</div>
-				<div className="hidden sm:flex items-center gap-3 text-[11px] text-[#7aaa92] divide-x divide-[#d1e8dc]">
-					<span>Powered by Arc Testnet</span>
-					<span className="pl-3">ZK Proofs via TLSNotary</span>
-				</div>
+		<footer className="border-t border-line bg-canvas">
+			<div className="mx-auto flex max-w-6xl flex-col gap-2 px-6 py-6 text-xs text-ink-3 sm:flex-row sm:items-center sm:justify-between">
+				<span>PeerNotary · seller-funded USDC escrow on Arc Testnet</span>
+				<a
+					href={ARCSCAN_ADDR(ESCROW_ADDRESS)}
+					target="_blank"
+					rel="noreferrer"
+					className="font-mono hover:text-ink"
+				>
+					Escrow {ESCROW_ADDRESS.slice(0, 6)}…{ESCROW_ADDRESS.slice(-4)}
+				</a>
 			</div>
 		</footer>
 	);

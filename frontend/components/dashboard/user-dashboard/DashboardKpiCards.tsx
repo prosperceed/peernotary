@@ -1,5 +1,7 @@
 "use client";
 
+import { Check } from "lucide-react";
+
 import type { DashboardStats } from "./types";
 
 interface DashboardKpiCardsProps {
@@ -16,16 +18,16 @@ export function DashboardKpiCards({
 	return (
 		<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
 			{/* Card 1: Balance Hero Card */}
-			<div className="rounded-[26px] bg-gradient-to-br from-[#1a9e5c] via-[#15854c] to-[#0d2b1e] text-white p-5 shadow-sm flex flex-col justify-between min-h-[148px] relative overflow-hidden">
+			<div className="rounded-xl bg-ink text-white p-5 flex flex-col justify-between min-h-[148px] relative overflow-hidden">
 				<div className="flex items-center justify-between text-xs">
 					<span className="font-medium text-white/85">Balance</span>
-					<span className="text-[10px] font-mono uppercase tracking-wider text-white/70">
+					<span className="text-[11px] font-mono uppercase tracking-wider text-white/70">
 						Arc Testnet
 					</span>
 				</div>
 
 				<div className="my-2">
-					<div className="text-xl sm:text-2xl font-bold font-mono tracking-tight">
+					<div className="text-xl sm:text-2xl font-semibold font-mono tracking-tight">
 						{stats.walletUsdc.toLocaleString("en-US", {
 							minimumFractionDigits: 1,
 							maximumFractionDigits: 2,
@@ -34,11 +36,9 @@ export function DashboardKpiCards({
 					</div>
 				</div>
 
-				<div className="rounded-full bg-black/25 backdrop-blur-sm border border-white/10 px-3.5 py-1.5 flex items-center justify-between text-[11px]">
+				<div className="rounded-full bg-black/25 backdrop-blur-sm border border-white/10 px-3.5 py-1.5 flex items-center justify-between text-xs">
 					<div className="flex items-center gap-1.5">
-						<div className="w-4 h-4 rounded-full bg-white text-[#1a9e5c] flex items-center justify-center text-[10px] font-bold">
-							✓
-						</div>
+						<Check size={14} className="text-white/80" />
 						<span className="text-white/90 font-mono">
 							≈ ₦{stats.walletNgn.toLocaleString("en-NG")}
 						</span>
@@ -48,63 +48,63 @@ export function DashboardKpiCards({
 			</div>
 
 			{/* Card 2: Settled Volume Card */}
-			<div className="rounded-[26px] border border-[#e5ebe7] bg-white p-5 shadow-sm flex flex-col justify-between min-h-[148px]">
-				<div className="text-xs font-medium text-[#7aaa92]">Settled Volume</div>
+			<div className="rounded-xl border border-line bg-surface p-5 shadow-card flex flex-col justify-between min-h-[148px]">
+				<div className="text-xs font-medium text-ink-3">Settled Volume</div>
 				<div className="my-2">
-					<div className="text-xl sm:text-2xl font-bold font-mono text-[#0d2b1e] tracking-tight">
+					<div className="text-xl sm:text-2xl font-semibold font-mono text-ink tracking-tight">
 						₦{stats.totalVolumeNgn.toLocaleString("en-NG")}
 					</div>
 				</div>
-				<div className="flex items-center gap-1.5 text-[11px] font-mono">
-					<span className="px-2.5 py-0.5 rounded-full bg-[#f4f7f5] text-[#3d6b55]">
+				<div className="flex items-center gap-1.5 text-xs font-mono">
+					<span className="px-2.5 py-0.5 rounded-md bg-subtle text-ink-2">
 						{stats.completedCount} Orders
 					</span>
-					<span className="px-2.5 py-0.5 rounded-full bg-[#f4f7f5] text-[#3d6b55]">
+					<span className="px-2.5 py-0.5 rounded-md bg-subtle text-ink-2">
 						${stats.totalVolumeUsdc.toFixed(0)}
 					</span>
-					<span className="px-2.5 py-0.5 rounded-full bg-[#1a9e5c] text-white font-medium">
+					<span className="px-2.5 py-0.5 rounded-md bg-accent text-white font-medium">
 						100% SLA
 					</span>
 				</div>
 			</div>
 
 			{/* Card 3: Escrow Utilization Card */}
-			<div className="rounded-[26px] border border-[#e5ebe7] bg-white p-5 shadow-sm flex flex-col justify-between min-h-[148px]">
+			<div className="rounded-xl border border-line bg-surface p-5 shadow-card flex flex-col justify-between min-h-[148px]">
 				<div className="flex items-center justify-between text-xs">
-					<span className="font-medium text-[#7aaa92]">
+					<span className="font-medium text-ink-3">
 						Escrow Utilization
 					</span>
-					<span className="text-[11px] font-mono text-[#1a9e5c]">
+					<span className="text-xs font-mono text-accent">
 						{activeEscrowsCount} Active
 					</span>
 				</div>
 				<div className="my-1">
-					<div className="text-xl sm:text-2xl font-bold font-mono text-[#0d2b1e] tracking-tight">
+					<div className="text-xl sm:text-2xl font-semibold font-mono text-ink tracking-tight">
 						{activeEscrowsCount > 0 ? "42.5%" : "0.0%"}{" "}
-						<span className="text-xs font-normal text-[#7aaa92]">Utilized</span>
+						<span className="text-xs font-normal text-ink-3">Utilized</span>
 					</div>
 				</div>
 				<div>
-					<div className="flex h-2 w-full rounded-full overflow-hidden bg-[#eef4f0] gap-1 my-1">
+					<div className="flex h-2 w-full rounded-full overflow-hidden bg-subtle gap-1 my-1">
 						<div
-							className="h-full bg-[#1a9e5c] rounded-full"
+							className="h-full bg-accent rounded-full"
 							style={{ width: "45%" }}
 						/>
 						<div
-							className="h-full bg-[#0d2b1e] rounded-full"
+							className="h-full bg-ink rounded-full"
 							style={{ width: "30%" }}
 						/>
 						<div
-							className="h-full bg-[#4dd68c] rounded-full"
+							className="h-full bg-accent rounded-full"
 							style={{ width: "25%" }}
 						/>
 					</div>
-					<div className="flex items-center justify-between text-[10px] text-[#7aaa92] pt-0.5">
+					<div className="flex items-center justify-between text-[11px] text-ink-3 pt-0.5">
 						<span>GTBank (60%)</span>
 						<span>OPay (40%)</span>
 						<button
 							onClick={onReroute}
-							className="font-semibold text-[#1a9e5c] hover:underline"
+							className="font-semibold text-accent hover:underline"
 						>
 							Reroute
 						</button>
@@ -113,15 +113,15 @@ export function DashboardKpiCards({
 			</div>
 
 			{/* Card 4: Avg Release SLA Card */}
-			<div className="rounded-[26px] border border-[#e5ebe7] bg-white p-5 shadow-sm flex flex-col justify-between min-h-[148px] relative overflow-hidden">
-				<div className="text-xs font-medium text-[#7aaa92]">
+			<div className="rounded-xl border border-line bg-surface p-5 shadow-card flex flex-col justify-between min-h-[148px] relative overflow-hidden">
+				<div className="text-xs font-medium text-ink-3">
 					Avg Release SLA
 				</div>
 				<div className="my-1">
-					<div className="text-xl sm:text-2xl font-bold font-mono text-[#0d2b1e] tracking-tight">
+					<div className="text-xl sm:text-2xl font-semibold font-mono text-ink tracking-tight">
 						4.1s
 					</div>
-					<div className="mt-1 w-fit rounded-full bg-[#1a9e5c] text-white text-[10px] font-semibold px-2 py-0.5">
+					<div className="mt-1 w-fit rounded-full bg-accent text-white text-[11px] font-semibold px-2 py-0.5">
 						Top 1%
 					</div>
 				</div>
@@ -131,14 +131,14 @@ export function DashboardKpiCards({
 						<path
 							d="M 10 50 A 40 40 0 0 1 90 50"
 							fill="none"
-							stroke="#e2f0e8"
+							stroke="#e8f3ed"
 							strokeWidth="8"
 							strokeLinecap="round"
 						/>
 						<path
 							d="M 10 50 A 40 40 0 0 1 76 22"
 							fill="none"
-							stroke="#1a9e5c"
+							stroke="#0e7a4b"
 							strokeWidth="8"
 							strokeLinecap="round"
 						/>
@@ -147,11 +147,11 @@ export function DashboardKpiCards({
 							y1="50"
 							x2="78"
 							y2="20"
-							stroke="#1a9e5c"
+							stroke="#0e7a4b"
 							strokeWidth="3.5"
 							strokeLinecap="round"
 						/>
-						<circle cx="50" cy="50" r="4.5" fill="#0d2b1e" />
+						<circle cx="50" cy="50" r="4.5" fill="#0f1412" />
 					</svg>
 				</div>
 			</div>

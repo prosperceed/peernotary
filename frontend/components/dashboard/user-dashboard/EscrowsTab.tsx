@@ -25,30 +25,30 @@ export function EscrowsTab({
 	onExplorePeers,
 }: EscrowsTabProps) {
 	return (
-		<div className="rounded-[28px] border border-[#e5ebe7] bg-white p-6 shadow-sm space-y-4">
+		<div className="rounded-xl border border-line bg-surface p-6 shadow-card space-y-4">
 			<div className="flex items-center justify-between">
 				<div>
-					<h2 className="text-base font-bold text-[#0d2b1e]">
+					<h2 className="text-base font-semibold text-ink">
 						Escrow Positions
 					</h2>
-					<p className="text-xs text-[#7aaa92]">
+					<p className="text-xs text-ink-3">
 						Active trades secured inside Arc smart contract awaiting fiat
 						confirmation
 					</p>
 				</div>
-				<span className="text-xs font-mono font-semibold text-[#1a9e5c]">
+				<span className="text-xs font-mono font-semibold text-accent">
 					{activeEscrows.length} Active Positions
 				</span>
 			</div>
 
 			{activeEscrows.length === 0 ? (
-				<div className="p-10 text-center rounded-[24px] bg-[#fbfdfc] border border-[#e5ebe7] space-y-2">
-					<p className="text-xs text-[#7aaa92]">
+				<div className="p-10 text-center rounded-xl bg-surface border border-line space-y-2">
+					<p className="text-xs text-ink-3">
 						No open escrow trades found.
 					</p>
 					<button
 						onClick={onExplorePeers}
-						className="rounded-full px-5 py-2 bg-[#1a9e5c] text-white text-xs font-semibold hover:bg-[#15854c] transition-all"
+						className="rounded-md px-5 py-2 bg-accent text-white text-xs font-semibold hover:bg-accent-hover transition-colors"
 					>
 						Explore Peer Markets
 					</button>
@@ -58,22 +58,22 @@ export function EscrowsTab({
 					{activeEscrows.map((trade) => (
 						<div
 							key={trade.id}
-							className="p-4 rounded-2xl border border-[#d1e8dc] bg-[#fbfdfc] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+							className="p-4 rounded-xl border border-line bg-surface flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
 						>
 							<div className="space-y-1">
 								<div className="flex items-center gap-2">
-									<span className="font-mono font-bold text-[#0d2b1e]">
+									<span className="font-mono font-semibold text-ink">
 										Trade #{trade.tradeId}
 									</span>
-									<span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+									<span className="px-2.5 py-0.5 rounded-md text-[11px] font-mono font-semibold bg-amber-50 text-amber-800 border border-amber-200">
 										{trade.lifecycleState ?? "AWAITING_PAYMENT"}
 									</span>
-									<span className="text-[#7aaa92]">· {trade.bankName}</span>
+									<span className="text-ink-3">· {trade.bankName}</span>
 								</div>
-								<div className="text-[11px] text-[#7aaa92]">
+								<div className="text-xs text-ink-3">
 									Counterparty: {trade.counterparty}
 								</div>
-								<div className="font-mono font-semibold text-[#0d2b1e]">
+								<div className="font-mono font-semibold text-ink">
 									{trade.usdcAmount} USDC · {trade.ngnAmount}
 								</div>
 							</div>
@@ -91,7 +91,7 @@ export function EscrowsTab({
 									)}&accountNo=${encodeURIComponent(
 										trade.sellerAccountNumber || "",
 									)}&returnTo=/dashboard`}
-									className="rounded-full px-4 py-2 text-xs font-semibold bg-[#1a9e5c] text-white hover:bg-[#15854c] transition-all shadow-sm"
+									className="rounded-md px-4 py-2 text-xs font-semibold bg-accent text-white hover:bg-accent-hover transition-colors shadow-card"
 								>
 									{trade.role === "buyer"
 										? "Proceed to Payment"
@@ -105,7 +105,7 @@ export function EscrowsTab({
 									<button
 										onClick={() => onReleaseEscrow(trade)}
 										disabled={releasingTradeId === trade.tradeId}
-										className="rounded-full px-4 py-2 text-xs font-semibold text-white bg-[#0d2b1e] hover:bg-[#1a9e5c] transition-all disabled:opacity-60"
+										className="rounded-md px-4 py-2 text-xs font-semibold text-white bg-ink hover:bg-accent transition-colors disabled:opacity-60"
 									>
 										{releasingTradeId === trade.tradeId
 											? "Releasing..."
@@ -115,7 +115,7 @@ export function EscrowsTab({
 									<button
 										onClick={() => onVerifyAndRelease(trade)}
 										disabled={verifyingTradeId === trade.tradeId}
-										className="rounded-full px-4 py-2 text-xs font-semibold text-[#0d2b1e] border border-[#d1e8dc] hover:bg-[#f0f7f3] transition-all disabled:opacity-60"
+										className="rounded-md px-4 py-2 text-xs font-semibold text-ink border border-line hover:bg-subtle transition-colors disabled:opacity-60"
 									>
 										{verifyingTradeId === trade.tradeId
 											? "Verifying Proof..."
@@ -129,7 +129,7 @@ export function EscrowsTab({
 									<button
 										onClick={() => onCancelTrade(trade.tradeId)}
 										disabled={cancellingTradeId === trade.tradeId}
-										className="rounded-full px-3.5 py-2 text-xs font-semibold border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition-all disabled:opacity-60"
+										className="rounded-md px-3.5 py-2 text-xs font-semibold border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition-colors disabled:opacity-60"
 									>
 										{cancellingTradeId === trade.tradeId
 											? "Cancelling..."

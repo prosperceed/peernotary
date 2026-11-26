@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ethers } from "ethers";
 import { getAuthenticatedUser } from "@/lib/auth/wallet";
-import { oracleSettleToBuyer } from "@/lib/oracle/escrow";
+import { oracleSettleToBuyer, paymentProofId, verifyEscrowTx } from "@/lib/oracle/escrow";
 import {
 	cancelPeerTradeUser,
 	getPaymentAttemptByRef,
@@ -9,7 +8,7 @@ import {
 	getOrHydrateSharedTrade,
 	getTradeAuditEvents,
 	reconcileExpiredTrades,
-	resolveParentListingId,
+	resolveOnChainListingId,
 	transitionEscrowReleaseState,
 	transitionSellerPayoutState,
 	transitionTradeRefundState,
@@ -130,57 +129,55 @@ export async function POST(
 				);
 				break;
 			case "escrow_confirm_on_chain": {
-				let resolvedTxHash = body.txHash;
-				let resolvedProofId = body.proofId;
 				const sharedTrade =
 					(await getOrHydrateSharedTrade(tradeId, user.walletAddress)) ??
 					getSharedTrade(tradeId);
+				if (!sharedTrade) throw new Error("TRADE_NOT_FOUND");
 
-				if (
-					!resolvedTxHash &&
-					sharedTrade?.proofId &&
-					sharedTrade?.txHash &&
-					/^0x[a-fA-F0-9]{64}$/.test(sharedTrade.txHash)
-				) {
+				const caller = user.walletAddress.toLowerCase();
+				const isSeller = sharedTrade.sellerAddress.toLowerCase() === caller;
+				const isBuyer = sharedTrade.buyerAddress?.toLowerCase() === caller;
+				if (!isSeller && !isBuyer) throw new Error("Authentication mismatch: not a party to this trade");
+
+				let resolvedTxHash: string | undefined;
+				let resolvedProofId = sharedTrade.proofId;
+
+				if (body.txHash) {
+					// Client says it released on-chain itself: prove it on Arc.
+					if (!(await verifyEscrowTx(body.txHash, ["TradeCompleted"]))) {
+						throw new Error("TX_NOT_VERIFIED: transaction is not a confirmed escrow release on Arc");
+					}
+					resolvedTxHash = body.txHash;
+				} else if (sharedTrade.txHash && sharedTrade.lifecycleState === "COMPLETED") {
 					resolvedTxHash = sharedTrade.txHash;
-					resolvedProofId = resolvedProofId || sharedTrade.proofId;
-				}
-
-				if (!resolvedTxHash && sharedTrade) {
-					const proof =
-						resolvedProofId && ethers.isHexString(resolvedProofId, 32)
-							? resolvedProofId
-							: sharedTrade.proofId &&
-								  ethers.isHexString(sharedTrade.proofId, 32)
-								? sharedTrade.proofId
-								: ethers.keccak256(
-										ethers.toUtf8Bytes(`PN-RELEASE-${tradeId}-${Date.now()}`),
-									);
-					resolvedProofId = proof;
-					const parentId = resolveParentListingId(tradeId);
-					const numericId = /^\d+$/.test(parentId)
-						? BigInt(parentId)
-						: BigInt(tradeId.replace(/[^0-9]/g, "") || "1001");
-					const amtUnits = BigInt(
-						sharedTrade.usdcAmountUnits ||
-							Math.round(
-								(parseFloat(sharedTrade.usdcAmount.replace(/,/g, "") || "1") ||
-									1) * 1_000_000,
-							),
+				} else {
+					// Oracle release moves the seller's USDC, so it needs either the
+					// seller's own authorization or a provider-confirmed fiat payment.
+					const paymentConfirmed = sharedTrade.paymentState === "CONFIRMED";
+					if (!isSeller && !paymentConfirmed) {
+						throw new Error(
+							"Authentication mismatch: only the seller can release before payment is confirmed",
+						);
+					}
+					const listingId = resolveOnChainListingId(tradeId);
+					if (listingId === null || !sharedTrade.buyerAddress) {
+						throw new Error("This trade has no on-chain escrow to release");
+					}
+					const proof = paymentProofId(
+						isSeller ? "SELLER-RELEASE" : "PAYMENT-RELEASE",
+						tradeId,
+						sharedTrade.activeTxRef ?? sharedTrade.id,
 					);
 					const settled = await oracleSettleToBuyer({
-						listingId: numericId,
-						buyerAddress: sharedTrade.buyerAddress ?? user.walletAddress,
-						amountUnits: amtUnits,
+						listingId,
+						buyerAddress: sharedTrade.buyerAddress,
+						amountUnits: BigInt(sharedTrade.usdcAmountUnits),
 						proofId: proof,
 					});
-					if (settled.transactionHash) {
-						resolvedTxHash = settled.transactionHash;
-					}
-					if (settled.proofIdUsed) {
-						resolvedProofId = settled.proofIdUsed;
-					}
+					resolvedTxHash = settled.transactionHash ?? sharedTrade.txHash;
+					resolvedProofId = settled.proofIdUsed ?? proof;
 				}
+
 				updatedTrade = transitionEscrowReleaseState(
 					tradeId,
 					"confirm_on_chain",

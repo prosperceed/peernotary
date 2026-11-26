@@ -35,22 +35,33 @@ const requiredEnv = (name: string, fallbackName?: string): string => {
 };
 
 const ESCROW_ABI = [
+  "error Unauthorized()",
+  "error InvalidAmount()",
+  "error InsufficientInventory(uint256 requested, uint256 available)",
+  "error InvalidState(uint8 current, uint8 required)",
+  "error ZeroAddress()",
+  "error TransferFailed()",
+  "event TradeInitiated(uint256 indexed tradeId, address indexed seller, uint256 cryptoAmount, bytes32 hashedBankDetails)",
+  "event TradeCompleted(uint256 indexed tradeId, address indexed buyer, uint256 amountAfterFee, uint256 fee)",
+  "event OracleProofSubmitted(uint256 indexed tradeId, bytes32 indexed proofId)",
   "function getTrade(uint256 tradeId) view returns (tuple(address seller, address buyer, uint256 cryptoAmount, uint256 buyerCollateral, bytes32 privacyHashedBankDetails, uint8 status, uint64 createdAt, uint64 fundedAt, uint64 fiatSentAt, bytes32 proofId))",
   "function getListingInventory(uint256 listingId) view returns (tuple(uint256 listingTradeId, address seller, uint256 totalDeposited, uint256 availableAmount, uint256 allocatedAmount, uint256 activeChildTradeId, bytes32 privacyHashedBankDetails, bool active))",
   "function oracleAddress() view returns (address)",
+  "function nextTradeId() view returns (uint256)",
   "function usedProofIds(bytes32) view returns (bool)",
-  "function fundBuyerCollateral(uint256 tradeId, uint256 collateral)",
   "function oracleRelease(uint256 tradeId, bytes32 proofId)",
   "function oracleSettleOrder(uint256 _tradeId, address _buyer, uint256 _amount, bytes32 _proofId) returns (uint256)",
-  "function feeBps() view returns (uint16)",
-  "function nextTradeId() view returns (uint256)",
 ];
 
 const USDC_ABI = [
   "function transfer(address to, uint256 amount) returns (bool)",
-  "function approve(address spender, uint256 amount) returns (bool)",
   "function balanceOf(address account) view returns (uint256)",
 ];
+
+const RECEIPT_TIMEOUT_MS = 120_000;
+/** Oracle keeps at least this much native USDC (18 dp on Arc) for gas. */
+const MIN_ORACLE_GAS_WEI = ethers.parseUnits("0.5", 18);
+const GAS_TOPUP_UNITS = 2_000_000n; // 2 USDC (ERC-20, 6 dp)
 
 const provider = new ethers.JsonRpcProvider(
   requiredEnv("ARC_RPC_URL", "NEXT_PUBLIC_ARC_RPC_URL"),
@@ -58,27 +69,22 @@ const provider = new ethers.JsonRpcProvider(
   { staticNetwork: true },
 );
 
-const oracleWallet = new ethers.Wallet(
-  requiredEnv("ORACLE_PRIVATE_KEY", "ARC_PRIVATE_KEY"),
-  provider,
-);
+const oracleWallet = new ethers.Wallet(requiredEnv("ORACLE_PRIVATE_KEY"), provider);
 
-const deployerKey =
-  process.env.ARC_PRIVATE_KEY || process.env.NEXT_PUBLIC_ARC_DEPLOYER_KEY;
-const deployerWallet = deployerKey
-  ? new ethers.Wallet(deployerKey, provider)
-  : oracleWallet;
+// Optional gas sponsor for the oracle. Server-only: never a NEXT_PUBLIC_ var.
+const gasSponsorWallet = process.env.ARC_PRIVATE_KEY
+  ? new ethers.Wallet(process.env.ARC_PRIVATE_KEY, provider)
+  : null;
 
-function getEscrowContract(signer: ethers.Wallet = oracleWallet) {
-  const address = requiredEnv("ESCROW_ADDRESS", "NEXT_PUBLIC_ESCROW_ADDRESS");
-  return new ethers.Contract(address, ESCROW_ABI, signer);
+const escrowAddress = () => requiredEnv("ESCROW_ADDRESS", "NEXT_PUBLIC_ESCROW_ADDRESS");
+
+function getEscrowContract(signer: ethers.Signer | ethers.Provider = oracleWallet) {
+  return new ethers.Contract(escrowAddress(), ESCROW_ABI, signer);
 }
 
-function getUsdcContract(signer: ethers.Wallet = oracleWallet) {
-  const address = requiredEnv("USDC_ADDRESS", "NEXT_PUBLIC_USDC_ADDRESS");
-  return new ethers.Contract(address, USDC_ABI, signer);
-}
+const escrowInterface = new ethers.Interface(ESCROW_ABI);
 
+const CREATED = 0n;
 const FUNDED = 1n;
 const FIAT_SENT = 2n;
 const COMPLETED = 3n;
@@ -91,28 +97,56 @@ export interface OracleReleaseResult {
 
 export async function readEscrowTrade(tradeId: bigint) {
   if (tradeId <= 0n) throw new Error("Invalid trade identifier");
-  const escrow = getEscrowContract();
-  return escrow.getTrade(tradeId);
+  return getEscrowContract(provider).getTrade(tradeId);
 }
 
-async function ensureOracleGasAndLiquidity(requiredUnits: bigint) {
-  try {
-    const usdc = getUsdcContract(deployerWallet);
-    const oracleBal: bigint = await usdc.balanceOf(oracleWallet.address);
-    const minOracleBal = requiredUnits + 2_000_000n; // +2 USDC for gas
-    if (
-      oracleBal < minOracleBal &&
-      deployerWallet.address.toLowerCase() !== oracleWallet.address.toLowerCase()
-    ) {
-      const deployerBal: bigint = await usdc.balanceOf(deployerWallet.address);
-      const topUp = minOracleBal - oracleBal + 3_000_000n;
-      if (deployerBal > topUp + 1_000_000n) {
-        const tx = await usdc.transfer(oracleWallet.address, topUp);
-        await tx.wait();
-      }
+export async function readNextTradeId(): Promise<bigint> {
+  return BigInt(await getEscrowContract(provider).nextTradeId());
+}
+
+export async function readListingInventory(listingId: bigint) {
+  if (listingId <= 0n) throw new Error("Invalid listing identifier");
+  return getEscrowContract(provider).getListingInventory(listingId);
+}
+
+/** Turns an ethers revert into the contract's custom error name when possible. */
+function describeRevert(err: unknown): string {
+  const e = err as { data?: string; info?: { error?: { data?: string } }; shortMessage?: string; message?: string };
+  const data = e?.data ?? e?.info?.error?.data;
+  if (typeof data === "string" && data.startsWith("0x")) {
+    try {
+      const parsed = escrowInterface.parseError(data);
+      if (parsed) return `${parsed.name}(${parsed.args.join(", ")})`;
+    } catch {
+      /* unknown selector */
     }
+  }
+  return e?.shortMessage || e?.message || String(err);
+}
+
+async function assertOracleConfigured() {
+  const configured: string = await getEscrowContract(provider).oracleAddress();
+  if (configured.toLowerCase() !== oracleWallet.address.toLowerCase()) {
+    throw new Error(
+      `ORACLE_PRIVATE_KEY (${oracleWallet.address}) is not the escrow's oracle (${configured}).`,
+    );
+  }
+}
+
+/** Keeps the oracle able to pay gas. Never touches escrow balances. */
+async function ensureOracleGas() {
+  const native = await provider.getBalance(oracleWallet.address);
+  if (native >= MIN_ORACLE_GAS_WEI) return;
+  if (!gasSponsorWallet || gasSponsorWallet.address.toLowerCase() === oracleWallet.address.toLowerCase()) {
+    console.warn(`[oracle] low gas balance on ${oracleWallet.address}; fund it with Arc testnet USDC.`);
+    return;
+  }
+  try {
+    const usdc = new ethers.Contract(requiredEnv("USDC_ADDRESS", "NEXT_PUBLIC_USDC_ADDRESS"), USDC_ABI, gasSponsorWallet);
+    const tx = await usdc.transfer(oracleWallet.address, GAS_TOPUP_UNITS);
+    await tx.wait(1, RECEIPT_TIMEOUT_MS);
   } catch (err) {
-    console.warn("Oracle gas auto-topup check warning:", err);
+    console.warn("[oracle] gas top-up failed:", describeRevert(err));
   }
 }
 
@@ -120,44 +154,36 @@ export async function oracleRelease(
   tradeId: bigint,
   proofId: string,
 ): Promise<OracleReleaseResult> {
-  if (tradeId <= 0n || !ethers.isHexString(proofId, 32)) {
+  if (tradeId <= 0n || !ethers.isHexString(proofId, 32) || proofId === ethers.ZeroHash) {
     throw new Error("Invalid oracle release input");
   }
-  if (proofId === ethers.ZeroHash) throw new Error("Invalid proof identifier");
-
-  await ensureOracleGasAndLiquidity(0n);
+  await assertOracleConfigured();
   const escrow = getEscrowContract(oracleWallet);
-
-  const [trade, configuredOracle] = await Promise.all([
-    escrow.getTrade(tradeId),
-    escrow.oracleAddress(),
-  ]);
-  if (configuredOracle.toLowerCase() !== oracleWallet.address.toLowerCase()) {
-    throw new Error("Oracle signer is not configured for escrow");
-  }
-  const used = await escrow.usedProofIds(proofId).catch(() => false);
+  const [trade, used] = await Promise.all([escrow.getTrade(tradeId), escrow.usedProofIds(proofId)]);
   if (used) throw new Error("Proof has already been consumed");
-  if (BigInt(trade.status) !== FUNDED && BigInt(trade.status) !== FIAT_SENT) {
+  const status = BigInt(trade.status);
+  if (status !== FUNDED && status !== FIAT_SENT) {
     throw new Error("Trade is not eligible for oracle release");
   }
-
+  await ensureOracleGas();
+  try {
+    await escrow.oracleRelease.staticCall(tradeId, proofId);
+  } catch (err) {
+    throw new Error(`oracleRelease would revert: ${describeRevert(err)}`);
+  }
   const transaction = await escrow.oracleRelease(tradeId, proofId);
-  const receipt = await transaction.wait();
+  const receipt = await transaction.wait(1, RECEIPT_TIMEOUT_MS);
   if (!receipt || receipt.status !== 1) {
     throw new Error("Oracle release transaction did not confirm successfully");
   }
-
-  return {
-    transactionHash: receipt.hash,
-    tradeId,
-    proofId,
-  };
+  return { transactionHash: receipt.hash, tradeId, proofId };
 }
 
 export interface OracleSettleInput {
   listingId: bigint;
   buyerAddress: string;
   amountUnits: bigint;
+  /** Deterministic per payment so retries are idempotent on-chain. */
   proofId: string;
 }
 
@@ -168,130 +194,145 @@ export interface OracleSettleResult {
   proofIdUsed?: string;
 }
 
+/**
+ * Releases escrowed USDC to the buyer via `oracleSettleOrder`.
+ *
+ * Only settles against USDC a seller actually locked on-chain: either a
+ * Funded/FiatSent trade, or an active listing with enough available
+ * inventory. It refuses anything else rather than falling into the contract's
+ * "liquidity-backed" branch, which would pay out of other sellers' escrow.
+ */
 export async function oracleSettleToBuyer(
   input: OracleSettleInput,
 ): Promise<OracleSettleResult> {
-  const { listingId, buyerAddress } = input;
-
+  const { listingId, buyerAddress, amountUnits, proofId } = input;
+  if (listingId <= 0n) throw new Error("No on-chain escrow listing backs this trade");
   if (!ethers.isAddress(buyerAddress)) {
     throw new Error("Valid buyer wallet address is required to settle escrow");
   }
+  if (amountUnits <= 0n) throw new Error("Settlement amount must be positive");
+  if (!ethers.isHexString(proofId, 32) || proofId === ethers.ZeroHash) {
+    throw new Error("Settlement requires a non-zero bytes32 proof id");
+  }
 
-  const unitsToTransfer =
-    input.amountUnits > 0n ? input.amountUnits : 1_000_000n;
-
-  // Ensure proofId is a valid non-zero bytes32 hex string and not yet consumed on-chain
-  let validProofId =
-    input.proofId &&
-    ethers.isHexString(input.proofId, 32) &&
-    input.proofId !== ethers.ZeroHash
-      ? input.proofId
-      : ethers.keccak256(
-          ethers.toUtf8Bytes(
-            `TLSN-PROOF-${listingId.toString()}-${buyerAddress}-${Date.now()}`,
-          ),
-        );
-
-  await ensureOracleGasAndLiquidity(unitsToTransfer);
+  await assertOracleConfigured();
   const escrow = getEscrowContract(oracleWallet);
 
-  try {
-    const alreadyUsed = await escrow.usedProofIds(validProofId).catch(() => false);
-    if (alreadyUsed) {
-      validProofId = ethers.keccak256(
-        ethers.toUtf8Bytes(`${validProofId}-${Date.now()}`),
-      );
-    }
-  } catch {}
+  // Idempotency: this exact payment proof already settled on-chain.
+  if (await escrow.usedProofIds(proofId)) {
+    return { transactionHash: null, alreadyCompleted: true, proofIdUsed: proofId };
+  }
 
-  // Primary Path: Execute atomic `oracleSettleOrder` on ArcP2PEscrowService smart contract
-  try {
-    const escrowAddr = await escrow.getAddress();
-    const usdcContract = getUsdcContract(deployerWallet);
-    const escrowBal: bigint = await usdcContract.balanceOf(escrowAddr);
+  const [trade, inv] = await Promise.all([
+    escrow.getTrade(listingId),
+    escrow.getListingInventory(listingId),
+  ]);
+  const status = BigInt(trade.status);
+  const tradeBuyer = String(trade.buyer).toLowerCase();
 
-    // Ensure the Escrow contract holds enough USDC to release to the buyer
-    if (escrowBal < unitsToTransfer) {
-      const topUpAmt = unitsToTransfer - escrowBal + 10_000_000n; // +10 USDC buffer
-      const deployerBal: bigint = await usdcContract.balanceOf(
-        deployerWallet.address,
-      );
-      if (deployerBal >= topUpAmt) {
-        const fundEscrowTx = await usdcContract.transfer(escrowAddr, topUpAmt);
-        await fundEscrowTx.wait();
-      } else {
-        const oracleUsdc = getUsdcContract(oracleWallet);
-        const oracleBal: bigint = await oracleUsdc.balanceOf(
-          oracleWallet.address,
-        );
-        if (oracleBal >= unitsToTransfer) {
-          const fundTx = await oracleUsdc.transfer(
-            escrowAddr,
-            unitsToTransfer,
-          );
-          await fundTx.wait();
-        }
-      }
-    }
+  const fundedTrade =
+    BigInt(trade.cryptoAmount) > 0n && (status === FUNDED || status === FIAT_SENT);
+  const openListing =
+    status === CREATED &&
+    Boolean(inv.active) &&
+    String(inv.seller) !== ethers.ZeroAddress &&
+    BigInt(inv.availableAmount) >= amountUnits;
 
-    const settleTx = await escrow.oracleSettleOrder(
-      listingId,
-      buyerAddress,
-      unitsToTransfer,
-      validProofId,
-    );
-    const receipt = await settleTx.wait();
-    if (!receipt || receipt.status !== 1) {
-      throw new Error("Oracle settlement transaction did not confirm successfully");
-    }
-    const settledTradeId = BigInt((await settleTx.getResult())[0] ?? listingId);
-    const settledTrade = await escrow.getTrade(settledTradeId);
-    if (
-      BigInt(settledTrade.status) !== COMPLETED ||
-      String(settledTrade.proofId).toLowerCase() !== validProofId.toLowerCase()
-    ) {
-      throw new Error("Escrow settlement receipt does not show completed trade state");
-    }
-
+  if (status === COMPLETED && String(trade.buyer).toLowerCase() === buyerAddress.toLowerCase()) {
     return {
-      transactionHash: receipt.hash,
-      alreadyCompleted: false,
-      onChainTradeId: settledTradeId.toString(),
-      proofIdUsed: validProofId,
+      transactionHash: null,
+      alreadyCompleted: true,
+      onChainTradeId: listingId.toString(),
+      proofIdUsed: String(trade.proofId),
     };
-  } catch (settleOrderErr) {
-    console.warn(
-      "oracleSettleOrder call warning, trying legacy oracleRelease:",
-      settleOrderErr,
+  }
+  if (fundedTrade && tradeBuyer !== ethers.ZeroAddress.toLowerCase() && tradeBuyer !== buyerAddress.toLowerCase()) {
+    throw new Error(`Escrow #${listingId} is reserved for a different buyer on-chain`);
+  }
+  if (!fundedTrade && !openListing) {
+    throw new Error(
+      `Escrow #${listingId} has no settleable USDC on Arc (status ${status}, available ${inv.availableAmount}, requested ${amountUnits})`,
     );
   }
 
-  // Secondary Path: Try standard `oracleRelease` if trade is FUNDED or FIAT_SENT
+  await ensureOracleGas();
+
   try {
-    const trade = await escrow.getTrade(listingId);
-    const statusBig = BigInt(trade.status);
-
-    if (statusBig === COMPLETED && trade.proofId !== ethers.ZeroHash) {
-      return {
-        transactionHash: null,
-        alreadyCompleted: true,
-        onChainTradeId: listingId.toString(),
-        proofIdUsed: String(trade.proofId),
-      };
-    }
-
-    if (statusBig === FUNDED || statusBig === FIAT_SENT) {
-      const res = await oracleRelease(listingId, validProofId);
-      return {
-        transactionHash: res.transactionHash,
-        alreadyCompleted: false,
-        onChainTradeId: listingId.toString(),
-        proofIdUsed: validProofId,
-      };
-    }
-  } catch (readErr) {
-    console.warn("Legacy oracleRelease fallback warning:", readErr);
+    await escrow.oracleSettleOrder.staticCall(listingId, buyerAddress, amountUnits, proofId);
+  } catch (err) {
+    throw new Error(`oracleSettleOrder would revert: ${describeRevert(err)}`);
   }
 
-  throw new Error("On-chain escrow settlement failed; no synthetic transfer was created");
+  const tx = await escrow.oracleSettleOrder(listingId, buyerAddress, amountUnits, proofId);
+  const receipt = await tx.wait(1, RECEIPT_TIMEOUT_MS);
+  if (!receipt || receipt.status !== 1) {
+    throw new Error(`Settlement transaction ${tx.hash} reverted on Arc`);
+  }
+
+  let settledTradeId: bigint | undefined;
+  for (const log of receipt.logs) {
+    if (log.address.toLowerCase() !== escrowAddress().toLowerCase()) continue;
+    try {
+      const parsed = escrowInterface.parseLog(log);
+      if (parsed?.name === "OracleProofSubmitted") settledTradeId = BigInt(parsed.args.tradeId);
+    } catch {
+      /* not an escrow event */
+    }
+  }
+
+  return {
+    transactionHash: receipt.hash,
+    alreadyCompleted: false,
+    onChainTradeId: (settledTradeId ?? listingId).toString(),
+    proofIdUsed: proofId,
+  };
+}
+
+/** Deterministic proof id for a payment, so a replayed webhook can't settle twice. */
+export function paymentProofId(kind: string, tradeId: string, reference: string): string {
+  return ethers.keccak256(ethers.toUtf8Bytes(`${kind}:${tradeId}:${reference}`));
+}
+
+/**
+ * Verifies a client-reported transaction really is a successful call to the
+ * escrow contract on Arc that emitted one of `events`.
+ */
+export async function verifyEscrowTx(
+  hash: string,
+  events: string[] = ["TradeCompleted"],
+): Promise<boolean> {
+  if (!/^0x[0-9a-fA-F]{64}$/.test(hash)) return false;
+  const receipt = await provider.getTransactionReceipt(hash).catch(() => null);
+  if (!receipt || receipt.status !== 1) return false;
+  if (receipt.to?.toLowerCase() !== escrowAddress().toLowerCase()) return false;
+  return receipt.logs.some((log) => {
+    if (log.address.toLowerCase() !== escrowAddress().toLowerCase()) return false;
+    try {
+      const parsed = escrowInterface.parseLog(log);
+      return !!parsed && events.includes(parsed.name);
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** Confirms a seller really locked `expectedUnits` USDC in listing `listingId`. */
+export async function verifySellerListing(
+  listingId: bigint,
+  sellerAddress: string,
+  expectedUnits: bigint,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  try {
+    const inv = await readListingInventory(listingId);
+    if (!inv.active) return { ok: false, reason: `Listing #${listingId} is not active on Arc` };
+    if (String(inv.seller).toLowerCase() !== sellerAddress.toLowerCase()) {
+      return { ok: false, reason: `Listing #${listingId} belongs to a different wallet` };
+    }
+    if (BigInt(inv.totalDeposited) !== expectedUnits) {
+      return { ok: false, reason: `Listing #${listingId} holds ${inv.totalDeposited} units, expected ${expectedUnits}` };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: `Could not read listing #${listingId} from Arc: ${describeRevert(err)}` };
+  }
 }

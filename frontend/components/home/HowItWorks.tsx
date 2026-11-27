@@ -7,7 +7,7 @@ const ACCENT = "#0e7a4b";
 function IconLock() {
 	return (
 		<svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden>
-			<rect x="6" y="12.5" width="16" height="11" rx="2.5" stroke={ACCENT} strokeWidth="1.6" fill="rgba(14,122,75,0.06)" />
+			<rect x="6" y="12.5" width="16" height="11" rx="2.5" stroke={ACCENT} strokeWidth="1.6" fill="rgba(14,122,75,0.07)" />
 			<path d="M9.5 12.5V9.5a4.5 4.5 0 0 1 9 0v3" stroke={ACCENT} strokeWidth="1.6" strokeLinecap="round" />
 			<circle cx="14" cy="17.5" r="1.4" fill={ACCENT} />
 			<path d="M14 18.9v1.8" stroke={ACCENT} strokeWidth="1.4" strokeLinecap="round" />
@@ -22,7 +22,7 @@ function IconVerify() {
 				d="M14 3.5L4.5 7v7c0 5.25 4.2 9.1 9.5 10.5C19.3 23.1 23.5 19.25 23.5 14V7L14 3.5z"
 				stroke={ACCENT}
 				strokeWidth="1.6"
-				fill="rgba(14,122,75,0.06)"
+				fill="rgba(14,122,75,0.07)"
 				strokeLinejoin="round"
 			/>
 			<path d="M10 14l2.5 2.5L18 11" stroke={ACCENT} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
@@ -33,7 +33,7 @@ function IconVerify() {
 function IconSettle() {
 	return (
 		<svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden>
-			<circle cx="14" cy="14" r="8.5" stroke={ACCENT} strokeWidth="1.6" fill="rgba(14,122,75,0.06)" />
+			<circle cx="14" cy="14" r="8.5" stroke={ACCENT} strokeWidth="1.6" fill="rgba(14,122,75,0.07)" />
 			<path d="M14 18.5v-9M10.5 13l3.5-3.5 3.5 3.5" stroke={ACCENT} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
 		</svg>
 	);
@@ -112,6 +112,10 @@ function DashedConnector({ index }: { index: number }) {
 				viewport={{ once: true }}
 				transition={{ duration: 0.9, delay: 0.3 + index * 0.2 }}
 			/>
+			<circle r="2.2" fill="#18975f" opacity="0">
+				<animateMotion dur="2.6s" repeatCount="indefinite" begin={`${1.2 + index * 0.4}s`} path="M4 20 Q 48 4 92 20" />
+				<animate attributeName="opacity" values="0;1;1;0" dur="2.6s" repeatCount="indefinite" begin={`${1.2 + index * 0.4}s`} />
+			</circle>
 			<motion.circle
 				cx="92"
 				cy="20"
@@ -129,16 +133,25 @@ function DashedConnector({ index }: { index: number }) {
 function StepCard({ step, index }: { step: (typeof STEPS)[number]; index: number }) {
 	return (
 		<motion.div
-			className="group relative flex w-full flex-col items-center rounded-xl px-6 pb-7 pt-8 text-center transition-colors duration-300 hover:bg-surface lg:w-72 xl:w-80"
+			className="group relative flex w-full flex-col items-center rounded-xl px-6 pb-7 pt-8 text-center transition-colors duration-300 hover:bg-white/50 lg:w-72 xl:w-80"
 			initial={{ opacity: 0, y: 28 }}
 			whileInView={{ opacity: 1, y: 0 }}
 			viewport={{ once: true, margin: "-40px" }}
 			transition={{ duration: 0.6, delay: index * 0.18, ease: [0.16, 1, 0.3, 1] }}
 		>
 			<div className="relative mb-6">
-				<div className="flex h-20 w-20 items-center justify-center rounded-full border-2 border-dashed border-accent/35 bg-accent-soft/70 transition-colors duration-300 group-hover:border-solid group-hover:border-accent/50">
+				<div className="absolute inset-0 rounded-full bg-accent/15 opacity-0 blur-xl transition-opacity duration-500 group-hover:opacity-100" />
+				<div className="absolute inset-0 rounded-full border-2 border-dashed border-accent/35 transition-colors duration-300 group-hover:border-solid group-hover:border-accent/50" />
+				<motion.div
+					className="relative flex h-20 w-20 items-center justify-center rounded-full bg-white/80 shadow-card"
+					initial={{ scale: 0.6, opacity: 0 }}
+					whileInView={{ scale: 1, opacity: 1 }}
+					viewport={{ once: true }}
+					whileHover={{ scale: 1.06, rotate: -4 }}
+					transition={{ type: "spring", stiffness: 300, damping: 18, delay: 0.15 + index * 0.15 }}
+				>
 					{step.icon}
-				</div>
+				</motion.div>
 				<motion.span
 					className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-accent text-[11px] font-semibold text-white"
 					initial={{ scale: 0 }}
@@ -152,11 +165,18 @@ function StepCard({ step, index }: { step: (typeof STEPS)[number]; index: number
 			<h3 className="mb-2 text-base font-semibold tracking-tight text-ink">{step.title}</h3>
 			<p className="text-[13px] leading-relaxed text-ink-2">{step.description}</p>
 			<ul className="mt-5 w-full space-y-2 border-t border-dashed border-line pt-4 text-left">
-				{step.details.map((d) => (
-					<li key={d} className="flex gap-2.5 text-xs leading-relaxed text-ink-3">
+				{step.details.map((d, i) => (
+					<motion.li
+						key={d}
+						className="flex gap-2.5 text-xs leading-relaxed text-ink-3"
+						initial={{ opacity: 0, x: -8 }}
+						whileInView={{ opacity: 1, x: 0 }}
+						viewport={{ once: true }}
+						transition={{ duration: 0.4, delay: 0.5 + index * 0.18 + i * 0.08 }}
+					>
 						<span className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-accent/60" />
 						{d}
-					</li>
+					</motion.li>
 				))}
 			</ul>
 		</motion.div>
@@ -165,7 +185,7 @@ function StepCard({ step, index }: { step: (typeof STEPS)[number]; index: number
 
 export default function HowItWorks() {
 	return (
-		<section className="relative overflow-hidden border-t border-line px-4 py-24">
+		<section className="relative overflow-hidden px-4 py-24">
 			<div className="relative mx-auto max-w-6xl">
 				<motion.div
 					className="mb-14 text-center"
@@ -174,7 +194,7 @@ export default function HowItWorks() {
 					viewport={{ once: true, margin: "-60px" }}
 					transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
 				>
-					<span className="mb-4 inline-block rounded-full border border-line bg-subtle px-3 py-1 font-mono text-[11px] tracking-widest text-accent">
+					<span className="mb-4 inline-block rounded-full border border-white bg-white/70 px-3 py-1 font-mono text-[11px] tracking-widest text-accent shadow-card">
 						[how it works]
 					</span>
 					<h2 className="mb-3 text-3xl font-semibold tracking-tight text-ink sm:text-4xl">
@@ -196,7 +216,7 @@ export default function HowItWorks() {
 				</div>
 
 				<motion.div
-					className="mx-auto mt-14 max-w-4xl rounded-xl border border-dashed border-line-strong bg-surface/60 px-6 py-5"
+					className="mx-auto mt-14 max-w-4xl rounded-2xl border border-dashed border-accent/25 bg-white/55 px-6 py-5 backdrop-blur-xl"
 					initial={{ opacity: 0, y: 16 }}
 					whileInView={{ opacity: 1, y: 0 }}
 					viewport={{ once: true }}

@@ -113,7 +113,7 @@ export default function TradePage() {
 	}, [bankFilter, peerOffers, search]);
 
 	return (
-		<div className="min-h-screen bg-subtle py-6 sm:py-10 px-3 sm:px-6">
+		<div className="min-h-screen py-6 sm:py-10 px-3 sm:px-6">
 			<div className="max-w-[1380px] w-full mx-auto space-y-6">
 				{/* Top Header Strip */}
 				<div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-line">
@@ -177,7 +177,7 @@ export default function TradePage() {
 					{/* Left Column: Live Order Book & User Active Escrows */}
 					<div className="lg:col-span-7 space-y-5">
 						{/* Live Peer Order Book Card */}
-						<div className="rounded-lg border border-[#d6e2dc] bg-surface p-4 sm:p-5 shadow-card space-y-4">
+						<div className="rounded-lg border border-line bg-surface p-4 sm:p-5 shadow-card space-y-4">
 							<div className="border-b border-subtle pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
 								<div>
 									<h2 className="text-sm font-semibold text-ink">

@@ -1,18 +1,31 @@
-@import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap");
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Colour tokens as "r g b" triplets (see tailwind.config.mjs).
+ * Light glass on a soft green gradient, with a faint darker wash at the top.
+ */
 :root {
-	--canvas: #f7f8f7;
-	--surface: #ffffff;
-	--subtle: #f2f4f3;
-	--line: #e3e6e4;
-	--ink: #0f1412;
-	--ink-2: #47514c;
-	--ink-3: #78817c;
-	--accent: #0e7a4b;
-	--accent-soft: #e8f3ed;
+	--canvas: 238 245 241;
+	--surface: 255 255 255;
+	--subtle: 242 247 244;
+	--raised: 15 20 18;
+	--line: 224 232 227;
+	--line-strong: 203 214 208;
+
+	--ink: 15 20 18;
+	--ink-2: 64 75 69;
+	--ink-3: 112 123 117;
+	--ink-4: 158 168 163;
+
+	--accent: 14 122 75;
+	--accent-hover: 10 101 64;
+	--accent-soft: 230 243 236;
+	--accent-ink: 10 92 57;
+
+	--mint: 13 138 85;
+	--mint-soft: 226 245 234;
 }
 
 * {
@@ -21,15 +34,38 @@
 
 html {
 	color-scheme: light;
+	background: rgb(var(--canvas));
 }
 
 body {
-	background: var(--canvas);
-	color: var(--ink);
-	font-family: "Geist", "Inter", system-ui, sans-serif;
-	font-feature-settings: "ss01", "cv11";
+	min-height: 100vh;
+	color: rgb(var(--ink));
+	font-family: var(--font-inter), "Inter", system-ui, sans-serif;
+	font-optical-sizing: auto;
+	font-feature-settings: "cv11", "ss01", "ss03";
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
+	/*
+	 * Pale green field with a bright centre and deeper green glows at the
+	 * corners, plus a slight dark wash across the top.
+	 */
+	background:
+		linear-gradient(180deg, rgb(6 38 24 / 0.13) 0px, rgb(6 38 24 / 0.04) 180px, transparent 420px),
+		radial-gradient(760px 460px at 50% 30%, rgb(255 255 255 / 0.9), transparent 70%),
+		radial-gradient(900px 520px at 6% 0%, rgb(160 222 190 / 0.6), transparent 62%),
+		radial-gradient(820px 560px at 100% 8%, rgb(132 210 174 / 0.45), transparent 60%),
+		radial-gradient(1000px 680px at 100% 100%, rgb(96 190 148 / 0.4), transparent 62%),
+		radial-gradient(800px 560px at 0% 100%, rgb(178 228 204 / 0.45), transparent 60%),
+		linear-gradient(180deg, #e2f0e9 0%, #ecf5f0 45%, #e4f1ea 100%);
+	background-attachment: fixed;
+}
+
+h1,
+h2,
+h3,
+.font-display {
+	font-family: var(--font-display), "Plus Jakarta Sans", system-ui, sans-serif;
+	letter-spacing: -0.02em;
 }
 
 /* Money and ids line up in columns. */
@@ -39,13 +75,18 @@ body {
 }
 
 ::selection {
-	background: var(--accent-soft);
-	color: var(--ink);
+	background: rgb(var(--accent) / 0.18);
+	color: rgb(var(--ink));
 }
 
 :focus-visible {
-	outline: 2px solid var(--accent);
+	outline: 2px solid rgb(var(--accent));
 	outline-offset: 2px;
+}
+
+
+::placeholder {
+	color: rgb(var(--ink-4));
 }
 
 ::-webkit-scrollbar {
@@ -56,37 +97,52 @@ body {
 	background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-	background: var(--line);
+	background: rgb(var(--line-strong));
 	border-radius: 99px;
 }
 ::-webkit-scrollbar-thumb:hover {
-	background: #cfd5d2;
+	background: rgb(var(--ink-4));
 }
 
 @layer components {
 	.card {
-		@apply rounded-card border border-line bg-surface shadow-card;
+		@apply rounded-card border border-white/80 bg-white/75 shadow-card backdrop-blur-xl;
+	}
+	.glass {
+		@apply border border-white/80 bg-white/60 backdrop-blur-xl;
 	}
 	.btn {
-		@apply inline-flex items-center justify-center gap-2 rounded-lg px-4 h-10 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+		@apply inline-flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-medium transition-[background-color,box-shadow,color] disabled:cursor-not-allowed disabled:opacity-50;
 	}
 	.btn-primary {
-		@apply btn bg-accent text-white hover:bg-accent-hover;
+		@apply btn bg-gradient-to-b from-[#18975f] to-accent text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.22)] hover:from-accent hover:to-accent-hover;
 	}
 	.btn-secondary {
-		@apply btn border border-line bg-surface text-ink hover:bg-subtle;
+		@apply btn border border-white/90 bg-white/70 text-ink shadow-card backdrop-blur hover:bg-white;
 	}
 	.btn-ghost {
-		@apply btn text-ink-2 hover:bg-subtle hover:text-ink;
+		@apply btn text-ink-2 hover:bg-white/70 hover:text-ink;
 	}
 	.label {
 		@apply text-xs font-medium text-ink-3;
 	}
+	/* Faint ledger grid behind hero areas; fades out at the edges. */
+	.ledger-grid {
+		@apply bg-grid;
+		background-size: 44px 44px;
+		mask-image: radial-gradient(ellipse 75% 65% at 50% 40%, #000 35%, transparent 85%);
+	}
+	/* Green gradient headline text. */
+	.text-gradient {
+		background-image: linear-gradient(100deg, #2fb177 0%, #0e7a4b 38%, #0a5c39 62%, #2fb177 100%);
+		-webkit-background-clip: text;
+		background-clip: text;
+		color: transparent;
+	}
 }
 
-/* Status dot for the network indicator — a plain dot, no glow. */
 .net-dot {
-	background: var(--accent);
+	background: rgb(var(--mint));
 }
 
 @keyframes dropdown-in {

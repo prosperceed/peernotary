@@ -5,7 +5,7 @@ import UserDashboard, {
 
 export default function UserDashboardPage() {
 	return (
-		<div className="min-h-screen bg-subtle p-0 sm:py-10 sm:px-6">
+		<div className="min-h-screen px-3 py-6 sm:px-5 sm:py-8">
 			<div className="max-w-[1380px] w-full mx-auto">
 				<Suspense fallback={<DashboardSkeleton />}>
 					<UserDashboard />

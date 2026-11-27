@@ -3,7 +3,7 @@ import Homepage from "@/components/Homepage";
 
 export default function HomePage() {
 	return (
-		<div className="min-h-screen flex flex-col bg-canvas">
+		<div className="min-h-screen flex flex-col">
 			<main className="flex-1">
 				<Homepage />
 			</main>

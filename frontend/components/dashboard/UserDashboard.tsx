@@ -866,7 +866,7 @@ export default function UserDashboard() {
 	if (checkingSession) {
 		return (
 			<div className="py-24 flex items-center justify-center">
-				<div className="flex items-center gap-3 px-5 py-3 rounded-md border border-line bg-surface text-xs font-medium text-ink-2 shadow-card">
+				<div className="card flex items-center gap-3 rounded-full px-5 py-3 text-xs font-medium text-ink-2">
 					<RefreshCw size={14} className="animate-spin text-accent" />
 					<span>Verifying wallet session on {arcChain.name}…</span>
 				</div>
@@ -876,10 +876,11 @@ export default function UserDashboard() {
 
 	if (!isConnected || !address || isWrongChain || !authenticated) {
 		return (
-			<div className="max-w-md mx-auto my-12">
-				<div className="rounded-xl border border-line bg-surface p-7 text-center shadow-card">
-					<div className="w-12 h-12 rounded-xl bg-subtle border border-line flex items-center justify-center mx-auto mb-4">
-						<Lock size={20} className="text-accent" />
+			<div className="max-w-md mx-auto my-16">
+				<div className="card relative overflow-hidden p-8 text-center">
+					<div className="pointer-events-none absolute -top-24 left-1/2 h-48 w-72 -translate-x-1/2 rounded-full bg-accent/15 blur-3xl" />
+					<div className="relative mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-b from-[#18975f] to-accent text-white shadow-glow">
+						<Lock size={22} />
 					</div>
 
 					<h2 className="text-lg font-semibold text-ink">
@@ -899,7 +900,7 @@ export default function UserDashboard() {
 					</p>
 
 					{address && (
-						<div className="mt-4 px-3.5 py-2.5 rounded-md bg-subtle border border-line flex items-center justify-between text-xs">
+						<div className="mt-5 px-3.5 py-2.5 rounded-xl bg-subtle/60 border border-line flex items-center justify-between text-xs">
 							<span className="text-ink-3">Wallet</span>
 							<span className="font-mono text-ink font-semibold">
 								{address.slice(0, 6)}...{address.slice(-4)}
@@ -912,7 +913,7 @@ export default function UserDashboard() {
 							<button
 								onClick={() => void handleConnectAndSignIn()}
 								disabled={authBusy}
-								className="w-full py-3 rounded-full font-semibold text-xs text-white bg-accent hover:bg-accent-hover transition-colors shadow-card disabled:opacity-60 flex items-center justify-center gap-2"
+								className="w-full py-3 rounded-full font-semibold text-xs text-white bg-accent hover:bg-accent-hover transition-colors shadow-glow disabled:opacity-60 flex items-center justify-center gap-2"
 							>
 								<Wallet size={15} />
 								<span>{authBusy ? "Connecting..." : "Connect & Sign In"}</span>
@@ -921,7 +922,7 @@ export default function UserDashboard() {
 							<button
 								onClick={() => void handleSwitchNetwork()}
 								disabled={authBusy}
-								className="w-full py-3 rounded-full font-semibold text-xs text-white bg-amber-600 hover:bg-amber-700 transition-colors shadow-card disabled:opacity-60"
+								className="w-full py-3 rounded-full font-semibold text-xs text-white bg-amber-600 hover:bg-amber-500 transition-colors shadow-card disabled:opacity-60"
 							>
 								{authBusy ? "Switching Network..." : `Switch to ${arcChain.name}`}
 							</button>
@@ -929,7 +930,7 @@ export default function UserDashboard() {
 							<button
 								onClick={() => void authenticateWallet(address)}
 								disabled={authBusy}
-								className="w-full py-3 rounded-full font-semibold text-xs text-white bg-accent hover:bg-accent-hover transition-colors shadow-card disabled:opacity-60"
+								className="w-full py-3 rounded-full font-semibold text-xs text-white bg-accent hover:bg-accent-hover transition-colors shadow-glow disabled:opacity-60"
 							>
 								{authBusy
 									? "Waiting for Signature..."
@@ -980,7 +981,7 @@ export default function UserDashboard() {
 	}
 
 	return (
-		<div className="rounded-none sm:rounded-xl bg-transparent sm:bg-surface border-0 sm:border border-line p-2 sm:p-7 shadow-none sm:shadow-card flex flex-col md:flex-row gap-6 relative">
+		<div className="relative flex flex-col gap-5 md:flex-row md:items-start md:gap-6">
 			{/* Left Dock / Mobile Navigation */}
 			<DashboardSidebar
 				navItems={navItems}
@@ -1001,7 +1002,7 @@ export default function UserDashboard() {
 			/>
 
 			{/* Main Console Content Body */}
-			<main className="flex-1 min-w-0 space-y-6">
+			<main className="min-w-0 flex-1 space-y-5">
 				{/* Top Header Row */}
 				<DashboardHeader
 					username={username}
@@ -1073,7 +1074,6 @@ export default function UserDashboard() {
 				<DashboardKpiCards
 					stats={stats}
 					activeEscrowsCount={activeEscrows.length}
-					onReroute={() => setActiveTab("peers")}
 				/>
 
 				{/* Tab Compartments */}
@@ -1088,7 +1088,8 @@ export default function UserDashboard() {
 						onReleaseEscrow={(tx) => void handleReleaseEscrowOnChain(tx)}
 						onViewAllTransactions={() => setActiveTab("transactions")}
 						onViewEscrows={() => setActiveTab("escrows")}
-						onRebalance={() => setActiveTab("create")}
+						walletUsdc={stats.walletUsdc}
+						onPostOffer={() => setActiveTab("create")}
 					/>
 				)}
 

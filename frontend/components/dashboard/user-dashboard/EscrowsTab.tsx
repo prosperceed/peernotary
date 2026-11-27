@@ -105,7 +105,7 @@ export function EscrowsTab({
 									<button
 										onClick={() => onReleaseEscrow(trade)}
 										disabled={releasingTradeId === trade.tradeId}
-										className="rounded-md px-4 py-2 text-xs font-semibold text-white bg-ink hover:bg-accent transition-colors disabled:opacity-60"
+										className="rounded-md px-4 py-2 text-xs font-semibold text-white bg-raised hover:bg-accent transition-colors disabled:opacity-60"
 									>
 										{releasingTradeId === trade.tradeId
 											? "Releasing..."

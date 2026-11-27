@@ -51,7 +51,7 @@ export function PeersTab({
 							className={cn(
 								"rounded-md px-3.5 py-1.5 text-xs font-semibold transition-colors",
 								peerSideFilter === side
-									? "bg-ink text-white"
+									? "bg-raised text-white"
 									: "bg-subtle text-ink-2 hover:bg-accent-soft",
 							)}
 						>

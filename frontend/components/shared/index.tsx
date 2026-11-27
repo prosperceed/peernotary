@@ -80,7 +80,6 @@ export function MetricCard({
 	return (
 		<div
 			className="relative rounded-lg border border-line bg-surface p-4 overflow-hidden transition-colors"
-			style={{ ["--accent" as string]: accent }}
 		>
 			<div className="flex items-start justify-between mb-2.5">
 				<div

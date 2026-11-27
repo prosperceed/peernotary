@@ -1,3 +1,6 @@
+"use client";
+
+import { motion } from "framer-motion";
 import { Activity, Coins, LockKeyhole, Zap } from "lucide-react";
 import type { AdminMetrics } from "./types";
 
@@ -13,26 +16,44 @@ function naira(minor: string) {
 	return `₦${amount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`;
 }
 
-function Card({ icon, label, value, detail }: { icon: React.ReactNode; label: string; value: string; detail: string }) {
+const TONES = [
+	"border-transparent bg-gradient-to-br from-[#1a9b62] via-accent to-[#0a5c39] text-white shadow-glow",
+	"border-white/80 bg-white/75",
+	"border-white/80 bg-white/75",
+	"border-white/80 bg-white/75",
+];
+const TILES = [
+	"border-white/25 bg-white/15 text-white",
+	"border-amber-200 bg-amber-50 text-amber-700",
+	"border-accent/25 bg-accent/10 text-accent-ink",
+	"border-mint/20 bg-mint-soft text-mint",
+];
+
+function Card({ i, icon, label, value, detail }: { i: number; icon: React.ReactNode; label: string; value: string; detail: string }) {
 	return (
-		<div className="card p-5">
-			<div className="flex items-center gap-2 text-ink-3">
-				{icon}
-				<span className="label">{label}</span>
+		<motion.div
+			initial={{ opacity: 0, y: 16 }}
+			animate={{ opacity: 1, y: 0 }}
+			transition={{ duration: 0.55, delay: i * 0.07, ease: [0.16, 1, 0.3, 1] }}
+			className={`relative overflow-hidden rounded-card border p-5 shadow-card backdrop-blur-xl ${TONES[i]}`}
+		>
+			<div className="flex items-center justify-between">
+				<span className={`flex h-9 w-9 items-center justify-center rounded-xl border ${TILES[i]}`}>{icon}</span>
+				<span className={i === 0 ? "text-xs font-medium text-white/75" : "label"}>{label}</span>
 			</div>
-			<div className="mt-3 font-mono text-2xl font-semibold tracking-tight text-ink">{value}</div>
-			<div className="mt-2 text-xs text-ink-2">{detail}</div>
-		</div>
+			<div className={`mt-5 font-display text-2xl font-semibold tracking-tight ${i === 0 ? "text-white" : "text-ink"}`}>{value}</div>
+			<div className={`mt-1.5 text-xs ${i === 0 ? "text-white/75" : "text-ink-3"}`}>{detail}</div>
+		</motion.div>
 	);
 }
 
 export default function AdminKpiGrid({ metrics }: { metrics: AdminMetrics }) {
 	return (
 		<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-			<Card icon={<Activity size={15} strokeWidth={1.75} />} label="Total volume" value={usdc(metrics.totalVolumeUsdcUnits)} detail={`${naira(metrics.totalVolumeFiatMinor)} fiat volume`} />
-			<Card icon={<Zap size={15} strokeWidth={1.75} />} label="Queued transactions" value={metrics.queuedTransactions.toLocaleString()} detail="Awaiting payment or release" />
-			<Card icon={<LockKeyhole size={15} strokeWidth={1.75} />} label="Active escrow" value={usdc(metrics.totalEscrowUsdcUnits)} detail={`${metrics.activeEscrows.toLocaleString()} live positions`} />
-			<Card icon={<Coins size={15} strokeWidth={1.75} />} label="Treasury balance" value={usdc(metrics.treasuryUsdcUnits)} detail={`${usdc(metrics.platformFeesUsdcUnits)} recorded platform fees`} />
+			<Card i={0} icon={<Activity size={17} strokeWidth={1.8} />} label="Total volume" value={usdc(metrics.totalVolumeUsdcUnits)} detail={`${naira(metrics.totalVolumeFiatMinor)} fiat volume`} />
+			<Card i={1} icon={<Zap size={17} strokeWidth={1.8} />} label="Queued transactions" value={metrics.queuedTransactions.toLocaleString()} detail="Awaiting payment or release" />
+			<Card i={2} icon={<LockKeyhole size={17} strokeWidth={1.8} />} label="Active escrow" value={usdc(metrics.totalEscrowUsdcUnits)} detail={`${metrics.activeEscrows.toLocaleString()} live positions`} />
+			<Card i={3} icon={<Coins size={17} strokeWidth={1.8} />} label="Treasury balance" value={usdc(metrics.treasuryUsdcUnits)} detail={`${usdc(metrics.platformFeesUsdcUnits)} recorded platform fees`} />
 		</div>
 	);
 }

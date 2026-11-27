@@ -1,8 +1,18 @@
 import type { Metadata } from "next";
+import { Inter, Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import Providers from "@/components/web3/Providers";
 import GlobalNav from "@/components/shared/GlobalNav";
 import PostHogAnalytics from "@/components/analytics/PostHogAnalytics";
+
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
+const jakarta = Plus_Jakarta_Sans({
+	subsets: ["latin"],
+	weight: ["500", "600", "700"],
+	variable: "--font-display",
+	display: "swap",
+});
+const mono = JetBrains_Mono({ subsets: ["latin"], weight: ["400", "500"], variable: "--font-mono", display: "swap" });
 
 export const metadata: Metadata = {
 	title: "PeerNotary · P2P As-a-Service",
@@ -16,7 +26,7 @@ export default function RootLayout({
 	children: React.ReactNode;
 }>) {
 	return (
-		<html lang="en">
+		<html lang="en" className={`${inter.variable} ${jakarta.variable} ${mono.variable}`}>
 			<body className="bg-canvas text-ink antialiased">
 				<Providers>
 					<PostHogAnalytics />

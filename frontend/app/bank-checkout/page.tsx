@@ -790,7 +790,7 @@ function BankCheckoutContent() {
 						/>
 						<span>{currentLifecycle.replace(/_/g, " ")}</span>
 					</span>
-					<span className="px-3.5 py-1.5 rounded-md text-xs font-semibold bg-ink text-white">
+					<span className="px-3.5 py-1.5 rounded-md text-xs font-semibold bg-raised text-white">
 						Protected Escrow
 					</span>
 				</div>
@@ -799,8 +799,8 @@ function BankCheckoutContent() {
 			{/* 4 Metric Pill Cards matching the Dashboard Layout */}
 			<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
 				{/* Card 1: Payable Amount */}
-				<div className="rounded-xl p-6 bg-ink text-white flex flex-col justify-between min-h-[148px]">
-					<div className="flex items-center justify-between text-xs text-[#a0c4b3]">
+				<div className="rounded-xl p-6 bg-raised text-white flex flex-col justify-between min-h-[148px]">
+					<div className="flex items-center justify-between text-xs text-ink-3">
 						<span>Payable Amount</span>
 						<span className="px-2 py-0.5 rounded-md bg-white/10 text-[11px] font-mono font-semibold text-line">
 							Fiat NGN
@@ -812,7 +812,7 @@ function BankCheckoutContent() {
 						</div>
 					</div>
 					<div className="flex items-center gap-1.5 text-xs text-line font-mono">
-						<CheckCircle2 size={12} className="text-[#34d399]" />
+						<CheckCircle2 size={12} className="text-mint" />
 						<span>≈ {usdcDisplay} USDC (Rate: ₦{(trade?.rateNgn ?? RATE).toLocaleString("en-NG")})</span>
 					</div>
 				</div>
@@ -897,7 +897,7 @@ function BankCheckoutContent() {
 									isDone
 										? "border-accent/40 bg-subtle text-ink"
 										: isCurrent
-											? "border-accent bg-[#e3f5ec] text-ink font-semibold shadow-card ring-2 ring-accent/20"
+											? "border-accent bg-accent-soft text-ink font-semibold shadow-card ring-2 ring-accent/20"
 											: "border-line bg-surface text-ink-3",
 								)}
 							>
@@ -1169,7 +1169,7 @@ function BankCheckoutContent() {
 							<div className="pt-2">
 								<Link
 									href="/dashboard"
-									className="inline-flex items-center justify-center rounded-md px-6 py-2.5 bg-ink hover:bg-[#153e2c] text-white text-xs font-semibold shadow-card transition-colors"
+									className="inline-flex items-center justify-center rounded-md px-6 py-2.5 bg-raised hover:bg-line-strong text-white text-xs font-semibold shadow-card transition-colors"
 								>
 									Return to Dashboard
 								</Link>
@@ -1284,7 +1284,7 @@ function BankCheckoutContent() {
 
 export default function BankCheckoutPage() {
 	return (
-		<div className="min-h-screen bg-subtle text-ink py-8 px-4 sm:px-6">
+		<div className="min-h-screen text-ink py-8 px-4 sm:px-6">
 			<Suspense fallback={<CheckoutSkeleton />}>
 				<BankCheckoutContent />
 			</Suspense>

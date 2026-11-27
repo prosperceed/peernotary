@@ -1029,7 +1029,7 @@ export default function TradingWidget({
 						className={cn(
 							"px-3.5 py-1.5 rounded-md text-xs font-semibold transition-colors",
 							widgetTab === "market"
-								? "bg-ink text-white shadow-card"
+								? "bg-raised text-white shadow-card"
 								: "text-ink-2 hover:text-ink",
 						)}
 					>
@@ -1042,7 +1042,7 @@ export default function TradingWidget({
 						className={cn(
 							"px-3.5 py-1.5 rounded-md text-xs font-semibold transition-colors flex items-center gap-1",
 							widgetTab === "terminal"
-								? "bg-ink text-white shadow-card"
+								? "bg-raised text-white shadow-card"
 								: "text-ink-2 hover:text-ink",
 						)}
 					>
@@ -1124,7 +1124,7 @@ export default function TradingWidget({
 								className={cn(
 									"px-3 py-1 rounded-md text-xs font-semibold transition-colors",
 									marketSideFilter === "all"
-										? "bg-ink text-white"
+										? "bg-raised text-white"
 										: "bg-surface border border-line text-ink-2 hover:bg-subtle",
 								)}
 							>
@@ -1214,7 +1214,7 @@ export default function TradingWidget({
 														"px-2.5 py-0.5 rounded-md text-[11px] font-semibold uppercase",
 														offer.side === "sell"
 															? "bg-accent-soft text-accent border border-line"
-															: "bg-[#fef4e8] text-amber-700 border border-[#fbdcb7]",
+															: "bg-amber-50 text-amber-700 border border-amber-200",
 													)}
 												>
 													{offer.side === "sell" ? "Sell USDC" : "Buy USDC"}
@@ -1268,7 +1268,7 @@ export default function TradingWidget({
 														"px-4 py-1.5 rounded-md text-xs font-semibold transition-colors shadow-card flex items-center gap-1",
 														offer.side === "sell"
 															? "bg-accent hover:bg-accent-hover text-white"
-															: "bg-amber-600 hover:bg-amber-700 text-white",
+															: "bg-amber-600 hover:bg-amber-500 text-white",
 													)}
 												>
 													<span>
@@ -1329,7 +1329,7 @@ export default function TradingWidget({
 												"px-2.5 py-0.5 rounded-md text-[11px] font-semibold uppercase",
 												activeOffer.side === "sell"
 													? "bg-accent-soft text-accent border border-line"
-													: "bg-[#fef4e8] text-amber-700 border border-[#fbdcb7]",
+													: "bg-amber-50 text-amber-700 border border-amber-200",
 											)}
 										>
 											{activeOffer.side === "sell" ? "BUY USDC" : "SELL USDC"}

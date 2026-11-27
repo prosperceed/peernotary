@@ -306,13 +306,13 @@ export function BankSearchSelect({
 					</div>
 
 					{/* Quick Category Filters */}
-					<div className="flex items-center gap-1 mb-2 pb-2 border-b border-[#eef5f1] text-[11px] font-medium">
+					<div className="flex items-center gap-1 mb-2 pb-2 border-b border-line text-[11px] font-medium">
 						<button
 							type="button"
 							onClick={() => setActiveCategory("all")}
 							className={`px-2 py-0.5 rounded-md transition-colors ${
 								activeCategory === "all"
-									? "bg-ink text-white"
+									? "bg-raised text-white"
 									: "bg-subtle text-ink-2 hover:bg-accent-soft"
 							}`}
 						>

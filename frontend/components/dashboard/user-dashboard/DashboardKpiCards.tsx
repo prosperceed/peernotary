@@ -1,161 +1,129 @@
 "use client";
 
+import { motion } from "framer-motion";
+import { ArrowDownRight, ArrowUpRight, Landmark, LockKeyhole, TrendingUp, Wallet } from "lucide-react";
 import { arcChain } from "@/lib/web3/arcConfig";
-import { Check } from "lucide-react";
-
+import { cn } from "@/lib/utils";
+import { useMonierateRate } from "@/hooks/useMonierateRate";
+import AnimatedNumber from "@/components/shared/AnimatedNumber";
 import type { DashboardStats } from "./types";
 
 interface DashboardKpiCardsProps {
 	stats: DashboardStats;
 	activeEscrowsCount: number;
-	onReroute: () => void;
 }
 
-export function DashboardKpiCards({
-	stats,
-	activeEscrowsCount,
-	onReroute,
-}: DashboardKpiCardsProps) {
+const usd = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const ngn = (n: number) => `₦${Math.round(n).toLocaleString("en-NG")}`;
+const rateFmt = (n: number) => `₦${n.toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const cardMotion = (i: number) => ({
+	initial: { opacity: 0, y: 16 },
+	animate: { opacity: 1, y: 0 },
+	transition: { duration: 0.55, delay: i * 0.07, ease: [0.16, 1, 0.3, 1] as const },
+});
+
+function Tile({ children, className }: { children: React.ReactNode; className?: string }) {
 	return (
-		<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-			{/* Card 1: Balance Hero Card */}
-			<div className="rounded-xl bg-ink text-white p-5 flex flex-col justify-between min-h-[148px] relative overflow-hidden">
-				<div className="flex items-center justify-between text-xs">
-					<span className="font-medium text-white/85">Balance</span>
-					<span className="text-[11px] font-mono uppercase tracking-wider text-white/70">
-						{arcChain.name}
-					</span>
-				</div>
+		<span className={cn("flex h-9 w-9 items-center justify-center rounded-xl border", className)}>{children}</span>
+	);
+}
 
-				<div className="my-2">
-					<div className="text-xl sm:text-2xl font-semibold font-mono tracking-tight">
-						{stats.walletUsdc.toLocaleString("en-US", {
-							minimumFractionDigits: 1,
-							maximumFractionDigits: 2,
-						})}{" "}
-						<span className="text-sm font-normal text-white/80">USDC</span>
-					</div>
-				</div>
+export function DashboardKpiCards({ stats, activeEscrowsCount }: DashboardKpiCardsProps) {
+	const { rate, rateData } = useMonierateRate();
+	const total = stats.walletUsdc + stats.lockedEscrowUsdc;
+	const lockedPct = total > 0 ? (stats.lockedEscrowUsdc / total) * 100 : 0;
+	const rateUp = (rateData?.change24h ?? 0) >= 0;
 
-				<div className="rounded-full bg-black/25 backdrop-blur-sm border border-white/10 px-3.5 py-1.5 flex items-center justify-between text-xs">
-					<div className="flex items-center gap-1.5">
-						<Check size={14} className="text-white/80" />
-						<span className="text-white/90 font-mono">
-							≈ ₦{stats.walletNgn.toLocaleString("en-NG")}
-						</span>
-					</div>
-					<span className="text-white/75">Liquid ready</span>
+	return (
+		<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+			{/* Wallet: the one emphasised card */}
+			<motion.div
+				{...cardMotion(0)}
+				className="relative overflow-hidden rounded-card bg-gradient-to-br from-[#1a9b62] via-accent to-[#0a5c39] p-5 text-white shadow-glow"
+			>
+				<div aria-hidden className="pointer-events-none absolute -left-10 -top-16 h-40 w-40 rounded-full bg-white/20 blur-2xl" />
+				<div className="flex items-center justify-between">
+					<Tile className="border-white/25 bg-white/15 text-white">
+						<Wallet size={17} strokeWidth={1.8} />
+					</Tile>
+					<span className="font-mono text-[11px] text-white/75">{arcChain.name}</span>
 				</div>
-			</div>
+				<div className="mt-5 text-xs text-white/75">Wallet balance</div>
+				<div className="mt-1 font-display text-[26px] font-semibold leading-tight text-white">
+					<AnimatedNumber value={stats.walletUsdc} format={usd} /> <span className="text-sm font-medium text-white/75">USDC</span>
+				</div>
+				<div className="mt-2 font-mono text-xs text-white/80">≈ <AnimatedNumber value={stats.walletNgn} format={ngn} /></div>
+			</motion.div>
 
-			{/* Card 2: Settled Volume Card */}
-			<div className="rounded-xl border border-line bg-surface p-5 shadow-card flex flex-col justify-between min-h-[148px]">
-				<div className="text-xs font-medium text-ink-3">Settled Volume</div>
-				<div className="my-2">
-					<div className="text-xl sm:text-2xl font-semibold font-mono text-ink tracking-tight">
-						₦{stats.totalVolumeNgn.toLocaleString("en-NG")}
-					</div>
-				</div>
-				<div className="flex items-center gap-1.5 text-xs font-mono">
-					<span className="px-2.5 py-0.5 rounded-md bg-subtle text-ink-2">
-						{stats.completedCount} Orders
-					</span>
-					<span className="px-2.5 py-0.5 rounded-md bg-subtle text-ink-2">
-						${stats.totalVolumeUsdc.toFixed(0)}
-					</span>
-					<span className="px-2.5 py-0.5 rounded-md bg-accent text-white font-medium">
-						100% SLA
+			{/* Locked in escrow */}
+			<motion.div {...cardMotion(1)} className="card p-5">
+				<div className="flex items-center justify-between">
+					<Tile className="border-accent/25 bg-accent/10 text-accent-ink">
+						<LockKeyhole size={17} strokeWidth={1.8} />
+					</Tile>
+					<span className="rounded-full bg-subtle px-2 py-0.5 text-[11px] text-ink-3">
+						{activeEscrowsCount} open
 					</span>
 				</div>
-			</div>
+				<div className="mt-5 text-xs text-ink-3">Locked in escrow</div>
+				<div className="mt-1 font-display text-[26px] font-semibold leading-tight text-ink">
+					<AnimatedNumber value={stats.lockedEscrowUsdc} format={usd} /> <span className="text-sm font-medium text-ink-3">USDC</span>
+				</div>
+				<div className="mt-3 h-1.5 overflow-hidden rounded-full bg-subtle">
+					<motion.div
+						className="h-full rounded-full bg-gradient-to-r from-[#2fb177] to-accent"
+						initial={{ width: 0 }}
+						animate={{ width: `${lockedPct}%` }}
+						transition={{ duration: 1, delay: 0.3, ease: [0.16, 1, 0.3, 1] }}
+					/>
+				</div>
+				<div className="mt-1.5 text-[11px] text-ink-3">{lockedPct.toFixed(0)}% of your USDC is working</div>
+			</motion.div>
 
-			{/* Card 3: Escrow Utilization Card */}
-			<div className="rounded-xl border border-line bg-surface p-5 shadow-card flex flex-col justify-between min-h-[148px]">
-				<div className="flex items-center justify-between text-xs">
-					<span className="font-medium text-ink-3">
-						Escrow Utilization
-					</span>
-					<span className="text-xs font-mono text-accent">
-						{activeEscrowsCount} Active
+			{/* Settled volume */}
+			<motion.div {...cardMotion(2)} className="card p-5">
+				<div className="flex items-center justify-between">
+					<Tile className="border-mint/20 bg-mint-soft text-mint">
+						<Landmark size={17} strokeWidth={1.8} />
+					</Tile>
+					<span className="rounded-full bg-subtle px-2 py-0.5 text-[11px] text-ink-3">
+						{stats.completedCount} settled
 					</span>
 				</div>
-				<div className="my-1">
-					<div className="text-xl sm:text-2xl font-semibold font-mono text-ink tracking-tight">
-						{activeEscrowsCount > 0 ? "42.5%" : "0.0%"}{" "}
-						<span className="text-xs font-normal text-ink-3">Utilized</span>
-					</div>
+				<div className="mt-5 text-xs text-ink-3">Settled volume</div>
+				<div className="mt-1 font-display text-[26px] font-semibold leading-tight text-ink">
+					<AnimatedNumber value={stats.totalVolumeNgn} format={ngn} />
 				</div>
-				<div>
-					<div className="flex h-2 w-full rounded-full overflow-hidden bg-subtle gap-1 my-1">
-						<div
-							className="h-full bg-accent rounded-full"
-							style={{ width: "45%" }}
-						/>
-						<div
-							className="h-full bg-ink rounded-full"
-							style={{ width: "30%" }}
-						/>
-						<div
-							className="h-full bg-accent rounded-full"
-							style={{ width: "25%" }}
-						/>
-					</div>
-					<div className="flex items-center justify-between text-[11px] text-ink-3 pt-0.5">
-						<span>GTBank (60%)</span>
-						<span>OPay (40%)</span>
-						<button
-							onClick={onReroute}
-							className="font-semibold text-accent hover:underline"
+				<div className="mt-2 font-mono text-xs text-ink-3">
+					<AnimatedNumber value={stats.totalVolumeUsdc} format={usd} /> USDC
+				</div>
+			</motion.div>
+
+			{/* Live market rate */}
+			<motion.div {...cardMotion(3)} className="card p-5">
+				<div className="flex items-center justify-between">
+					<Tile className="border-line-strong bg-subtle text-ink-2">
+						<TrendingUp size={17} strokeWidth={1.8} />
+					</Tile>
+					{rateData?.change24hText && (
+						<span
+							className={cn(
+								"inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 font-mono text-[11px]",
+								rateUp ? "bg-mint-soft text-mint" : "bg-red-50 text-red-600",
+							)}
 						>
-							Reroute
-						</button>
-					</div>
+							{rateUp ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
+							{rateData.change24hText}
+						</span>
+					)}
 				</div>
-			</div>
-
-			{/* Card 4: Avg Release SLA Card */}
-			<div className="rounded-xl border border-line bg-surface p-5 shadow-card flex flex-col justify-between min-h-[148px] relative overflow-hidden">
-				<div className="text-xs font-medium text-ink-3">
-					Avg Release SLA
+				<div className="mt-5 text-xs text-ink-3">Market rate</div>
+				<div className="mt-1 font-display text-[26px] font-semibold leading-tight text-ink">
+					{rate ? <AnimatedNumber value={rate} format={rateFmt} /> : "—"}
 				</div>
-				<div className="my-1">
-					<div className="text-xl sm:text-2xl font-semibold font-mono text-ink tracking-tight">
-						4.1s
-					</div>
-					<div className="mt-1 w-fit rounded-full bg-accent text-white text-[11px] font-semibold px-2 py-0.5">
-						Top 1%
-					</div>
-				</div>
-
-				<div className="absolute right-3 bottom-2 pointer-events-none">
-					<svg viewBox="0 0 100 55" className="w-20 h-12">
-						<path
-							d="M 10 50 A 40 40 0 0 1 90 50"
-							fill="none"
-							stroke="#e8f3ed"
-							strokeWidth="8"
-							strokeLinecap="round"
-						/>
-						<path
-							d="M 10 50 A 40 40 0 0 1 76 22"
-							fill="none"
-							stroke="#0e7a4b"
-							strokeWidth="8"
-							strokeLinecap="round"
-						/>
-						<line
-							x1="50"
-							y1="50"
-							x2="78"
-							y2="20"
-							stroke="#0e7a4b"
-							strokeWidth="3.5"
-							strokeLinecap="round"
-						/>
-						<circle cx="50" cy="50" r="4.5" fill="#0f1412" />
-					</svg>
-				</div>
-			</div>
+				<div className="mt-2 text-xs text-ink-3">per USDC · 24h</div>
+			</motion.div>
 		</div>
 	);
 }

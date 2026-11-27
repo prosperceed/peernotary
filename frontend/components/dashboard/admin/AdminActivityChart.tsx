@@ -17,7 +17,7 @@ export default function AdminActivityChart({ overview, analytics }: { overview: 
 				</div>
 				<div className="rounded-lg bg-subtle px-3 py-1.5 text-xs text-ink-2">{analytics.totalPageviews.toLocaleString()} pageviews · {analytics.totalVisitors.toLocaleString()} visitors</div>
 			</div>
-			<div className="relative mt-6 h-52 overflow-hidden rounded-lg bg-[#f4faf6]">
+			<div className="relative mt-6 h-52 overflow-hidden rounded-lg bg-subtle/60">
 				<div className="absolute inset-0 flex flex-col justify-between py-4"><span className="border-t border-dashed border-line" /><span className="border-t border-dashed border-line" /><span className="border-t border-dashed border-line" /><span className="border-t border-dashed border-line" /></div>
 				{points.length > 0 ? <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 h-full w-full p-3"><defs><linearGradient id="activity-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#0e7a4b" stopOpacity=".28" /><stop offset="1" stopColor="#0e7a4b" stopOpacity="0" /></linearGradient></defs><polygon points={`0,100 ${chartPoints} 100,100`} fill="url(#activity-fill)" /><polyline points={chartPoints} fill="none" stroke="#0e7a4b" strokeWidth="1.8" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" /></svg> : <div className="absolute inset-0 flex items-center justify-center text-xs text-ink-3">Transaction activity will appear here.</div>}
 			</div>

@@ -25,6 +25,7 @@ import {
 	useSwitchChain,
 } from "wagmi";
 import { injected } from "wagmi/connectors";
+import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { IS_TESTNET } from "@/lib/env/network";
 import { useMonierateRate } from "@/hooks/useMonierateRate";
@@ -45,7 +46,7 @@ function RateBadge() {
 	const { rate, rateData } = useMonierateRate();
 	if (!rate) return null;
 	return (
-		<div className="hidden lg:flex items-center gap-2 text-xs text-ink-3">
+		<div className="hidden items-center gap-2 rounded-full px-3 py-1.5 text-xs text-ink-3 xl:flex">
 			<span className="font-mono tabular text-ink-2">
 				₦{rate.toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
 			</span>
@@ -236,7 +237,7 @@ function WalletButton({
 	if (!mounted || !isConnected || !address) {
 		return (
 			<div className="flex flex-col items-end gap-1">
-				<button onClick={() => void handleConnect()} disabled={busy} className="btn-primary h-9 px-3.5">
+				<button onClick={() => void handleConnect()} disabled={busy} className="btn-primary h-9 rounded-full px-4">
 					{busy ? <Loader2 size={15} className="animate-spin" /> : <Wallet size={15} strokeWidth={1.75} />}
 					<span className="hidden sm:inline">{busy ? "Connecting…" : "Connect wallet"}</span>
 					<span className="sm:hidden">{busy ? "…" : "Connect"}</span>
@@ -263,7 +264,7 @@ function WalletButton({
 							{busy ? "Switching…" : "Switch to Arc"}
 						</button>
 					) : (
-						<button onClick={() => void authenticate(address)} disabled={busy} className="btn-primary h-9 px-3.5">
+						<button onClick={() => void authenticate(address)} disabled={busy} className="btn-primary h-9 rounded-full px-4">
 							{busy ? <Loader2 size={15} className="animate-spin" /> : <PenLine size={15} strokeWidth={1.75} />}
 							{busy ? "Check wallet…" : "Sign in"}
 						</button>
@@ -279,7 +280,7 @@ function WalletButton({
 		<div className="relative" ref={ref}>
 			<button
 				onClick={() => setOpen((v) => !v)}
-				className={cn("btn-secondary h-9 gap-2 px-2.5", open && "bg-subtle")}
+				className={cn("btn-secondary h-9 gap-2 rounded-full px-3", open && "bg-subtle")}
 				aria-haspopup="true"
 				aria-expanded={open}
 			>
@@ -289,7 +290,7 @@ function WalletButton({
 			</button>
 
 			{open && (
-				<div className="dropdown-enter absolute right-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-card border border-line bg-surface shadow-pop">
+				<div className="dropdown-enter absolute right-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-card border border-white bg-white/95 shadow-pop backdrop-blur-xl">
 					<div className="border-b border-line px-4 py-3">
 						<div className="label">Signed in</div>
 						<div className="mt-1 break-all font-mono text-xs text-ink">{address}</div>
@@ -374,7 +375,7 @@ function MobileNavButton({
 		<div className="relative md:hidden" ref={ref}>
 			<button
 				onClick={() => setOpen((v) => !v)}
-				className="btn-secondary h-9 w-9 px-0"
+				className="btn-secondary h-9 w-9 rounded-full px-0"
 				aria-haspopup="true"
 				aria-expanded={open}
 				aria-label="Toggle navigation menu"
@@ -382,7 +383,7 @@ function MobileNavButton({
 				{open ? <X size={16} /> : <Menu size={16} />}
 			</button>
 			{open && (
-				<div className="dropdown-enter absolute right-0 top-full z-50 mt-2 w-48 rounded-card border border-line bg-surface p-1 shadow-pop">
+				<div className="dropdown-enter absolute right-0 top-full z-50 mt-2 w-48 rounded-card border border-white bg-white/95 p-1 shadow-pop backdrop-blur-xl">
 					{navLinks.map(({ label, view, source }) => (
 						<Link
 							key={view}
@@ -408,11 +409,18 @@ function NavLink({ label, active, source }: { label: string; active: boolean; so
 			href={source}
 			aria-current={active ? "page" : undefined}
 			className={cn(
-				"rounded-md px-3 py-1.5 text-sm transition-colors",
-				active ? "bg-subtle font-medium text-ink" : "text-ink-2 hover:text-ink",
+				"relative rounded-full px-3.5 py-1.5 text-sm transition-colors",
+				active ? "text-ink" : "text-ink-3 hover:text-ink",
 			)}
 		>
-			{label}
+			{active && (
+				<motion.span
+					layoutId="nav-active"
+					className="absolute inset-0 rounded-full bg-white shadow-card"
+					transition={{ type: "spring", stiffness: 420, damping: 34 }}
+				/>
+			)}
+			<span className="relative">{label}</span>
 		</Link>
 	);
 }
@@ -437,30 +445,31 @@ export default function GlobalNav() {
 	];
 
 	return (
-		<header className="sticky top-0 z-50 border-b border-line bg-surface/90 backdrop-blur">
-			<div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6">
-				<div className="flex items-center gap-6">
-					<Link href="/" className="flex items-center gap-2">
-						<span className="flex h-6 w-6 items-center justify-center rounded-md bg-ink text-[11px] font-semibold text-white">
-							PN
-						</span>
-						<span className="text-[15px] font-semibold tracking-tight text-ink">PeerNotary</span>
+		<header className="sticky top-0 z-50 px-3 pt-3 sm:px-5">
+			<div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-4 rounded-2xl border border-white/80 bg-white/60 pl-5 pr-2.5 shadow-card backdrop-blur-xl">
+				<div className="flex items-center gap-5">
+					<Link href="/" className="font-display text-[16px] font-semibold tracking-tight text-ink">
+						Peer<span className="text-accent">Notary</span>
 					</Link>
 					{IS_TESTNET && (
 						<span
 							title={`${arcChain.name} · Flutterwave test mode. No real funds move.`}
-							className="rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-800"
+							className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800"
 						>
+							<span className="relative flex h-1.5 w-1.5">
+								<span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-60" />
+								<span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-amber-400" />
+							</span>
 							Testnet
 						</span>
 					)}
-					<nav className="hidden items-center gap-1 md:flex">
-						{navLinks.map(({ label, view, source }) => (
-							<NavLink key={view} source={source} label={label} active={currentView === view} />
-						))}
-					</nav>
 				</div>
-				<div className="flex items-center gap-4">
+				<nav className="hidden items-center gap-1 rounded-full p-1 md:flex">
+					{navLinks.map(({ label, view, source }) => (
+						<NavLink key={view} source={source} label={label} active={currentView === view} />
+					))}
+				</nav>
+				<div className="flex items-center gap-3">
 					<RateBadge />
 					<MobileNavButton currentView={currentView} navLinks={navLinks} />
 					<WalletButton onAuthChange={setIsAuthed} />

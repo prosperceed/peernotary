@@ -4,28 +4,28 @@
 
 /*
  * Colour tokens as "r g b" triplets (see tailwind.config.mjs).
- * Light glass on a soft green gradient, with a faint darker wash at the top.
+ * Calm: near-white canvas, deep navy ink, muted indigo accent, faint wash.
  */
 :root {
-	--canvas: 238 245 241;
+	--canvas: 249 250 252;
 	--surface: 255 255 255;
-	--subtle: 242 247 244;
-	--raised: 15 20 18;
-	--line: 224 232 227;
-	--line-strong: 203 214 208;
+	--subtle: 244 246 252;
+	--raised: 22 28 56;
+	--line: 230 233 243;
+	--line-strong: 211 216 232;
 
-	--ink: 15 20 18;
-	--ink-2: 64 75 69;
-	--ink-3: 112 123 117;
-	--ink-4: 158 168 163;
+	--ink: 22 28 56;
+	--ink-2: 78 84 108;
+	--ink-3: 122 128 149;
+	--ink-4: 166 171 189;
 
-	--accent: 14 122 75;
-	--accent-hover: 10 101 64;
-	--accent-soft: 230 243 236;
-	--accent-ink: 10 92 57;
+	--accent: 47 64 150;
+	--accent-hover: 37 51 125;
+	--accent-soft: 239 241 250;
+	--accent-ink: 38 51 122;
 
-	--mint: 13 138 85;
-	--mint-soft: 226 245 234;
+	--mint: 46 128 90;
+	--mint-soft: 234 245 239;
 }
 
 * {
@@ -45,19 +45,12 @@ body {
 	font-feature-settings: "cv11", "ss01", "ss03";
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
-	/*
-	 * Pale green field with a bright centre and deeper green glows at the
-	 * corners, plus a slight dark wash across the top.
-	 */
+	/* Mostly white, with a soft periwinkle wash drifting in from the right. */
 	background:
-		linear-gradient(180deg, rgb(6 38 24 / 0.13) 0px, rgb(6 38 24 / 0.04) 180px, transparent 420px),
-		radial-gradient(760px 460px at 50% 30%, rgb(255 255 255 / 0.9), transparent 70%),
-		radial-gradient(900px 520px at 6% 0%, rgb(160 222 190 / 0.6), transparent 62%),
-		radial-gradient(820px 560px at 100% 8%, rgb(132 210 174 / 0.45), transparent 60%),
-		radial-gradient(1000px 680px at 100% 100%, rgb(96 190 148 / 0.4), transparent 62%),
-		radial-gradient(800px 560px at 0% 100%, rgb(178 228 204 / 0.45), transparent 60%),
-		linear-gradient(180deg, #e2f0e9 0%, #ecf5f0 45%, #e4f1ea 100%);
-	background-attachment: fixed;
+		radial-gradient(760px 520px at 78% 12%, rgb(190 197 232 / 0.26), transparent 65%),
+		radial-gradient(640px 480px at 100% 60%, rgb(205 211 238 / 0.18), transparent 65%),
+		radial-gradient(700px 500px at 0% 0%, rgb(236 239 250 / 0.6), transparent 60%),
+		rgb(var(--canvas));
 }
 
 h1,
@@ -65,7 +58,7 @@ h2,
 h3,
 .font-display {
 	font-family: var(--font-display), "Plus Jakarta Sans", system-ui, sans-serif;
-	letter-spacing: -0.02em;
+	letter-spacing: -0.025em;
 }
 
 /* Money and ids line up in columns. */
@@ -106,38 +99,26 @@ h3,
 
 @layer components {
 	.card {
-		@apply rounded-card border border-white/80 bg-white/75 shadow-card backdrop-blur-xl;
-	}
-	.glass {
-		@apply border border-white/80 bg-white/60 backdrop-blur-xl;
+		@apply rounded-card border border-line/70 bg-white shadow-card;
 	}
 	.btn {
-		@apply inline-flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-medium transition-[background-color,box-shadow,color] disabled:cursor-not-allowed disabled:opacity-50;
+		@apply inline-flex h-10 items-center justify-center gap-2 rounded-md px-4 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
 	}
 	.btn-primary {
-		@apply btn bg-gradient-to-b from-[#18975f] to-accent text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.22)] hover:from-accent hover:to-accent-hover;
+		@apply btn bg-accent text-white shadow-[0_4px_12px_-6px_rgb(47_64_150/0.45)] hover:bg-accent-hover;
 	}
 	.btn-secondary {
-		@apply btn border border-white/90 bg-white/70 text-ink shadow-card backdrop-blur hover:bg-white;
+		@apply btn border border-line-strong bg-white text-ink hover:bg-subtle;
 	}
 	.btn-ghost {
-		@apply btn text-ink-2 hover:bg-white/70 hover:text-ink;
+		@apply btn text-ink-2 hover:bg-subtle hover:text-ink;
 	}
 	.label {
 		@apply text-xs font-medium text-ink-3;
 	}
-	/* Faint ledger grid behind hero areas; fades out at the edges. */
-	.ledger-grid {
-		@apply bg-grid;
-		background-size: 44px 44px;
-		mask-image: radial-gradient(ellipse 75% 65% at 50% 40%, #000 35%, transparent 85%);
-	}
-	/* Green gradient headline text. */
-	.text-gradient {
-		background-image: linear-gradient(100deg, #2fb177 0%, #0e7a4b 38%, #0a5c39 62%, #2fb177 100%);
-		-webkit-background-clip: text;
-		background-clip: text;
-		color: transparent;
+	/* Small spaced-out caps above section headings. */
+	.kicker {
+		@apply text-[11px] font-semibold uppercase tracking-[0.22em] text-ink-2;
 	}
 }
 

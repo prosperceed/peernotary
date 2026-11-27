@@ -1,5 +1,5 @@
 export type ViewMode = "dev" | "trader";
-export type View = "home" | "trade" | "dev" | "dashboard";
+export type View = "home" | "trade" | "dev" | "dashboard" | "docs";
 export type TradeStep = 0 | 1 | 2 | 3;
 export type VerifyMode = "bank" | "zk" | null;
 export type TxStatus = "completed" | "escrow" | "disputed" | "pending";

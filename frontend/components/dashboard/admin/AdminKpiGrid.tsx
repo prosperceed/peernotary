@@ -17,16 +17,16 @@ function naira(minor: string) {
 }
 
 const TONES = [
-	"border-transparent bg-gradient-to-br from-[#1a9b62] via-accent to-[#0a5c39] text-white shadow-glow",
-	"border-white/80 bg-white/75",
-	"border-white/80 bg-white/75",
-	"border-white/80 bg-white/75",
+	"border-transparent bg-[#1a2148] text-white",
+	"border-line/70 bg-white",
+	"border-line/70 bg-white",
+	"border-line/70 bg-white",
 ];
 const TILES = [
-	"border-white/25 bg-white/15 text-white",
-	"border-amber-200 bg-amber-50 text-amber-700",
-	"border-accent/25 bg-accent/10 text-accent-ink",
-	"border-mint/20 bg-mint-soft text-mint",
+	"border-transparent bg-white/10 text-white",
+	"border-transparent bg-subtle text-ink-2",
+	"border-transparent bg-subtle text-ink-2",
+	"border-transparent bg-subtle text-ink-2",
 ];
 
 function Card({ i, icon, label, value, detail }: { i: number; icon: React.ReactNode; label: string; value: string; detail: string }) {

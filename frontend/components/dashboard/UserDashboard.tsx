@@ -879,7 +879,7 @@ export default function UserDashboard() {
 			<div className="max-w-md mx-auto my-16">
 				<div className="card relative overflow-hidden p-8 text-center">
 					<div className="pointer-events-none absolute -top-24 left-1/2 h-48 w-72 -translate-x-1/2 rounded-full bg-accent/15 blur-3xl" />
-					<div className="relative mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-b from-[#18975f] to-accent text-white shadow-glow">
+					<div className="relative mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#1a2148] text-white shadow-card">
 						<Lock size={22} />
 					</div>
 
@@ -913,7 +913,7 @@ export default function UserDashboard() {
 							<button
 								onClick={() => void handleConnectAndSignIn()}
 								disabled={authBusy}
-								className="w-full py-3 rounded-full font-semibold text-xs text-white bg-accent hover:bg-accent-hover transition-colors shadow-glow disabled:opacity-60 flex items-center justify-center gap-2"
+								className="w-full py-3 rounded-md font-semibold text-sm text-white bg-accent hover:bg-accent-hover transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
 							>
 								<Wallet size={15} />
 								<span>{authBusy ? "Connecting..." : "Connect & Sign In"}</span>
@@ -922,7 +922,7 @@ export default function UserDashboard() {
 							<button
 								onClick={() => void handleSwitchNetwork()}
 								disabled={authBusy}
-								className="w-full py-3 rounded-full font-semibold text-xs text-white bg-amber-600 hover:bg-amber-500 transition-colors shadow-card disabled:opacity-60"
+								className="w-full py-3 rounded-md font-semibold text-sm text-white bg-amber-600 hover:bg-amber-500 transition-colors shadow-card disabled:opacity-60"
 							>
 								{authBusy ? "Switching Network..." : `Switch to ${arcChain.name}`}
 							</button>
@@ -930,7 +930,7 @@ export default function UserDashboard() {
 							<button
 								onClick={() => void authenticateWallet(address)}
 								disabled={authBusy}
-								className="w-full py-3 rounded-full font-semibold text-xs text-white bg-accent hover:bg-accent-hover transition-colors shadow-glow disabled:opacity-60"
+								className="w-full py-3 rounded-md font-semibold text-sm text-white bg-accent hover:bg-accent-hover transition-colors disabled:opacity-60"
 							>
 								{authBusy
 									? "Waiting for Signature..."

@@ -4,28 +4,21 @@ import { Suspense, useState, useEffect, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
-	Shield,
 	Lock,
 	CheckCircle2,
-	AlertTriangle,
 	ArrowLeft,
-	ArrowRight,
 	ExternalLink,
 	Copy,
 	Check,
 	RefreshCw,
 	Clock,
-	CreditCard,
-	RotateCcw,
-	Landmark,
 	ShieldCheck,
-	Sparkles,
 } from "lucide-react";
 import { useAccount } from "wagmi";
 import { useEscrow } from "@/hooks/useEscrow";
 import { IS_TESTNET } from "@/lib/env/network";
 import TxStatusBanner from "@/components/web3/TxStatusBanner";
-import { Badge, ToastAlert } from "@/components/shared";
+import { ToastAlert } from "@/components/shared";
 import { subscribeToTradeUpdates } from "@/lib/supabase/client";
 import { ARCSCAN_TX, ESCROW_ADDRESS, arcChain } from "@/lib/web3/arcConfig";
 import { cn, RATE } from "@/lib/utils";
@@ -81,61 +74,32 @@ interface ActiveAttemptDetail {
 }
 
 const LIFECYCLE_STEPS: { state: TradeLifecycleState; label: string }[] = [
-	{ state: "AWAITING_PAYMENT", label: "1. Awaiting Buyer Payment" },
-	{ state: "PAYMENT_CONFIRMED", label: "2. Payment Verified" },
-	{ state: "SELLER_PAYOUT_PENDING", label: "3. Seller Payout Pending" },
-	{ state: "SELLER_PAYOUT_CONFIRMED", label: "4. Seller Payout Confirmed" },
-	{ state: "RELEASE_PENDING", label: "5. Escrow Release Pending" },
-	{ state: "COMPLETED", label: "6. Completed On-Chain" },
+	{ state: "AWAITING_PAYMENT", label: "1. Awaiting payment" },
+	{ state: "PAYMENT_CONFIRMED", label: "2. Payment verified" },
+	{ state: "SELLER_PAYOUT_PENDING", label: "3. Payout pending" },
+	{ state: "SELLER_PAYOUT_CONFIRMED", label: "4. Payout confirmed" },
+	{ state: "RELEASE_PENDING", label: "5. Releasing USDC" },
+	{ state: "COMPLETED", label: "6. Complete" },
 ];
 
 function CheckoutSkeleton() {
 	return (
-		<div className="max-w-6xl mx-auto space-y-6 animate-pulse">
-			<div className="flex items-center justify-between">
-				<div className="h-8 w-28 bg-accent-soft rounded-full" />
-				<div className="flex gap-2">
-					<div className="h-8 w-28 bg-accent-soft rounded-full" />
-					<div className="h-8 w-32 bg-accent-soft rounded-full" />
-				</div>
+		<div className="mx-auto max-w-6xl animate-pulse space-y-6">
+			<div className="space-y-2">
+				<div className="h-4 w-14 rounded bg-subtle" />
+				<div className="h-7 w-56 rounded bg-subtle" />
 			</div>
-			<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-				{[...Array(4)].map((_, i) => (
-					<div
-						key={i}
-						className="h-36 rounded-xl bg-surface border border-line p-6 space-y-3"
-					>
-						<div className="h-4 w-24 bg-accent-soft rounded" />
-						<div className="h-8 w-36 bg-accent-soft rounded" />
-						<div className="h-3 w-40 bg-accent-soft rounded" />
-					</div>
-				))}
-			</div>
-			<div className="rounded-xl border border-line bg-surface p-6 space-y-3">
-				<div className="h-3 w-40 bg-accent-soft rounded" />
-				<div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
-					{[...Array(6)].map((_, i) => (
-						<div
-							key={i}
-							className="h-16 rounded-xl bg-subtle border border-line"
-						/>
-					))}
+			<div className="card h-[76px]" />
+			<div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+				<div className="card space-y-5 p-7 lg:col-span-7">
+					<div className="h-4 w-24 rounded bg-subtle" />
+					<div className="h-9 w-48 rounded bg-subtle" />
+					<div className="h-44 rounded-lg bg-subtle/70" />
+					<div className="h-12 rounded-md bg-subtle" />
 				</div>
-			</div>
-			<div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-				<div className="lg:col-span-7 rounded-xl border border-line bg-surface p-7 space-y-5">
-					<div className="h-6 w-48 bg-accent-soft rounded" />
-					<div className="grid grid-cols-2 gap-3">
-						<div className="h-20 bg-surface rounded-xl border border-line" />
-						<div className="h-20 bg-surface rounded-xl border border-line" />
-						<div className="h-20 bg-surface rounded-xl border border-line" />
-						<div className="h-20 bg-surface rounded-xl border border-line" />
-					</div>
-					<div className="h-12 bg-accent/20 rounded-full" />
-				</div>
-				<div className="lg:col-span-5 rounded-xl border border-line bg-surface p-7 space-y-4">
-					<div className="h-5 w-32 bg-accent-soft rounded" />
-					<div className="h-48 bg-surface rounded-xl border border-line" />
+				<div className="space-y-6 lg:col-span-5">
+					<div className="card h-72" />
+					<div className="card h-40" />
 				</div>
 			</div>
 		</div>
@@ -685,22 +649,22 @@ function BankCheckoutContent() {
 
 	if (authenticated === false || !isConnected) {
 		return (
-			<div className="max-w-md mx-auto my-14 p-6 rounded-lg bg-surface border border-line text-center space-y-4">
+			<div className="card mx-auto my-16 max-w-md space-y-4 p-8 text-center">
 				<div className="w-11 h-11 rounded-lg bg-subtle border border-line flex items-center justify-center mx-auto">
 					<Lock size={18} className="text-accent" />
 				</div>
-				<h2 className="text-sm font-semibold text-ink">
-					Wallet Sign-In Required for Checkout
+				<h2 className="text-base font-semibold text-ink">
+					Sign in to pay
 				</h2>
-				<p className="text-xs text-ink-3">
-					Connect your wallet and sign the challenge in the dashboard before
-					initiating a Flutterwave payment session.
+				<p className="text-sm text-ink-3">
+					Connect your wallet and sign in from the dashboard before starting a
+					payment.
 				</p>
 				<Link
 					href="/dashboard"
-					className="inline-flex items-center justify-center w-full py-2.5 rounded-lg bg-accent text-white text-xs font-semibold"
+					className="btn-primary h-10 w-full"
 				>
-					Return to Dashboard Sign-In
+					Go to sign-in
 				</Link>
 			</div>
 		);
@@ -708,22 +672,22 @@ function BankCheckoutContent() {
 
 	if (!tradeId || (!loading && !trade)) {
 		return (
-			<div className="max-w-md mx-auto my-14 p-6 rounded-lg bg-surface border border-line text-center space-y-4">
+			<div className="card mx-auto my-16 max-w-md space-y-4 p-8 text-center">
 				<div className="w-11 h-11 rounded-lg bg-subtle border border-line flex items-center justify-center mx-auto">
 					<Lock size={18} className="text-accent" />
 				</div>
-				<h2 className="text-sm font-semibold text-ink">
-					No Active Trade Order Found
+				<h2 className="text-base font-semibold text-ink">
+					Order not found
 				</h2>
-				<p className="text-xs text-ink-3">
-					Please select an order from the Trading Desk or place an order from
-					your Dashboard before accessing the settlement portal.
+				<p className="text-sm text-ink-3">
+					Pick an offer on the trading desk, or open an order from your
+					dashboard.
 				</p>
 				<Link
 					href="/trade"
-					className="inline-flex items-center justify-center w-full py-2.5 rounded-lg bg-accent text-white text-xs font-semibold"
+					className="btn-primary h-10 w-full"
 				>
-					Go to Trading Desk
+					Go to trading desk
 				</Link>
 			</div>
 		);
@@ -748,174 +712,103 @@ function BankCheckoutContent() {
 				).padStart(2, "0")}`
 			: "20:00";
 
+	const stepIndex = Math.max(
+		0,
+		LIFECYCLE_STEPS.findIndex((item) => item.state === currentLifecycle),
+	);
+	const isDoneAll = currentLifecycle === "COMPLETED";
+	const onHold =
+		currentLifecycle.includes("HOLD") ||
+		currentLifecycle === "REFUND_PENDING" ||
+		currentLifecycle === "LATE_PAYMENT_REVIEW";
+	const usdcNum = parseFloat(usdcDisplay.replace(/,/g, "")) || 0;
+	const receiveUsdc = (usdcNum - parseFloat(platformFeeUsdc)).toFixed(2);
+	const statusLabel = currentLifecycle.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
+
 	return (
-		<div className="max-w-6xl mx-auto space-y-6">
-			{/* Top Navigation & Status Bar */}
-			<div className="flex flex-wrap items-center justify-between gap-3">
-				<div className="flex items-center gap-3">
+		<div className="mx-auto max-w-6xl space-y-6">
+			{/* Header */}
+			<div className="flex flex-wrap items-end justify-between gap-4">
+				<div>
 					<Link
 						href={returnTo}
-						className="inline-flex items-center gap-2 rounded-md px-4 py-2 border border-line bg-surface text-xs font-semibold text-ink hover:bg-subtle hover:border-accent transition-colors shadow-card"
+						className="inline-flex items-center gap-1.5 text-sm text-ink-3 transition-colors hover:text-ink"
 					>
 						<ArrowLeft size={14} />
-						<span>Dashboard</span>
+						Back
 					</Link>
-					<span className="text-xs font-mono font-semibold text-ink-3">
-						Order #{tradeId}
-					</span>
+					<h1 className="mt-2 text-2xl font-bold text-ink">Pay for order #{tradeId}</h1>
 				</div>
-
 				<div className="flex items-center gap-2">
 					<span
 						className={cn(
-							"px-3.5 py-1.5 rounded-md text-xs font-semibold border flex items-center gap-1.5",
-							currentLifecycle === "COMPLETED"
-								? "bg-accent-soft border-accent text-ink"
-								: currentLifecycle.includes("HOLD") ||
-									  currentLifecycle === "REFUND_PENDING" ||
-									  currentLifecycle === "LATE_PAYMENT_REVIEW"
-									? "bg-red-50 border-red-200 text-red-800"
-									: "bg-subtle border-line text-ink",
+							"inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium",
+							isDoneAll
+								? "border-mint/20 bg-mint-soft text-mint"
+								: onHold
+									? "border-red-200 bg-red-50 text-red-700"
+									: "border-line bg-white text-ink-2",
 						)}
 					>
+						<span className={cn("h-1.5 w-1.5 rounded-full", isDoneAll ? "bg-mint" : onHold ? "bg-red-500" : "bg-accent")} />
+						{statusLabel}
+					</span>
+					{currentLifecycle === "AWAITING_PAYMENT" && (
 						<span
 							className={cn(
-								"w-2 h-2 rounded-full",
-								currentLifecycle === "COMPLETED"
-									? "bg-accent"
-									: currentLifecycle.includes("HOLD")
-										? "bg-red-500"
-										: "bg-accent",
+								"inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 font-mono text-xs font-medium",
+								secondsRemaining !== null && secondsRemaining < 300
+									? "border-amber-200 bg-amber-50 text-amber-800"
+									: "border-line bg-white text-ink",
 							)}
-						/>
-						<span>{currentLifecycle.replace(/_/g, " ")}</span>
-					</span>
-					<span className="px-3.5 py-1.5 rounded-md text-xs font-semibold bg-raised text-white">
-						Protected Escrow
-					</span>
-				</div>
-			</div>
-
-			{/* 4 Metric Pill Cards matching the Dashboard Layout */}
-			<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-				{/* Card 1: Payable Amount */}
-				<div className="rounded-xl p-6 bg-raised text-white flex flex-col justify-between min-h-[148px]">
-					<div className="flex items-center justify-between text-xs text-ink-3">
-						<span>Payable Amount</span>
-						<span className="px-2 py-0.5 rounded-md bg-white/10 text-[11px] font-mono font-semibold text-line">
-							Fiat NGN
-						</span>
-					</div>
-					<div className="my-2">
-						<div className="text-2xl sm:text-3xl font-semibold font-mono tracking-tight">
-							₦{fiatMajorNgn}
-						</div>
-					</div>
-					<div className="flex items-center gap-1.5 text-xs text-line font-mono">
-						<CheckCircle2 size={12} className="text-mint" />
-						<span>≈ {usdcDisplay} USDC (Rate: ₦{(trade?.rateNgn ?? RATE).toLocaleString("en-NG")})</span>
-					</div>
-				</div>
-
-				{/* Card 2: Release SLA / Timer */}
-				<div className="rounded-xl p-6 bg-surface border border-line shadow-card flex flex-col justify-between min-h-[148px]">
-					<div className="flex items-center justify-between text-xs text-ink-3">
-						<span>Payment Window</span>
-						<span className="px-2 py-0.5 rounded-md bg-subtle text-[11px] font-mono font-semibold text-accent">
-							20m Auto-Cancel
-						</span>
-					</div>
-					<div className="my-2 flex items-baseline gap-2">
-						<div className="text-2xl sm:text-3xl font-semibold font-mono text-ink tracking-tight">
+						>
+							<Clock size={13} />
 							{formattedCountdown}
-						</div>
-					</div>
-					<div className="flex items-center gap-1.5 text-xs text-ink-2">
-						<Clock size={12} className="text-accent" />
-						<span>Instant Release SLA · 4.1s Avg Settlement</span>
-					</div>
-				</div>
-
-				{/* Card 3: Settlement Bank */}
-				<div className="rounded-xl p-6 bg-surface border border-line shadow-card flex flex-col justify-between min-h-[148px]">
-					<div className="flex items-center justify-between text-xs text-ink-3">
-						<span>Settlement Bank</span>
-						<span className="px-2 py-0.5 rounded-md bg-subtle text-[11px] font-mono text-ink-2">
-							CBN {trade?.bankCode ?? "058"}
 						</span>
-					</div>
-					<div className="my-2">
-						<div className="text-xl sm:text-2xl font-semibold text-ink truncate">
-							{trade?.bankName ?? "Bank Transfer"}
-						</div>
-					</div>
-					<div className="flex items-center gap-1.5 text-xs font-mono text-ink-3">
-						<Landmark size={12} className="text-accent" />
-						<span>Account: {trade?.accountMasked ?? "******"}</span>
-					</div>
-				</div>
-
-				{/* Card 4: Arc Escrow Lock */}
-				<div className="rounded-xl p-6 bg-surface border border-line shadow-card flex flex-col justify-between min-h-[148px]">
-					<div className="flex items-center justify-between text-xs text-ink-3">
-						<span>Escrow Inventory</span>
-						<span className="px-2 py-0.5 rounded-md bg-subtle text-[11px] font-mono text-accent">
-							{arcChain.name}
-						</span>
-					</div>
-					<div className="my-2">
-						<div className="text-2xl sm:text-3xl font-semibold font-mono text-ink tracking-tight">
-							{usdcDisplay} USDC
-						</div>
-					</div>
-					<div className="flex items-center gap-1.5 text-xs text-ink-2">
-						<ShieldCheck size={12} className="text-accent" />
-						<span>0 USDC Buyer Bond · Zero Collateral</span>
-					</div>
+					)}
 				</div>
 			</div>
 
-			{/* Authoritative 6-Stage Progress Stepper */}
-			<div className="rounded-xl border border-line bg-surface p-6 shadow-card">
-				<div className="text-xs font-semibold uppercase tracking-wider text-ink-3 mb-3">
-					Settlement Pipeline (Trade #{tradeId})
-				</div>
-				<div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+			{/* Progress */}
+			<div className="card px-6 py-5">
+				<ol className="flex items-start">
 					{LIFECYCLE_STEPS.map((s, idx) => {
-						const currentIndex = LIFECYCLE_STEPS.findIndex(
-							(item) => item.state === currentLifecycle,
-						);
-						const isDone =
-							currentLifecycle === "COMPLETED" ||
-							(currentIndex !== -1 && idx < currentIndex);
-						const isCurrent = s.state === currentLifecycle;
+						const done = isDoneAll || idx < stepIndex;
+						const current = !isDoneAll && idx === stepIndex;
 						return (
-							<div
-								key={s.state}
-								className={cn(
-									"p-3.5 rounded-xl border text-xs font-medium transition-colors",
-									isDone
-										? "border-accent/40 bg-subtle text-ink"
-										: isCurrent
-											? "border-accent bg-accent-soft text-ink font-semibold shadow-card ring-2 ring-accent/20"
-											: "border-line bg-surface text-ink-3",
+							<li key={s.state} className="relative flex flex-1 flex-col items-center text-center">
+								{idx > 0 && (
+									<span
+										className={cn(
+											"absolute right-1/2 top-3 h-px w-full",
+											done || current ? "bg-accent" : "bg-line",
+										)}
+									/>
 								)}
-							>
-								<div className="flex items-center justify-between mb-1.5">
-									<span className="font-mono text-[11px] text-ink-3">
-										STAGE {idx + 1}
-									</span>
-									{isDone ? (
-										<CheckCircle2 size={13} className="text-accent" />
-									) : isCurrent ? (
-										<span className="w-2 h-2 rounded-full bg-accent" />
-									) : null}
-								</div>
-								<div className="leading-snug text-ink">{s.label.slice(3)}</div>
-							</div>
+								<span
+									className={cn(
+										"relative z-10 flex h-6 w-6 items-center justify-center rounded-full border text-[11px] font-semibold",
+										done
+											? "border-accent bg-accent text-white"
+											: current
+												? "border-accent bg-white text-accent ring-4 ring-accent/10"
+												: "border-line bg-white text-ink-4",
+									)}
+								>
+									{done ? <Check size={12} strokeWidth={3} /> : idx + 1}
+								</span>
+								<span
+									className={cn(
+										"mt-2 hidden max-w-[120px] text-xs leading-snug sm:block",
+										current ? "font-medium text-ink" : done ? "text-ink-2" : "text-ink-4",
+									)}
+								>
+									{s.label.slice(3)}
+								</span>
+							</li>
 						);
 					})}
-				</div>
+				</ol>
 			</div>
 
 			<TxStatusBanner
@@ -934,100 +827,50 @@ function BankCheckoutContent() {
 				}}
 			/>
 
-			{/* Main Two-Column Layout */}
-			<div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-				{/* Left Column: Bank Settlement Card */}
-				<div className="lg:col-span-7 rounded-xl border border-line bg-surface p-6 sm:p-8 space-y-6 shadow-card">
-					<div className="flex items-start justify-between border-b border-subtle pb-4">
-						<div className="flex items-center gap-3">
-							<div className="w-11 h-11 rounded-xl bg-subtle border border-line flex items-center justify-center text-accent">
-								<CreditCard size={20} />
-							</div>
-							<div>
-								<h1 className="text-base font-semibold text-ink">
-									Fiat Payment Settlement
-								</h1>
-								<p className="text-xs text-ink-3">
-									Transfer exact NGN amount using the details below
-								</p>
-							</div>
-						</div>
-						<div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-subtle border border-line text-xs font-mono font-semibold text-ink">
-							<Clock size={13} className="text-accent" />
-							<span>{formattedCountdown}</span>
+			<div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+				{/* Payment */}
+				<section className="card space-y-6 p-6 sm:p-7 lg:col-span-7">
+					<div>
+						<div className="text-[13px] font-medium text-ink-3">Amount due</div>
+						<div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+							<span className="font-display text-[34px] font-bold leading-none text-ink">₦{fiatMajorNgn}</span>
+							<span className="text-sm text-ink-3">for {usdcDisplay} USDC</span>
 						</div>
 					</div>
 
-					{/* Bank Transfer Details Cards */}
-					<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-						{/* Bank Name */}
-						<div className="p-4 rounded-xl bg-surface border border-line space-y-1">
-							<span className="text-xs font-medium text-ink-3">
-								Beneficiary Bank
-							</span>
-							<div className="text-sm font-semibold text-ink flex items-center justify-between">
-								<span>{trade?.bankName ?? "Bank Transfer"}</span>
-								<span className="px-1.5 py-0.5 rounded text-[11px] font-mono bg-subtle text-ink-2 border border-line">
-									{trade?.bankCode ?? "058"}
-								</span>
+					<dl className="divide-y divide-line rounded-lg border border-line">
+						{[
+							{ label: "Bank", value: trade?.bankName ?? "Bank transfer" },
+							{ label: "Account number", value: trade?.accountMasked ?? "—", mono: true, copy: trade?.accountMasked },
+							{ label: "Amount", value: `₦${fiatMajorNgn}`, mono: true, copy: fiatMajorNgn.replace(/,/g, "") },
+							{
+								label: "Reference",
+								value: activeTxRef,
+								mono: true,
+								copy: activeTxRef !== "Not initialized" ? activeTxRef : undefined,
+							},
+						].map((row) => (
+							<div key={row.label} className="flex items-center justify-between gap-4 px-4 py-3">
+								<dt className="text-sm text-ink-3">{row.label}</dt>
+								<dd className={cn("flex min-w-0 items-center gap-2 text-sm text-ink", row.mono && "font-mono")}>
+									<span className="truncate">{row.value}</span>
+									{row.copy && (
+										<button
+											type="button"
+											onClick={() => copyReference(row.copy ?? "")}
+											className="rounded p-1 text-ink-4 transition-colors hover:bg-subtle hover:text-ink"
+											title={`Copy ${row.label.toLowerCase()}`}
+										>
+											{copiedRef ? <Check size={13} className="text-mint" /> : <Copy size={13} />}
+										</button>
+									)}
+								</dd>
 							</div>
-						</div>
+						))}
+					</dl>
 
-						{/* Account Number */}
-						<div className="p-4 rounded-xl bg-surface border border-line space-y-1">
-							<span className="text-xs font-medium text-ink-3">
-								Account Number
-							</span>
-							<div className="text-sm font-mono font-semibold text-ink flex items-center justify-between">
-								<span>{trade?.accountMasked ?? "******"}</span>
-								<button
-									type="button"
-									onClick={() => copyReference(trade?.accountMasked ?? "")}
-									className="p-1 rounded-full text-ink-3 hover:text-ink hover:bg-subtle transition-colors"
-									title="Copy account"
-								>
-									{copiedRef ? <Check size={12} className="text-accent" /> : <Copy size={12} />}
-								</button>
-							</div>
-						</div>
-
-						{/* Payable Exact Amount */}
-						<div className="p-4 rounded-xl bg-surface border border-line space-y-1">
-							<span className="text-xs font-medium text-ink-3">
-								Exact Amount to Pay
-							</span>
-							<div className="text-base font-mono font-semibold text-accent flex items-center justify-between">
-								<span>₦{fiatMajorNgn}</span>
-								<span className="text-[11px] font-normal text-ink-3">
-									{usdcDisplay} USDC
-								</span>
-							</div>
-						</div>
-
-						{/* Payment Reference */}
-						<div className="p-4 rounded-xl bg-surface border border-line space-y-1">
-							<span className="text-xs font-medium text-ink-3">
-								Payment Reference (tx_ref)
-							</span>
-							<div className="text-xs font-mono font-semibold text-ink flex items-center justify-between">
-								<span className="truncate max-w-[150px]">{activeTxRef}</span>
-								{activeTxRef !== "Not initialized" && (
-									<button
-										type="button"
-										onClick={() => copyReference(activeTxRef)}
-										className="p-1 rounded-full text-ink-3 hover:text-ink hover:bg-subtle transition-colors"
-										title="Copy reference"
-									>
-										{copiedRef ? <Check size={12} className="text-accent" /> : <Copy size={12} />}
-									</button>
-								)}
-							</div>
-						</div>
-					</div>
-
-					{/* Action Buttons */}
 					{currentLifecycle === "AWAITING_PAYMENT" && (
-						<div className="space-y-3 pt-2">
+						<div className="space-y-3">
 							{paymentMode === "simulated" ? (
 								<button
 									type="button"
@@ -1050,9 +893,10 @@ function BankCheckoutContent() {
 									>
 										{busyAction === "init_checkout" ? (
 											<RefreshCw size={15} className="animate-spin" />
-										) : null}
-										Pay ₦{fiatMajorNgn} with Flutterwave
-										<ArrowRight size={15} />
+										) : (
+											<Lock size={15} />
+										)}
+										Pay ₦{fiatMajorNgn} securely
 									</button>
 									<button
 										type="button"
@@ -1063,42 +907,41 @@ function BankCheckoutContent() {
 										{busyAction === "verify_payment" || busyAction === "full_pipeline" ? (
 											<RefreshCw size={15} className="animate-spin" />
 										) : null}
-										Already paid? Check payment status
+										I&apos;ve paid, check status
 									</button>
 									{IS_TESTNET && (
-										<div className="rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-3 text-xs text-amber-900">
-											<div className="font-medium">Flutterwave test mode: no real money is charged.</div>
+										<div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+											<div className="font-medium">Test mode: no real money is charged.</div>
 											<div className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 font-mono">
-												<span className="text-amber-700">Card</span><span>5531 8866 5214 2950</span>
-												<span className="text-amber-700">CVV / Exp</span><span>564 · 09/32</span>
-												<span className="text-amber-700">PIN / OTP</span><span>3310 · 12345</span>
+												<span className="text-amber-700">Card</span>
+												<span>5531 8866 5214 2950</span>
+												<span className="text-amber-700">CVV / Exp</span>
+												<span>564 · 09/32</span>
+												<span className="text-amber-700">PIN / OTP</span>
+												<span>3310 · 12345</span>
 											</div>
 										</div>
 									)}
 								</>
 							)}
 
-							<div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs">
+							<div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4 text-sm">
 								<button
 									type="button"
 									disabled={busyAction !== null || secondsRemaining === 0}
 									onClick={() => void initializeCheckoutSession()}
-									className="px-4 py-2 rounded-md border border-line text-ink-2 hover:border-accent hover:text-ink transition-colors flex items-center gap-1.5"
+									className="inline-flex items-center gap-1.5 text-ink-3 transition-colors hover:text-ink disabled:opacity-50"
 								>
-									<RefreshCw
-										size={12}
-										className={cn(busyAction === "init_checkout" && "animate-spin")}
-									/>
-									<span>Refresh Session</span>
+									<RefreshCw size={13} className={cn(busyAction === "init_checkout" && "animate-spin")} />
+									Refresh payment session
 								</button>
-
 								<button
 									type="button"
 									disabled={busyAction !== null}
 									onClick={() => void handleCancelOrder()}
-									className="px-4 py-2 rounded-md text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors font-medium"
+									className="font-medium text-red-600 transition-colors hover:text-red-700 disabled:opacity-50"
 								>
-									Cancel Order & Release Escrow
+									Cancel order
 								</button>
 							</div>
 						</div>
@@ -1108,175 +951,144 @@ function BankCheckoutContent() {
 						currentLifecycle === "SELLER_PAYOUT_PENDING" ||
 						currentLifecycle === "SELLER_PAYOUT_CONFIRMED" ||
 						currentLifecycle === "RELEASE_PENDING") && (
-						<div className="p-5 rounded-xl bg-subtle border border-accent/30 space-y-3">
-							<div className="text-xs font-semibold text-ink flex items-center gap-2">
+						<div className="space-y-3 rounded-lg border border-accent/20 bg-accent-soft/60 p-5">
+							<div className="flex items-center gap-2 text-sm font-semibold text-ink">
 								<CheckCircle2 size={16} className="text-accent" />
-								<span>Payment Verified - Settlement in Progress</span>
+								Payment verified
 							</div>
-							<p className="text-xs text-ink-2 leading-relaxed">
-								Your payment was confirmed. The oracle is releasing {usdcDisplay} USDC on {arcChain.name} to your wallet.
+							<p className="text-sm leading-relaxed text-ink-2">
+								The escrow is releasing {receiveUsdc} USDC to your wallet on {arcChain.name}. This usually takes under a
+								minute.
 							</p>
 							<button
 								type="button"
 								disabled={busyAction !== null}
 								onClick={() => void handleCompleteFullSettlementPipeline()}
-								className="py-2.5 px-5 rounded-md bg-accent text-white text-xs font-semibold hover:bg-accent-hover shadow-card transition-colors"
+								className="btn-primary h-10 px-4"
 							>
-								{busyAction === "full_pipeline"
-									? "Executing Settlement..."
-									: "Finalize Escrow Release"}
+								{busyAction === "full_pipeline" ? <RefreshCw size={14} className="animate-spin" /> : null}
+								{busyAction === "full_pipeline" ? "Releasing…" : "Finish release"}
 							</button>
 						</div>
 					)}
 
 					{currentLifecycle === "COMPLETED" && (
-						<div className="p-6 rounded-xl bg-subtle border border-accent/40 space-y-4 text-center">
-							<div className="w-12 h-12 rounded-full bg-accent/10 text-accent flex items-center justify-center mx-auto">
+						<div className="space-y-4 rounded-lg border border-mint/20 bg-mint-soft/60 p-6 text-center">
+							<div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white text-mint shadow-card">
 								<CheckCircle2 size={24} />
 							</div>
-							<div className="space-y-1">
-								<h3 className="text-base font-semibold text-ink">
-									Settlement Completed Successfully!
-								</h3>
-								<p className="text-xs text-ink-2">
-									{usdcDisplay} USDC has been released to your wallet on {arcChain.name}.
+							<div>
+								<h3 className="text-lg font-semibold text-ink">Trade complete</h3>
+								<p className="mt-1 text-sm text-ink-2">
+									{receiveUsdc} USDC was released to your wallet on {arcChain.name}.
 								</p>
 							</div>
 							{trade?.proofId && (
-								<div className="mx-auto max-w-md rounded-lg bg-white/90 border border-line px-3.5 py-2.5 text-left space-y-1">
-									<div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-accent">
-										<span>TLSNotary Cryptographic Proof ID</span>
-										<span>Verified On-Chain</span>
-									</div>
-									<div className="text-xs font-mono text-ink truncate">
-										{trade.proofId}
-									</div>
+								<div className="mx-auto max-w-md rounded-md border border-line bg-white px-3.5 py-2.5 text-left">
+									<div className="text-[11px] font-medium text-ink-3">Payment proof</div>
+									<div className="truncate font-mono text-xs text-ink">{trade.proofId}</div>
 								</div>
 							)}
-							{trade?.txHash && trade.txHash !== "0x0" && (
-								<div className="pt-1">
+							<div className="flex flex-wrap justify-center gap-2 pt-1">
+								{trade?.txHash && trade.txHash !== "0x0" && (
 									<a
 										href={ARCSCAN_TX(trade.txHash)}
 										target="_blank"
 										rel="noopener noreferrer"
-										className="inline-flex items-center gap-1.5 px-4 py-2 rounded-md bg-surface border border-line text-xs font-semibold text-accent hover:border-accent transition-colors shadow-card"
+										className="btn-secondary h-10 px-4"
 									>
-										<span>View On-Chain Receipt ({trade.txHash.slice(0, 10)}...)</span>
-										<ExternalLink size={12} />
+										View receipt
+										<ExternalLink size={13} />
 									</a>
-								</div>
-							)}
-							<div className="pt-2">
-								<Link
-									href="/dashboard"
-									className="inline-flex items-center justify-center rounded-md px-6 py-2.5 bg-raised hover:bg-line-strong text-white text-xs font-semibold shadow-card transition-colors"
-								>
-									Return to Dashboard
+								)}
+								<Link href="/dashboard" className="btn-primary h-10 px-4">
+									Go to dashboard
 								</Link>
 							</div>
 						</div>
 					)}
-				</div>
+				</section>
 
-				{/* Right Column: Counterparty Dossier & Audit Log */}
-				<div className="lg:col-span-5 space-y-6">
-					{/* Counterparty Trust Card */}
-					<div className="rounded-xl border border-line bg-surface p-6 sm:p-7 shadow-card space-y-4">
-						<div className="flex items-center justify-between border-b border-subtle pb-3">
-							<div className="flex items-center gap-2">
-								<ShieldCheck size={16} className="text-accent" />
-								<h2 className="text-sm font-semibold text-ink">
-									Settlement Guarantees
-								</h2>
+				{/* Summary + activity */}
+				<aside className="space-y-6 lg:col-span-5">
+					<section className="card p-6">
+						<h2 className="text-[15px] font-semibold text-ink">Order summary</h2>
+						<dl className="mt-4 space-y-3 text-sm">
+							<div className="flex justify-between">
+								<dt className="text-ink-3">You pay</dt>
+								<dd className="font-mono text-ink">₦{fiatMajorNgn}</dd>
 							</div>
-							<span className="text-xs font-mono text-ink-3">
-								Verified Peer
-							</span>
-						</div>
-
-						<div className="space-y-3 text-xs text-ink-2">
-							<div className="flex items-center justify-between py-1.5 border-b border-subtle">
-								<span className="text-ink-3">Seller Counterparty</span>
-								<span className="font-mono font-semibold text-ink">
-									{trade?.sellerAddress ? `${trade.sellerAddress.slice(0, 6)}...${trade.sellerAddress.slice(-4)}` : "Verified Merchant"}
+							<div className="flex justify-between">
+								<dt className="text-ink-3">Rate</dt>
+								<dd className="font-mono text-ink">₦{(trade?.rateNgn ?? RATE).toLocaleString("en-NG")} / USDC</dd>
+							</div>
+							<div className="flex justify-between">
+								<dt className="text-ink-3">Order size</dt>
+								<dd className="font-mono text-ink">{usdcDisplay} USDC</dd>
+							</div>
+							<div className="flex justify-between">
+								<dt className="text-ink-3">Platform fee (1%)</dt>
+								<dd className="font-mono text-ink">−{platformFeeUsdc} USDC</dd>
+							</div>
+							<div className="flex justify-between border-t border-line pt-3">
+								<dt className="font-medium text-ink">You receive</dt>
+								<dd className="font-mono font-semibold text-ink">{receiveUsdc} USDC</dd>
+							</div>
+						</dl>
+						<div className="mt-5 space-y-2 border-t border-line pt-4 text-xs">
+							<div className="flex justify-between gap-3">
+								<span className="text-ink-3">Seller</span>
+								<span className="font-mono text-ink-2">
+									{trade?.sellerAddress
+										? `${trade.sellerAddress.slice(0, 6)}…${trade.sellerAddress.slice(-4)}`
+										: "—"}
 								</span>
 							</div>
-							<div className="flex items-center justify-between py-1.5 border-b border-subtle">
-								<span className="text-ink-3">Order Completion SLA</span>
-								<span className="font-semibold text-ink">100% Guaranteed</span>
-							</div>
-							<div className="flex items-center justify-between py-1.5 border-b border-subtle">
-								<span className="text-ink-3">Buyer Bond Required</span>
-								<span className="font-semibold text-accent">0.00 USDC</span>
-							</div>
-							<div className="flex items-center justify-between py-1.5">
-								<span className="text-ink-3">Escrow Contract</span>
-								<span className="font-mono text-xs text-ink truncate max-w-[140px]">
-									{ESCROW_ADDRESS}
+							<div className="flex justify-between gap-3">
+								<span className="text-ink-3">Escrow</span>
+								<span className="font-mono text-ink-2">
+									{ESCROW_ADDRESS.slice(0, 6)}…{ESCROW_ADDRESS.slice(-4)} · {arcChain.name}
 								</span>
 							</div>
 						</div>
-
-						<div className="p-3.5 rounded-xl bg-subtle border border-line/70 text-xs text-ink-2 space-y-1">
-							<div className="font-semibold text-ink flex items-center gap-1.5">
-								<Sparkles size={12} className="text-accent" />
-								<span>Zero Counterparty Risk</span>
-							</div>
-							<p className="leading-relaxed">
-								The seller&apos;s {usdcDisplay} USDC was locked in escrow before order publication. Funds release automatically upon verified fiat receipt.
-							</p>
-						</div>
-					</div>
-
-					{/* Real-Time Audit Log Card */}
-					<div className="rounded-xl border border-line bg-surface p-6 sm:p-7 shadow-card space-y-4">
-						<div className="flex items-center justify-between border-b border-subtle pb-3">
-							<h2 className="text-sm font-semibold text-ink">
-								Authoritative Audit Trail
-							</h2>
-							<span className="text-xs font-mono font-semibold text-ink-3">
-								v{trade?.version ?? 1}
+						<div className="mt-5 flex gap-3 rounded-lg bg-subtle px-4 py-3 text-xs leading-relaxed text-ink-2">
+							<ShieldCheck size={16} className="mt-0.5 shrink-0 text-accent" />
+							<span>
+								The seller&apos;s USDC was locked in escrow before this order opened. It&apos;s released to you only
+								after your payment is verified.
 							</span>
 						</div>
+					</section>
 
-						<div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
-							{loading ? (
-								<div className="text-xs text-ink-3 py-8 text-center">
-									Loading trade lifecycle history...
-								</div>
-							) : auditEvents.length === 0 ? (
-								<div className="text-xs text-ink-3 py-8 text-center">
-									No state transitions recorded yet for Order #{tradeId}.
-								</div>
-							) : (
-								auditEvents.map((ev) => (
-									<div
-										key={ev.id}
-										className="p-3 rounded-xl border border-subtle bg-surface space-y-1 text-xs"
-									>
-										<div className="flex items-center justify-between">
-											<span className="font-mono font-semibold text-ink text-xs">
-												{ev.eventType}
-											</span>
-											<span className="text-[11px] text-ink-3 uppercase font-semibold">
-												{ev.actorRole}
-											</span>
-										</div>
-										<div className="text-xs text-ink-2">
-											{ev.previousState ? `${ev.previousState} -> ` : ""}
-											<span className="font-semibold text-ink">
-												{ev.newState}
-											</span>
-										</div>
-										<div className="text-[11px] text-ink-3 font-mono">
-											{new Date(ev.createdAt).toLocaleTimeString()}
-										</div>
-									</div>
-								))
-							)}
+					<section className="card p-6">
+						<div className="flex items-center justify-between">
+							<h2 className="text-[15px] font-semibold text-ink">Activity</h2>
+							<span className="text-xs text-ink-4">v{trade?.version ?? 1}</span>
 						</div>
-					</div>
-				</div>
+						{auditEvents.length === 0 ? (
+							<p className="mt-4 text-sm text-ink-3">No activity yet.</p>
+						) : (
+							<ol className="mt-4 max-h-[300px] space-y-4 overflow-y-auto pr-1">
+								{auditEvents.map((ev, i) => (
+									<li key={ev.id} className="relative flex gap-3 text-sm">
+										{i < auditEvents.length - 1 && (
+											<span className="absolute left-[5px] top-4 h-[calc(100%+4px)] w-px bg-line" />
+										)}
+										<span className="relative mt-1.5 h-[11px] w-[11px] shrink-0 rounded-full border-2 border-accent bg-white" />
+										<div className="min-w-0">
+											<div className="text-ink">
+												{ev.newState.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase())}
+											</div>
+											<div className="mt-0.5 text-xs text-ink-3">
+												{new Date(ev.createdAt).toLocaleTimeString()} · {ev.actorRole.toLowerCase()}
+											</div>
+										</div>
+									</li>
+								))}
+							</ol>
+						)}
+					</section>
+				</aside>
 			</div>
 		</div>
 	);

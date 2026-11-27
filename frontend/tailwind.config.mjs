@@ -12,8 +12,8 @@ const config = {
 	theme: {
 		extend: {
 			/*
-			 * Light glass theme on a soft green gradient. One neutral ink scale,
-			 * one green accent. Status colours use Tailwind's amber/red scales.
+			 * White canvas with a soft periwinkle wash. Navy ink scale, one
+			 * royal-blue accent. Status colours use Tailwind's amber/red scales.
 			 * Values live in app/globals.css so they can be tuned in one place.
 			 */
 			colors: {
@@ -44,15 +44,15 @@ const config = {
 				mono: ["var(--font-mono)", '"JetBrains Mono"', "ui-monospace", "SFMono-Regular", "monospace"],
 			},
 			boxShadow: {
-				card: "0 1px 2px rgba(16, 48, 33, 0.04), 0 10px 28px -16px rgba(16, 64, 42, 0.16)",
-				pop: "0 2px 6px rgba(16, 48, 33, 0.05), 0 24px 56px -24px rgba(16, 64, 42, 0.3)",
-				glow: "inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 10px 26px -8px rgba(14, 122, 75, 0.55)",
+				card: "0 1px 2px rgba(22, 28, 56, 0.04), 0 12px 32px -18px rgba(22, 28, 56, 0.14)",
+				pop: "0 2px 8px rgba(22, 28, 56, 0.06), 0 28px 60px -28px rgba(47, 64, 150, 0.22)",
+				glow: "inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 10px 26px -8px rgba(47, 64, 150, 0.55)",
 			},
 			borderRadius: {
-				card: "16px",
+				card: "14px",
 			},
 			backgroundImage: {
-				grid: "linear-gradient(to right, rgb(14 122 75 / 0.06) 1px, transparent 1px), linear-gradient(to bottom, rgb(14 122 75 / 0.06) 1px, transparent 1px)",
+				grid: "linear-gradient(to right, rgb(47 64 150 / 0.06) 1px, transparent 1px), linear-gradient(to bottom, rgb(47 64 150 / 0.06) 1px, transparent 1px)",
 			},
 			keyframes: {
 				shimmer: {

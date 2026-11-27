@@ -46,7 +46,7 @@ function RateBadge() {
 	const { rate, rateData } = useMonierateRate();
 	if (!rate) return null;
 	return (
-		<div className="hidden items-center gap-2 rounded-full px-3 py-1.5 text-xs text-ink-3 xl:flex">
+		<div className="hidden items-center gap-1.5 border-l border-line pl-4 text-xs text-ink-3 xl:flex">
 			<span className="font-mono tabular text-ink-2">
 				₦{rate.toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
 			</span>
@@ -256,7 +256,7 @@ function WalletButton({
 				<button
 					onClick={() => void handleConnect()}
 					disabled={busy}
-					className={cn("btn-primary rounded-full px-4", inMenu ? "h-10 w-full" : "h-9")}
+					className={cn("btn-primary px-4", inMenu ? "h-10 w-full" : "h-9")}
 				>
 					{busy ? <Loader2 size={15} className="animate-spin" /> : <Wallet size={15} strokeWidth={1.75} />}
 					{busy ? "Connecting…" : "Connect wallet"}
@@ -277,7 +277,7 @@ function WalletButton({
 						<button
 							onClick={() => void handleWrongChainSwitch()}
 							disabled={busy}
-							className={cn("btn h-9 rounded-full border border-amber-300 bg-amber-50 px-3.5 text-amber-800 hover:bg-amber-100", inMenu && "h-10 w-full")}
+							className={cn("btn h-9 border border-amber-300 bg-amber-50 px-3.5 text-amber-800 hover:bg-amber-100", inMenu && "h-10 w-full")}
 						>
 							{busy ? <Loader2 size={15} className="animate-spin" /> : <AlertTriangle size={15} strokeWidth={1.75} />}
 							{busy ? "Switching…" : "Switch to Arc"}
@@ -286,7 +286,7 @@ function WalletButton({
 						<button
 							onClick={() => void authenticate(address)}
 							disabled={busy}
-							className={cn("btn-primary rounded-full px-4", inMenu ? "h-10 w-full" : "h-9")}
+							className={cn("btn-primary px-4", inMenu ? "h-10 w-full" : "h-9")}
 						>
 							{busy ? <Loader2 size={15} className="animate-spin" /> : <PenLine size={15} strokeWidth={1.75} />}
 							{busy ? "Check wallet…" : "Sign in"}
@@ -361,7 +361,7 @@ function WalletButton({
 		<div className="relative" ref={ref}>
 			<button
 				onClick={() => setOpen((v) => !v)}
-				className={cn("btn-secondary h-9 gap-2 rounded-full px-3", open && "bg-subtle")}
+				className={cn("btn-secondary h-9 gap-2 px-3", open && "bg-subtle")}
 				aria-haspopup="true"
 				aria-expanded={open}
 			>
@@ -371,7 +371,7 @@ function WalletButton({
 			</button>
 
 			{open && (
-				<div className="dropdown-enter absolute right-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-card border border-white bg-white/95 shadow-pop backdrop-blur-xl">
+				<div className="dropdown-enter absolute right-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-card border border-line bg-white shadow-pop">
 					{accountPanel}
 				</div>
 			)}
@@ -410,7 +410,7 @@ function MobileNavButton({
 		<div className="relative md:hidden" ref={ref}>
 			<button
 				onClick={() => setOpen((v) => !v)}
-				className="btn-secondary h-9 w-9 rounded-full px-0"
+				className="btn-ghost h-9 w-9 px-0"
 				aria-haspopup="true"
 				aria-expanded={open}
 				aria-label="Toggle navigation menu"
@@ -420,7 +420,7 @@ function MobileNavButton({
 			{/* Kept mounted while closed so the wallet's session sync keeps running. */}
 			<div
 				className={cn(
-					"absolute right-0 top-full z-50 mt-3 w-[min(18rem,calc(100vw-1.5rem))] rounded-card border border-white bg-white/95 p-1.5 shadow-pop backdrop-blur-xl",
+					"absolute right-0 top-full z-50 mt-3 w-[min(18rem,calc(100vw-1.5rem))] rounded-card border border-line bg-white p-1.5 shadow-pop",
 					open ? "dropdown-enter" : "hidden",
 				)}
 			>
@@ -449,18 +449,18 @@ function NavLink({ label, active, source }: { label: string; active: boolean; so
 			href={source}
 			aria-current={active ? "page" : undefined}
 			className={cn(
-				"relative rounded-full px-3.5 py-1.5 text-sm transition-colors",
-				active ? "text-ink" : "text-ink-3 hover:text-ink",
+				"relative px-3 py-2 text-[13px] font-medium transition-colors",
+				active ? "text-ink" : "text-ink-2 hover:text-ink",
 			)}
 		>
+			{label}
 			{active && (
 				<motion.span
 					layoutId="nav-active"
-					className="absolute inset-0 rounded-full bg-white shadow-card"
+					className="absolute inset-x-3 -bottom-[13px] h-[2px] rounded-full bg-accent"
 					transition={{ type: "spring", stiffness: 420, damping: 34 }}
 				/>
 			)}
-			<span className="relative">{label}</span>
 		</Link>
 	);
 }
@@ -474,6 +474,7 @@ export default function GlobalNav() {
 		if (path.startsWith("/dashboard")) return "dashboard";
 		if (path.startsWith("/trade") || path.startsWith("/bank-checkout")) return "trade";
 		if (path.startsWith("/dev")) return "dev";
+		if (path.startsWith("/docs")) return "docs";
 		return path === "/" ? "home" : null;
 	};
 
@@ -483,14 +484,15 @@ export default function GlobalNav() {
 		{ label: "Home", view: "home", source: "/" },
 		{ label: "Trade", view: "trade", source: "/trade" },
 		{ label: "Dashboard", view: "dashboard", source: "/dashboard" },
+		{ label: "Docs", view: "docs", source: "/docs" },
 	];
 
 	return (
-		<header className="sticky top-0 z-50 px-3 pt-3 sm:px-5">
-			<div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-4 rounded-2xl border border-white/80 bg-white/60 gap-3 pl-4 pr-2.5 shadow-card backdrop-blur-xl sm:pl-5">
+		<header className="sticky top-0 z-50 border-b border-transparent bg-white/80 backdrop-blur-md supports-[backdrop-filter]:bg-white/70">
+			<div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-6">
 				<div className="flex min-w-0 items-center gap-3 sm:gap-5">
-					<Link href="/" className="font-display text-[16px] font-semibold tracking-tight text-ink">
-						Peer<span className="text-accent">Notary</span>
+					<Link href="/" className="font-display text-[17px] font-bold tracking-tight text-ink">
+						PeerNotary
 					</Link>
 					{IS_TESTNET && (
 						<span
@@ -505,12 +507,12 @@ export default function GlobalNav() {
 						</span>
 					)}
 				</div>
-				<nav className="hidden items-center gap-1 rounded-full p-1 md:flex">
-					{navLinks.map(({ label, view, source }) => (
-						<NavLink key={view} source={source} label={label} active={currentView === view} />
-					))}
-				</nav>
-				<div className="flex items-center gap-3">
+				<div className="flex items-center gap-3 lg:gap-5">
+					<nav className="hidden items-center gap-1 md:flex">
+						{navLinks.map(({ label, view, source }) => (
+							<NavLink key={view} source={source} label={label} active={currentView === view} />
+						))}
+					</nav>
 					<RateBadge />
 					<MobileNavButton
 						currentView={currentView}

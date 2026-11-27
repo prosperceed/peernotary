@@ -74,7 +74,7 @@ export function MetricCard({
 	value,
 	sub,
 	icon,
-	accent = "#0e7a4b",
+	accent = "#2f4096",
 	trend,
 }: MetricCardProps) {
 	return (
@@ -164,7 +164,7 @@ interface SparkLineProps {
 
 export function SparkLine({
 	data,
-	color = "#0e7a4b",
+	color = "#2f4096",
 	height = 60,
 }: SparkLineProps) {
 	const max = Math.max(...data);
@@ -222,7 +222,7 @@ export function CountdownRing({ seconds, total = 300 }: CountdownRingProps) {
 	const progress = seconds / total;
 	const offset = circ * (1 - progress);
 	const color =
-		progress > 0.5 ? "#0e7a4b" : progress > 0.25 ? "#F59E0B" : "#EF4444";
+		progress > 0.5 ? "#2f4096" : progress > 0.25 ? "#F59E0B" : "#EF4444";
 	const mins = Math.floor(seconds / 60);
 	const secs = String(seconds % 60).padStart(2, "0");
 

@@ -43,19 +43,19 @@ export function DashboardHeader({
 				{username ? (
 					<button
 						onClick={() => setShowDossier(!showDossier)}
-						className={cn("btn-secondary h-10 rounded-full px-4 font-mono text-xs", showDossier && "border-accent/40 bg-accent/10")}
+						className={cn("btn-secondary h-10 px-4 font-mono text-xs", showDossier && "border-accent/40 bg-accent/10")}
 						title="Merchant dossier"
 					>
 						<AtSign size={14} />
 						{username}
 					</button>
 				) : (
-					<button onClick={onOpenUsernameModal} className="btn-secondary h-10 rounded-full px-4 text-xs">
+					<button onClick={onOpenUsernameModal} className="btn-secondary h-10 px-4 text-xs">
 						<AtSign size={14} />
 						Set username
 					</button>
 				)}
-				<button onClick={onOpenPostOffer} className="btn-primary h-10 rounded-full px-4 text-xs shadow-glow">
+				<button onClick={onOpenPostOffer} className="btn-primary h-10 px-4 text-xs">
 					<Plus size={15} />
 					Post offer
 				</button>

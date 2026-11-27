@@ -120,7 +120,7 @@ function Ring({ pct }: { pct: number }) {
 	const r = 34;
 	return (
 		<svg viewBox="0 0 80 80" className="h-24 w-24 -rotate-90">
-			<circle cx="40" cy="40" r={r} fill="none" stroke="rgb(14 122 75 / 0.1)" strokeWidth="7" />
+			<circle cx="40" cy="40" r={r} fill="none" stroke="rgb(47 64 150 / 0.1)" strokeWidth="7" />
 			<motion.circle
 				cx="40"
 				cy="40"
@@ -135,8 +135,8 @@ function Ring({ pct }: { pct: number }) {
 			/>
 			<defs>
 				<linearGradient id="ring-grad" x1="0" y1="0" x2="1" y2="1">
-					<stop offset="0" stopColor="#2fb177" />
-					<stop offset="1" stopColor="#0a5c39" />
+					<stop offset="0" stopColor="#6b7cc9" />
+					<stop offset="1" stopColor="#1f2a6b" />
 				</linearGradient>
 			</defs>
 		</svg>
@@ -207,7 +207,7 @@ export function OverviewTab({
 							icon={<Inbox size={18} />}
 							text="No orders yet. Buy from a funded offer, or lock USDC and post your own."
 							cta={
-								<button onClick={onPostOffer} className="btn-secondary h-9 rounded-full px-4 text-xs">
+								<button onClick={onPostOffer} className="btn-secondary h-9 px-4 text-xs">
 									<Plus size={14} />
 									Post an offer
 								</button>
@@ -260,19 +260,19 @@ export function OverviewTab({
 												{chip.label}
 											</span>
 											{canPay ? (
-												<Link href={checkoutHref(tx)} className="btn-primary h-8 rounded-full px-3.5 text-xs">
+												<Link href={checkoutHref(tx)} className="btn-primary h-8 px-3.5 text-xs">
 													Pay
 												</Link>
 											) : canRelease ? (
 												<button
 													onClick={() => onReleaseEscrow(tx)}
 													disabled={releasingTradeId === tx.tradeId}
-													className="btn-primary h-8 rounded-full px-3.5 text-xs"
+													className="btn-primary h-8 px-3.5 text-xs"
 												>
 													{releasingTradeId === tx.tradeId ? "Releasing…" : "Release"}
 												</button>
 											) : (
-												<Link href={checkoutHref(tx)} className="btn-ghost h-8 rounded-full px-3 text-xs">
+												<Link href={checkoutHref(tx)} className="btn-ghost h-8 px-3 text-xs">
 													View
 												</Link>
 											)}
@@ -357,7 +357,7 @@ export function OverviewTab({
 					className="lg:col-span-7"
 					delay={0.2}
 					action={
-						<button onClick={onPostOffer} className="btn-secondary h-8 rounded-full px-3 text-xs">
+						<button onClick={onPostOffer} className="btn-secondary h-8 px-3 text-xs">
 							<Plus size={13} />
 							New offer
 						</button>

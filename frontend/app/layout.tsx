@@ -15,9 +15,12 @@ const jakarta = Plus_Jakarta_Sans({
 const mono = JetBrains_Mono({ subsets: ["latin"], weight: ["400", "500"], variable: "--font-mono", display: "swap" });
 
 export const metadata: Metadata = {
-	title: "PeerNotary · P2P As-a-Service",
+	title: {
+		default: "PeerNotary · USDC to fiat, settled on proof",
+		template: "%s · PeerNotary",
+	},
 	description:
-		"P2P Crypto-to-Fiat platform. Embedded secure escrow, and trade with ZK-proof verification on Arc Network.",
+		"Peer-to-peer USDC and fiat trading. The seller's USDC is held in escrow on Arc and released only when the buyer's bank payment is proven.",
 };
 
 export default function RootLayout({

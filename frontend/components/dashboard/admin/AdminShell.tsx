@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Activity, Bell, ChevronRight, CircleUserRound, LayoutDashboard, Network, Search, ShieldAlert, Users, CalendarDays } from "lucide-react";
+import { Activity, ChevronRight, CircleUserRound, LayoutDashboard, Network, Search, ShieldAlert, Users, CalendarDays } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
 import { useAccount } from "wagmi";
@@ -40,28 +40,26 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
 	return (
 		<div className="min-h-screen text-ink">
 			<div className="mx-auto flex min-h-screen max-w-[1600px]">
-				<aside className="sticky top-0 hidden h-screen w-64 shrink-0 border-r border-white/70 bg-white/55 px-4 py-7 backdrop-blur-xl lg:flex lg:flex-col">
+				<aside className="sticky top-0 hidden h-screen w-64 shrink-0 border-r border-line bg-white px-4 py-7 lg:flex lg:flex-col">
 					<div className="px-3">
-						
-						<div><p className="text-sm font-semibold tracking-tight">PeerNotary</p><p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-3">Developer control</p></div>
+						<p className="font-display text-[15px] font-bold text-ink">PeerNotary</p>
+						<p className="mt-0.5 text-xs text-ink-3">Admin console</p>
 					</div>
-					<nav className="mt-12 space-y-1.5">
-						<p className="mb-3 px-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-4">Workspace</p>
+					<nav className="mt-10 space-y-0.5">
+						<p className="kicker mb-3 px-3 text-ink-4">Workspace</p>
 						{navigation.map(({ href, label, icon: Icon }) => {
 							const active = href === "/dev" ? pathname === href : pathname.startsWith(href);
-							return <Link key={href} href={href} className={cn("relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors", active ? "text-ink" : "text-ink-3 hover:bg-subtle hover:text-ink")}>{active && <motion.span layoutId="admin-active" className="absolute inset-0 rounded-xl border border-accent/30 bg-gradient-to-r from-accent/25 to-accent/5" transition={{ type: "spring", stiffness: 420, damping: 34 }} />}<Icon size={17} className={cn("relative", active && "text-accent-ink")} /><span className="relative">{label}</span>{active && <ChevronRight className="relative ml-auto text-accent-ink" size={14} />}</Link>;
+							return <Link key={href} href={href} className={cn("relative flex h-10 items-center gap-3 rounded-lg px-3 text-sm transition-colors", active ? "font-medium text-accent" : "text-ink-2 hover:bg-subtle hover:text-ink")}>{active && <motion.span layoutId="admin-active" className="absolute inset-0 rounded-lg bg-accent-soft before:absolute before:inset-y-2 before:left-0 before:w-[3px] before:rounded-full before:bg-accent" transition={{ type: "spring", stiffness: 420, damping: 34 }} />}<Icon size={17} className={cn("relative", active ? "text-accent" : "text-ink-3")} /><span className="relative">{label}</span></Link>;
 			})}
 					</nav>
-					<div className="mt-auto rounded-xl border border-line bg-subtle/60 p-4"><div className="flex items-center gap-2 text-xs font-semibold text-mint"><span className="net-dot h-1.5 w-1.5 animate-pulse rounded-full" />Systems nominal</div><p className="mt-2 text-xs leading-5 text-ink-3">Control access is restricted to configured administrator wallets.</p></div>
+					<div className="mt-auto rounded-lg border border-line bg-subtle/60 p-4"><p className="text-xs leading-5 text-ink-3">Only configured administrator wallets can open this console.</p><Link href="/dev/diagnostics" className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline">Check system health<ChevronRight size={12} /></Link></div>
 				</aside>
 				<main className="relative min-w-0 flex-1 overflow-hidden px-4 py-5 sm:px-7 lg:px-10 lg:py-7">
-					<div className="pointer-events-none absolute -right-28 top-20 h-72 w-72 rounded-full bg-accent/10 blur-3xl" />
-					<div className="pointer-events-none absolute -bottom-32 left-1/3 h-80 w-80 rounded-full bg-accent-soft/20 blur-3xl" />
-					<div className="mb-8 flex items-center justify-between gap-4 lg:hidden"><div className="flex items-center gap-2"><span className="text-sm font-semibold">Control center</span></div><CircleUserRound size={18} className="text-ink-3" /></div>
+					<div className="mb-8 flex items-center justify-between gap-4 lg:hidden"><div className="flex items-center gap-2"><span className="text-sm font-semibold">Admin console</span></div><CircleUserRound size={18} className="text-ink-3" /></div>
 					<div className="relative z-10 mx-auto max-w-7xl">
 						<header className="mb-8 hidden items-center justify-between gap-5 lg:flex">
-							<div><p className="text-[13px] font-medium text-ink-2">Hi {identity},</p><h1 className="mt-1 text-[26px] font-semibold text-ink">Control center</h1></div>
-							<div className="flex items-center gap-3"><div className="flex h-10 items-center gap-2 rounded-full border border-line bg-subtle px-3 text-xs text-ink-2"><CalendarDays size={15} className="text-accent" /><span>{today}</span></div><div className="relative"><div className="flex h-10 w-56 items-center gap-2 rounded-full border border-line bg-subtle px-3 text-xs text-ink-2 focus-within:border-accent/50 focus-within:ring-2 focus-within:ring-accent/10"><Search size={15} className="shrink-0 text-ink-4" /><input aria-label="Search dashboard" value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && searchResults[0]) goToSearchResult(searchResults[0].href); if (event.key === "Escape") setSearch(""); }} placeholder="Search dashboard" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-ink-4" /></div>{search.trim() && <div className="absolute right-0 top-12 z-50 w-72 overflow-hidden rounded-xl border border-line bg-surface/95 p-1.5 backdrop-blur-xl shadow-card">{searchResults.length > 0 ? searchResults.map(({ href, label, icon: Icon }) => <Link key={href} href={href} onClick={() => setSearch("")} className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-xs font-semibold text-ink-2 hover:bg-subtle hover:text-ink"><Icon size={15} className="text-accent" />{label}<ChevronRight size={13} className="ml-auto text-ink-4" /></Link>) : <p className="px-3 py-2.5 text-xs text-ink-3">No dashboard section found.</p>}</div>}</div><button aria-label="Notifications" className="relative flex h-10 w-10 items-center justify-center rounded-full border border-line bg-subtle text-ink-2 hover:bg-subtle"><Bell size={16} /><span className="absolute right-2.5 top-2 h-1.5 w-1.5 rounded-full bg-accent" /></button><div className="flex items-center gap-2 border-l border-line pl-3"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[#2fb177] to-accent text-xs font-semibold text-white">{address ? address.slice(2, 4).toUpperCase() : "AD"}</div><div className="hidden xl:block"><p className="text-xs font-semibold text-ink">{identity}</p><p className="text-[11px] text-ink-3">Super administrator</p></div></div></div>
+							<div><p className="text-[13px] text-ink-3">Signed in as {identity}</p><h1 className="mt-1 text-2xl font-bold text-ink">Admin console</h1></div>
+							<div className="flex items-center gap-3"><div className="flex h-10 items-center gap-2 rounded-md border border-line bg-white px-3 text-xs text-ink-2"><CalendarDays size={15} className="text-ink-3" /><span>{today}</span></div><div className="relative"><div className="flex h-10 w-56 items-center gap-2 rounded-md border border-line bg-white px-3 text-xs text-ink-2 focus-within:border-accent/50 focus-within:ring-2 focus-within:ring-accent/10"><Search size={15} className="shrink-0 text-ink-4" /><input aria-label="Search dashboard" value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && searchResults[0]) goToSearchResult(searchResults[0].href); if (event.key === "Escape") setSearch(""); }} placeholder="Search dashboard" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-ink-4" /></div>{search.trim() && <div className="absolute right-0 top-12 z-50 w-72 overflow-hidden rounded-lg border border-line bg-white p-1.5 shadow-pop">{searchResults.length > 0 ? searchResults.map(({ href, label, icon: Icon }) => <Link key={href} href={href} onClick={() => setSearch("")} className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-xs font-semibold text-ink-2 hover:bg-subtle hover:text-ink"><Icon size={15} className="text-accent" />{label}<ChevronRight size={13} className="ml-auto text-ink-4" /></Link>) : <p className="px-3 py-2.5 text-xs text-ink-3">No dashboard section found.</p>}</div>}</div><div className="flex items-center gap-2 border-l border-line pl-3"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#1a2148] text-xs font-semibold text-white">{address ? address.slice(2, 4).toUpperCase() : "AD"}</div><div className="hidden xl:block"><p className="text-xs font-semibold text-ink">{identity}</p><p className="text-[11px] text-ink-3">Super administrator</p></div></div></div>
 						</header>
 						{children}
 					</div>

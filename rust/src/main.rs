@@ -45,6 +45,27 @@ async fn main() {
                 )
                 .await;
             }
+
+            // Drive the web app's payment watcher: it asks the payment provider about
+            // every open payment, releases escrow only on provider-confirmed charges,
+            // marks failed ones and expires unpaid orders.
+            if let (Some(url), Some(secret)) = (
+                worker_state.config.payment_reconcile_url.as_ref(),
+                worker_state.config.payment_reconcile_secret.as_ref(),
+            ) {
+                match worker_state
+                    .http_client
+                    .post(url)
+                    .bearer_auth(secret)
+                    .timeout(std::time::Duration::from_secs(60))
+                    .send()
+                    .await
+                {
+                    Ok(res) if res.status().is_success() => {}
+                    Ok(res) => tracing::warn!(status = %res.status(), "payment watcher call rejected"),
+                    Err(err) => tracing::warn!(error = %err, "payment watcher call failed"),
+                }
+            }
         }
     });
 

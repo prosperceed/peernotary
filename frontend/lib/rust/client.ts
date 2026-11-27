@@ -283,7 +283,7 @@ export class RustApiClient {
 				walletAddress,
 				body: {
 					presentation_bincode_hex: req.presentation_bincode_hex ?? null,
-					payment_status: req.payment_status ?? "completed",
+					payment_status: null,
 				},
 				timeoutMs: 30_000, // Presentation verification can take several seconds
 			},

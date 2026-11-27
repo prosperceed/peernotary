@@ -651,112 +651,45 @@ export default function UserDashboard() {
 		}
 	};
 
+	/**
+	 * Asks the server to check this order's payment with Flutterwave. The server
+	 * releases the USDC only if Flutterwave confirms the charge; nothing sent from
+	 * here can mark a payment as paid.
+	 */
 	const handleVerifyAndRelease = async (trade: UserTransaction) => {
 		const { tradeId } = trade;
 		setVerifyingTradeId(tradeId);
 		setActionFeedback(null);
 		try {
-			const cleanNgn =
-				Number(trade.ngnAmount.replace(/[^0-9]/g, "")) ||
-				Math.round(parseNumericUsdc(trade.usdcAmount) * activeRate);
-
-			const sessionRes = await fetch(`/api/tlsn/trades/${tradeId}/verify`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					action: "create_session",
-					bankName: trade.bankName,
-					amountUnits: cleanNgn,
-					expectedAmountNgn: cleanNgn,
-					currency: "NGN",
-					expectedCurrency: "NGN",
-					expectedAccountNo: trade.sellerAccountNumber || "",
-					cryptoAmountUsdc: trade.usdcAmount,
-				}),
-			});
-
-			const sessionData = (await sessionRes.json()) as {
-				error?: string;
-				session?: { session_id: string };
-				sessionId?: string;
-			};
-			const activeSessionId =
-				sessionData.session?.session_id ?? sessionData.sessionId;
-			if (!sessionRes.ok || !activeSessionId) {
-				throw new Error(
-					sessionData.error || "Failed to initialize TLSNotary session.",
-				);
+			if (!trade.txRef) {
+				throw new Error("The buyer hasn't started a payment for this order yet.");
 			}
-
-			const execRes = await fetch(`/api/tlsn/trades/${tradeId}/verify`, {
+			const res = await fetch("/api/payments/flutterwave/verify", {
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					action: "execute_proof",
-					sessionId: activeSessionId,
-					bankName: trade.bankName,
-					amountNgn: cleanNgn,
-					recipientAccount: trade.sellerAccountNumber || "",
-					paymentReference: `NIP-${trade.bankName.replace(/\s+/g, "").toUpperCase()}-${tradeId}`,
-					paymentStatus: "completed",
-					cryptoAmountUsdc: trade.usdcAmount,
-				}),
-			});
-
-			const execData = (await execRes.json()) as {
-				error?: string;
-				verified?: boolean;
-				authorizedForRelease?: boolean;
-				proofSummary?: {
-					verified: boolean;
-					on_chain_proof_id_bytes32: string;
-					failure_reasons?: string[];
-				};
-			};
-
-			const isVerified =
-				execData.verified ||
-				execData.authorizedForRelease ||
-				execData.proofSummary?.verified ||
-				false;
-
-			if (!execRes.ok || !isVerified) {
-				throw new Error(
-					execData.proofSummary?.failure_reasons?.join(", ") ||
-						execData.error ||
-						"TLSNotary cryptographic verification failed.",
-				);
-			}
-
-			// Seller signs the release directly when possible; otherwise the server
-			// oracle settles on Arc (partial fills / oracle-verified payments).
-			const txHash = (await escrow.releaseIfSellerCan(tradeId)) ?? undefined;
-
-			const releaseRes = await fetch(
-				`/api/trades/${encodeURIComponent(tradeId)}/lifecycle`,
-				{
-					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-						...(address ? { "x-wallet-address": address } : {}),
-					},
-					body: JSON.stringify({
-						operation: "escrow_confirm_on_chain",
-						txHash: txHash || undefined,
-					}),
+				headers: {
+					"Content-Type": "application/json",
+					...(address ? { "x-wallet-address": address } : {}),
 				},
-			);
-
-			if (!releaseRes.ok) {
-				const relData = (await releaseRes.json().catch(() => ({}))) as {
-					error?: string;
-				};
-				throw new Error(relData.error || "Failed to confirm release on server.");
+				body: JSON.stringify({ tradeId, txRef: trade.txRef }),
+			});
+			const data = (await res.json().catch(() => ({}))) as {
+				error?: string;
+				trade?: { lifecycleState?: string };
+			};
+			if (!res.ok) {
+				const code = data.error ?? "";
+				throw new Error(
+					code.includes("PAYMENT_NOT_CONFIRMED")
+						? "Flutterwave hasn't confirmed a payment for this order yet. USDC stays locked until it does."
+						: code || "Couldn't check this payment right now.",
+				);
 			}
-
 			setActionFeedback({
 				type: "success",
-				text: `Payment verified via TLSNotary. Arc Escrow released ${trade.usdcAmount} USDC on-chain.`,
+				text:
+					data.trade?.lifecycleState === "COMPLETED"
+						? `Payment confirmed by Flutterwave. ${trade.usdcAmount} USDC released to the buyer.`
+						: "Payment confirmed by Flutterwave. The release is being processed.",
 			});
 			await refetchNative();
 			await refetchErc20();
@@ -765,10 +698,7 @@ export default function UserDashboard() {
 		} catch (err) {
 			setActionFeedback({
 				type: "error",
-				text: formatUserFriendlyWalletError(
-					err,
-					"Verification or on-chain escrow release failed.",
-				),
+				text: err instanceof Error ? err.message : "Couldn't check this payment right now.",
 			});
 		} finally {
 			setVerifyingTradeId(null);

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { keccak256, toUtf8Bytes } from "ethers";
 import { verificationStore } from "@/lib/tlsn/verificationStore";
-import { oracleRelease } from "@/lib/oracle/escrow";
-import { completePeerTrade } from "@/lib/trades/tradeStore";
+import { getOrHydrateSharedTrade, getProviderConfirmedPayment } from "@/lib/trades/tradeStore";
+import { settleAndReleaseEscrowAfterPaymentConfirmed } from "@/lib/payments/flutterwaveServer";
 import {
 	validateTlsnPayload,
 	type TlsnWebhookPayload,
@@ -95,32 +95,39 @@ export async function POST(request: NextRequest) {
 		);
 		record.updatedAt = new Date();
 
-		try {
-			const transaction = await oracleRelease(BigInt(record.tradeId), proofId);
-			record.status = "completed";
-			record.oracleTransactionHash = transaction.transactionHash;
-			record.updatedAt = new Date();
-			completePeerTrade(record.tradeId, {
-				proofId,
-				txHash: transaction.transactionHash,
-			});
-
-			return NextResponse.json({
-				received: true,
-				status: "completed",
-				proofId,
-				transactionHash: transaction.transactionHash,
-			});
-		} catch {
-			// When the trade is a testnet session not yet funded on-chain, mark proof verified
+		// The notary's webhook is evidence, not authority: USDC moves only when
+		// the payment provider has confirmed this order's payment.
+		await getOrHydrateSharedTrade(record.tradeId);
+		const confirmed = getProviderConfirmedPayment(record.tradeId);
+		if (!confirmed) {
 			record.status = "verified";
 			record.updatedAt = new Date();
+			return NextResponse.json(
+				{ received: true, status: "awaiting_provider_confirmation", proofId, transactionHash: null },
+				{ status: 202 },
+			);
+		}
+
+		try {
+			const settled = await settleAndReleaseEscrowAfterPaymentConfirmed({
+				tradeId: record.tradeId,
+				txRef: confirmed.txRef,
+				flwTxId: confirmed.flwTxId ?? 0,
+			});
+			record.status = settled.txHash ? "completed" : "verified";
+			record.oracleTransactionHash = settled.txHash;
+			record.updatedAt = new Date();
 			return NextResponse.json({
 				received: true,
-				status: "verified",
+				status: record.status,
 				proofId,
-				transactionHash: null,
+				transactionHash: settled.txHash ?? null,
 			});
+		} catch (err) {
+			record.status = "verified";
+			record.updatedAt = new Date();
+			console.error("TLSN webhook settlement failed:", err instanceof Error ? err.message : err);
+			return NextResponse.json({ received: true, status: "verified", proofId, transactionHash: null });
 		}
 	} catch (error) {
 		console.error(

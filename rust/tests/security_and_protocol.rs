@@ -37,6 +37,9 @@ fn test_config() -> AppConfig {
         max_proof_bytes: 512 * 1024,
         session_ttl_secs: 900,
         max_transcript_age_secs: 3600,
+        allow_synthetic_proofs: false,
+        payment_reconcile_url: None,
+        payment_reconcile_secret: None,
     }
 }
 
@@ -620,4 +623,59 @@ fn test_ssrf_and_domain_policy_protections() {
     assert!(is_forbidden_ip("fe80::1".parse().unwrap()));
     assert!(is_forbidden_ip("fc00::1".parse().unwrap()));
     assert!(!is_forbidden_ip("93.184.216.34".parse().unwrap()));
+}
+
+/// Regression: executing a session with no notarised presentation used to sign a
+/// made-up "payment completed" transcript, so a caller could "prove" a payment
+/// that never happened. It must now be rejected, even when the caller claims
+/// the payment completed, and synthetic mode must stay off outside testnet.
+#[tokio::test]
+async fn test_execute_without_presentation_is_rejected() {
+    let cfg = test_config();
+    assert!(!cfg.allow_synthetic_proofs, "synthetic proofs must default to off");
+    let app = build_router(AppState::new(cfg.clone()));
+    let buyer_wallet = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
+
+    let create_req = json!({
+        "trade_id": "77",
+        "buyer_address": buyer_wallet,
+        "expected_amount_units": 1000000u128,
+        "expected_currency": "USDC",
+        "payment_reference": "REF-NO-PAYMENT",
+        "target_hostname": "tlsnotary.org"
+    });
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/sessions")
+                .header("Authorization", format!("Bearer {}", cfg.service_api_key))
+                .header("Content-Type", "application/json")
+                .body(Body::from(create_req.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let body_bytes = res.into_body().collect().await.unwrap().to_bytes();
+    let session: CreateSessionResponse = serde_json::from_slice(&body_bytes).unwrap();
+
+    let exec_res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/sessions/{}/execute", session.session_id))
+                .header("Authorization", format!("Bearer {}", cfg.service_api_key))
+                .header("Content-Type", "application/json")
+                .body(Body::from(json!({ "payment_status": "completed" }).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(exec_res.status(), StatusCode::BAD_REQUEST);
+    let body = exec_res.into_body().collect().await.unwrap().to_bytes();
+    let text = String::from_utf8_lossy(&body);
+    assert!(!text.contains("\"verified\":true"), "must not report a verified proof: {text}");
 }

@@ -6,7 +6,8 @@ import { getPaymentMode, getServerNetworkSecrets, type PaymentMode } from "@/lib
 import {
 	completePeerTrade,
 	createOrReuseCheckoutAttempt,
-	getPaymentAttemptByRef,
+	getOrHydratePaymentAttempt,
+	getProviderConfirmedPayment,
 	getSharedTrade,
 	persistPaymentAttemptToSupabase,
 	recordVerifiedFlutterwavePayment,
@@ -203,7 +204,7 @@ export async function verifyFlutterwaveTransactionServerSide(params: {
 	simulatedAmountMinor?: number;
 	simulatedCurrency?: string;
 }): Promise<ReturnType<typeof recordVerifiedFlutterwavePayment>> {
-	const attempt = getPaymentAttemptByRef(params.txRef);
+	const attempt = await getOrHydratePaymentAttempt(params.txRef);
 	if (!attempt) {
 		throw new Error("PAYMENT_ATTEMPT_NOT_FOUND");
 	}
@@ -300,6 +301,7 @@ export async function verifyFlutterwaveTransactionServerSide(params: {
 		amountMinor,
 		currency,
 		source: "verify_api",
+		simulated: true,
 	});
 
 	if (record.trade.paymentState === "CONFIRMED") {
@@ -328,6 +330,12 @@ export async function settleAndReleaseEscrowAfterPaymentConfirmed(params: {
 
 	if (trade.lifecycleState === "COMPLETED") {
 		return trade;
+	}
+
+	// Defence in depth: never move USDC unless the provider confirmed this payment.
+	const confirmed = getProviderConfirmedPayment(params.tradeId);
+	if (!confirmed || confirmed.txRef !== params.txRef) {
+		throw new Error("PAYMENT_NOT_CONFIRMED_BY_PROVIDER");
 	}
 
 	// 1. Transition seller fiat payout to processing and confirmed
@@ -381,4 +389,47 @@ export async function settleAndReleaseEscrowAfterPaymentConfirmed(params: {
 	});
 
 	return getSharedTrade(params.tradeId) || trade;
+}
+
+export type ProviderChargeStatus =
+	| { state: "successful"; flwTxId: number }
+	| { state: "failed"; reason: string }
+	| { state: "pending" }
+	| { state: "unknown" };
+
+/**
+ * Asks Flutterwave what happened to a checkout reference. Used by the payment
+ * watcher; it never changes state itself.
+ */
+export async function getFlutterwaveChargeStatus(txRef: string): Promise<ProviderChargeStatus> {
+	const secretKey = getFlwSecretKey();
+	if (!secretKey) return { state: "unknown" };
+	try {
+		const res = await fetch(
+			`${getFlwBaseUrl()}/transactions/verify_by_reference?tx_ref=${encodeURIComponent(txRef)}`,
+			{
+				headers: { Authorization: `Bearer ${secretKey}` },
+				cache: "no-store",
+				signal: AbortSignal.timeout(15_000),
+			},
+		);
+		const body = (await res.json().catch(() => ({}))) as {
+			status?: string;
+			message?: string;
+			data?: { id?: number; status?: string; tx_ref?: string; processor_response?: string };
+		};
+		if (!res.ok || body.status !== "success" || !body.data) {
+			// Flutterwave answers "No transaction was found for this id" until the buyer pays.
+			return { state: "pending" };
+		}
+		if (body.data.tx_ref && body.data.tx_ref !== txRef) return { state: "unknown" };
+		const status = (body.data.status ?? "").toLowerCase();
+		if (status === "successful" && body.data.id) return { state: "successful", flwTxId: body.data.id };
+		if (status === "failed" || status === "cancelled") {
+			return { state: "failed", reason: body.data.processor_response || status };
+		}
+		return { state: "pending" };
+	} catch {
+		return { state: "unknown" };
+	}
 }

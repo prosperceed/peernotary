@@ -1,14 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import {
-	parseDecimalToMinorUnits,
-	settleAndReleaseEscrowAfterPaymentConfirmed,
+	verifyFlutterwaveTransactionServerSide,
 	verifyFlutterwaveWebhookSignature,
 } from "@/lib/payments/flutterwaveServer";
-import {
-	getPaymentAttemptByRef,
-	recordVerifiedFlutterwavePayment,
-} from "@/lib/trades/tradeStore";
+import { getOrHydratePaymentAttempt, markPaymentAttemptFailed } from "@/lib/trades/tradeStore";
 
 export async function POST(request: NextRequest) {
 	try {
@@ -58,7 +54,7 @@ export async function POST(request: NextRequest) {
 				.update(`${payload.event ?? "charge.completed"}:${flwTxId}:${txRef}:${statusStr}`)
 				.digest("hex");
 
-		const attempt = getPaymentAttemptByRef(txRef);
+		const attempt = await getOrHydratePaymentAttempt(txRef);
 		if (!attempt) {
 			return NextResponse.json({
 				received: true,
@@ -66,6 +62,10 @@ export async function POST(request: NextRequest) {
 			});
 		}
 
+		if (statusStr === "failed" || statusStr === "cancelled") {
+			markPaymentAttemptFailed(txRef, `Provider reported the charge as ${statusStr}`);
+			return NextResponse.json({ received: true, eventId, processingStatus: "MARKED_FAILED" });
+		}
 		if (statusStr !== "successful") {
 			return NextResponse.json({
 				received: true,
@@ -74,27 +74,14 @@ export async function POST(request: NextRequest) {
 			});
 		}
 
-		const amountMinor = parseDecimalToMinorUnits(data.amount ?? 0);
-		const currency = (data.currency ?? "NGN").toUpperCase();
-
-		const { trade, deduplicated } = recordVerifiedFlutterwavePayment({
+		// The webhook is only a signal. Value is given after Flutterwave's own API
+		// confirms the charge (amount, currency, reference), as Flutterwave advises.
+		// This records the payment and releases the escrow; it is idempotent.
+		const { trade: finalTrade, deduplicated } = await verifyFlutterwaveTransactionServerSide({
 			tradeId: attempt.tradeId,
 			txRef,
-			flwTxId,
-			amountMinor,
-			currency,
-			source: "webhook",
-			eventId,
+			flwTransactionId: flwTxId || undefined,
 		});
-
-		let finalTrade = trade;
-		if (trade.paymentState === "CONFIRMED") {
-			finalTrade = await settleAndReleaseEscrowAfterPaymentConfirmed({
-				tradeId: attempt.tradeId,
-				txRef,
-				flwTxId,
-			});
-		}
 
 		return NextResponse.json({
 			received: true,
@@ -109,6 +96,8 @@ export async function POST(request: NextRequest) {
 	} catch (err) {
 		const message =
 			err instanceof Error ? err.message : "Webhook processing failed";
-		return NextResponse.json({ error: message }, { status: 422 });
+		// 5xx makes Flutterwave retry; the payment watcher also picks it up.
+		console.error("flutterwave webhook processing failed:", message);
+		return NextResponse.json({ error: message }, { status: 500 });
 	}
 }

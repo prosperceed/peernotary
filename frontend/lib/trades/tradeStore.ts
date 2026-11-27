@@ -44,6 +44,8 @@ export interface PaymentAttemptInfo {
 	failureReason?: string;
 	expiresAt: string;
 	verifiedAt?: string;
+	/** How the payment was confirmed. Only provider-backed values allow a release. */
+	verifiedVia?: "webhook" | "verify_api" | "simulated";
 	createdAt: string;
 }
 
@@ -1145,6 +1147,104 @@ export function getPaymentAttemptByRef(
 	return paymentAttemptsByRef.get(txRef);
 }
 
+/** Like getPaymentAttemptByRef, but reloads the attempt from Supabase after a restart. */
+export async function getOrHydratePaymentAttempt(
+	txRef: string,
+): Promise<PaymentAttemptInfo | undefined> {
+	const cached = paymentAttemptsByRef.get(txRef);
+	if (cached) return cached;
+	try {
+		const rows = await supabaseServerSelect<{
+			attempt_id: string;
+			trade_id: string;
+			buyer_address: string;
+			tx_ref: string;
+			expected_amount_minor: number;
+			expected_currency: string;
+			status: PaymentAttemptInfo["status"];
+			checkout_url: string | null;
+			flw_tx_id: number | null;
+			expires_at: string;
+			created_at?: string;
+		}>("payment_attempts", `tx_ref=eq.${encodeURIComponent(txRef)}&limit=1`);
+		const row = rows[0];
+		if (!row) return undefined;
+		const attempt: PaymentAttemptInfo = {
+			id: row.attempt_id,
+			tradeId: row.trade_id,
+			buyerAddress: row.buyer_address,
+			txRef: row.tx_ref,
+			flwTxId: row.flw_tx_id ?? undefined,
+			expectedAmountMinor: row.expected_amount_minor,
+			expectedCurrency: row.expected_currency,
+			checkoutUrl: row.checkout_url ?? "",
+			// A reloaded "VERIFIED" row has no settled amount or source in memory, so it
+			// is re-checked with the provider before it can authorise a release.
+			status: row.status === "VERIFIED" ? "PENDING_VERIFICATION" : row.status,
+			expiresAt: row.expires_at,
+			createdAt: row.created_at ?? new Date().toISOString(),
+		};
+		paymentAttemptsByRef.set(txRef, attempt);
+		return attempt;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * The single rule for releasing escrowed USDC to a buyer: the trade's active
+ * payment attempt must have been confirmed by the payment provider itself
+ * (Flutterwave verify API or a signed webhook), carry the provider's
+ * transaction id, and cover the full expected amount. Client claims, TLSNotary
+ * demo proofs and lifecycle flags never count. Late payments held for review
+ * do not qualify either.
+ */
+export function getProviderConfirmedPayment(tradeId: string): PaymentAttemptInfo | null {
+	const trade = sharedTradesMap.get(tradeId);
+	if (!trade?.activeTxRef) return null;
+	const attempt = paymentAttemptsByRef.get(trade.activeTxRef);
+	if (!attempt || attempt.tradeId !== tradeId) return null;
+	if (attempt.status !== "VERIFIED" || !attempt.flwTxId) return null;
+	if ((attempt.settledAmountMinor ?? 0) < attempt.expectedAmountMinor) return null;
+	if (attempt.verifiedVia === "webhook" || attempt.verifiedVia === "verify_api") return attempt;
+	if (attempt.verifiedVia === "simulated" && NETWORK.network !== "mainnet") return attempt;
+	return null;
+}
+
+/** Trades the payment watcher should look at: open payments and confirmed-but-unreleased ones. */
+export function listTradesForPaymentWatch(): SharedTrade[] {
+	const out: SharedTrade[] = [];
+	for (const trade of sharedTradesMap.values()) {
+		if (!trade.activeTxRef) continue;
+		if (trade.lifecycleState === "AWAITING_PAYMENT") out.push(trade);
+		else if (trade.lifecycleState !== "COMPLETED" && getProviderConfirmedPayment(trade.tradeId)) out.push(trade);
+	}
+	return out;
+}
+
+/**
+ * The provider reported this charge as failed or cancelled. The order stays
+ * open until its deadline so the buyer can try again with a fresh checkout.
+ */
+export function markPaymentAttemptFailed(txRef: string, reason: string): void {
+	const attempt = paymentAttemptsByRef.get(txRef);
+	if (!attempt || attempt.status === "VERIFIED" || attempt.status === "FAILED") return;
+	attempt.status = "FAILED";
+	attempt.failureReason = reason;
+	persistPaymentAttemptToSupabase(attempt);
+	const trade = sharedTradesMap.get(attempt.tradeId);
+	if (trade && trade.activeTxRef === txRef && trade.lifecycleState === "AWAITING_PAYMENT") {
+		trade.activeTxRef = undefined;
+		trade.paymentState = "UNPAID";
+		trade.version += 1;
+		appendAudit(trade, "system", "PAYMENT_FAILED_AT_PROVIDER", trade.lifecycleState, trade.lifecycleState, attempt.buyerAddress, {
+			txRef,
+			reason,
+		});
+		syncBothUserLedgers(trade);
+	}
+}
+
 export function getUserLedger(address: string): UserTransaction[] {
 	const key = address.toLowerCase();
 	const existing = userLedgerStore.get(key);
@@ -1800,6 +1900,8 @@ export function recordVerifiedFlutterwavePayment(params: {
 	amountMinor: number;
 	currency: string;
 	source: "webhook" | "verify_api";
+	/** Local-dev simulation only; never allowed on mainnet. */
+	simulated?: boolean;
 	eventId?: string;
 }): {
 	trade: SharedTrade;
@@ -1939,6 +2041,8 @@ export function recordVerifiedFlutterwavePayment(params: {
 	const prev = trade.lifecycleState;
 	attempt.status = "VERIFIED";
 	attempt.verifiedAt = now.toISOString();
+	attempt.verifiedVia = params.simulated ? "simulated" : params.source;
+	persistPaymentAttemptToSupabase(attempt);
 	trade.paymentState = "CONFIRMED";
 	trade.lifecycleState = "PAYMENT_CONFIRMED";
 	trade.escrowState = "FIAT_SENT";

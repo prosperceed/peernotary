@@ -15,13 +15,26 @@ pub struct AppConfig {
     pub max_proof_bytes: usize,
     pub session_ttl_secs: u64,
     pub max_transcript_age_secs: u64,
+    /// Local development only: lets /sessions/:id/execute synthesise a notarised
+    /// transcript when no real presentation is supplied. Forced off unless
+    /// ALLOW_SYNTHETIC_TLSN_PROOFS=true AND the chain is Arc Testnet.
+    pub allow_synthetic_proofs: bool,
+    /// Next.js payment watcher endpoint the reconciliation worker triggers each tick.
+    pub payment_reconcile_url: Option<String>,
+    pub payment_reconcile_secret: Option<String>,
 }
+
+/// Arc Testnet. Synthetic proofs are never allowed on any other chain.
+pub const ARC_TESTNET_CHAIN_ID: u64 = 5042002;
 
 impl Drop for AppConfig {
     fn drop(&mut self) {
         self.service_api_key.zeroize();
         self.webhook_secret.zeroize();
         self.notary_signing_key_hex.zeroize();
+        if let Some(secret) = self.payment_reconcile_secret.as_mut() {
+            secret.zeroize();
+        }
     }
 }
 
@@ -129,7 +142,7 @@ impl AppConfig {
         let expected_escrow_address = env::var("ARC_ESCROW_CONTRACT_ADDRESS")
             .or_else(|_| env::var("ESCROW_ADDRESS"))
             .or_else(|_| env::var("NEXT_PUBLIC_ESCROW_ADDRESS"))
-            .unwrap_or_else(|_| "0x5042f1114C6F272f5909f16510399986EF0D734D".to_string())
+            .unwrap_or_else(|_| "0xC51B83347f32451087196301c37455f4A9dA1114".to_string())
             .to_ascii_lowercase();
 
         if !is_valid_eth_address(&expected_escrow_address) {
@@ -156,6 +169,19 @@ impl AppConfig {
                 ConfigError::InvalidValue("MAX_TRANSCRIPT_AGE_SECS", "must be u64".into())
             })?;
 
+        let allow_synthetic_proofs = env::var("ALLOW_SYNTHETIC_TLSN_PROOFS")
+            .map(|v| v.trim().eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+            && expected_chain_id == ARC_TESTNET_CHAIN_ID;
+
+        let payment_reconcile_url = env::var("PAYMENT_RECONCILE_URL")
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| v.starts_with("https://") || v.starts_with("http://"));
+        let payment_reconcile_secret = env::var("PAYMENT_RECONCILE_SECRET")
+            .ok()
+            .filter(|v| !v.trim().is_empty());
+
         Ok(Self {
             bind_addr,
             service_api_key,
@@ -168,6 +194,9 @@ impl AppConfig {
             max_proof_bytes,
             session_ttl_secs,
             max_transcript_age_secs,
+            allow_synthetic_proofs,
+            payment_reconcile_url,
+            payment_reconcile_secret,
         })
     }
 

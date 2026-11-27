@@ -253,16 +253,17 @@ await fetch("/api/auth/verify", {
 								</>,
 							],
 							[
-								"Payment is verified",
+								"The provider confirms payment",
 								<>
-									Flutterwave&apos;s webhook confirms it automatically. You can also call{" "}
-									<code>POST /api/payments/flutterwave/verify</code> when the buyer returns.
+									Flutterwave&apos;s signed webhook, checked again against Flutterwave&apos;s API, confirms the
+									charge. The payment watcher also polls Flutterwave for every open payment, so nothing depends
+									on the buyer returning. Nothing a client sends can mark a payment as paid.
 								</>,
 							],
 							[
 								"Escrow releases",
 								<>
-									The oracle settles on-chain and the buyer receives USDC minus the fee. Poll{" "}
+									Only then does the oracle settle on-chain, and the buyer receives USDC minus the fee. Poll{" "}
 									<code>GET /api/trades/:tradeId/lifecycle</code> for <code>COMPLETED</code>.
 								</>,
 							],
@@ -390,10 +391,24 @@ const tradeId = args.tradeId.toString();`}
 						</Endpoint>
 						<Endpoint method="POST" path="/api/tlsn/webhook">
 							For a TLSNotary verifier. Send <code>Authorization: Bearer $TLSN_WEBHOOK_SECRET</code> and the{" "}
-							<code>sessionId</code> from <code>/api/tlsn/trades/:tradeId/verify</code>. Each proof can settle only
-							one trade.
+							<code>sessionId</code> from <code>/api/tlsn/trades/:tradeId/verify</code>. A proof is stored as
+							evidence; it never releases escrow on its own (returns <code>202</code> until the provider confirms
+							payment).
+						</Endpoint>
+						<Endpoint method="POST" path="/api/payments/reconcile" auth="Bearer secret">
+							Runs one payment-watcher pass: checks every open payment with Flutterwave, releases escrow on
+							confirmed charges, marks failed or cancelled ones, retries failed releases and expires unpaid orders.
+							Send <code>Authorization: Bearer $PAYMENT_RECONCILE_SECRET</code> (or <code>$CRON_SECRET</code>).
+							The Rust service calls it every <code>RECONCILIATION_INTERVAL_SECONDS</code>; long-running Node hosts
+							also run it every <code>PAYMENT_WATCHER_INTERVAL_MS</code>.
 						</Endpoint>
 					</div>
+					<Note>
+						Release rule, identical on testnet and mainnet: USDC moves to the buyer only when the order&apos;s
+						payment attempt carries a Flutterwave transaction id, was confirmed by Flutterwave (webhook or verify
+						API), and covers the full amount. Late payments are held for review. A seller may still choose to
+						release their own USDC.
+					</Note>
 
 					<H2 id="contract">Escrow contract</H2>
 					<P>

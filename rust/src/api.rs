@@ -402,9 +402,24 @@ async fn execute_session(
     let presentation_bincode_hex = match req.presentation_bincode_hex {
         Some(hex_str) if !hex_str.trim().is_empty() => hex_str,
         _ => {
+            // Without a real TLSNotary presentation there is nothing to verify. The
+            // old behaviour signed a made-up "payment completed" transcript with the
+            // notary key, so any caller could "prove" a payment that never happened.
+            if !state.config.allow_synthetic_proofs {
+                return Err(ApiError::BadRequest(
+                    "PRESENTATION_REQUIRED: submit a notarised TLSNotary presentation".to_string(),
+                ));
+            }
+            // Local development only (testnet + explicit opt-in). The status is still
+            // caller-supplied here, which is why Next.js never treats a TLSNotary
+            // proof as payment: escrow release requires provider confirmation.
+            tracing::warn!(
+                session_id = %session_id,
+                "Synthesising a TLSNotary transcript (ALLOW_SYNTHETIC_TLSN_PROOFS); never enable outside local testnet"
+            );
             let status_str = req
                 .payment_status
-                .unwrap_or_else(|| "completed".to_string());
+                .unwrap_or_else(|| "pending".to_string());
             let http_req = format!(
                 "GET /api/v1/transactions/verify HTTP/1.1\r\nHost: {}\r\nAuthorization: Bearer REDACTED\r\n\r\n",
                 session_snapshot.target_hostname

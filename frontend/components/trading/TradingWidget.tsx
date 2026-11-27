@@ -171,7 +171,6 @@ function ZKProofPanel({
 					amountNgn: cleanNgn,
 					recipientAccount: accountNo || "",
 					paymentReference: `NIP-${bankName.replace(/\s+/g, "").toUpperCase()}-${tradeId}`,
-					paymentStatus: "completed",
 					cryptoAmountUsdc: usdcAmount,
 				}),
 			});

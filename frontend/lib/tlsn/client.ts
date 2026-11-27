@@ -203,7 +203,8 @@ export async function executeRustSessionVerification(params: {
 			params.sessionId,
 			{
 				presentation_bincode_hex: params.presentationBincodeHex ?? null,
-				payment_status: params.paymentStatus ?? "completed",
+				// Payment status must come from a real notarised presentation, never a caller claim.
+				payment_status: null,
 			},
 			params.buyerAddress,
 		);

@@ -1,14 +1,9 @@
 import { NETWORK } from "@/lib/env/network";
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser, requireWalletAddress } from "@/lib/auth/wallet";
-import { oracleSettleToBuyer, readEscrowTrade } from "@/lib/oracle/escrow";
-import {
-	completePeerTrade,
-	getOrHydrateSharedTrade,
-	resolveOnChainListingId,
-	transitionEscrowReleaseState,
-	transitionSellerPayoutState,
-} from "@/lib/trades/tradeStore";
+import { readEscrowTrade } from "@/lib/oracle/escrow";
+import { getOrHydrateSharedTrade, getProviderConfirmedPayment } from "@/lib/trades/tradeStore";
+import { settleAndReleaseEscrowAfterPaymentConfirmed } from "@/lib/payments/flutterwaveServer";
 import {
 	createRustVerificationSession,
 	evaluateRustEscrowRelease,
@@ -179,24 +174,14 @@ export async function POST(
 				return NextResponse.json({ error: "UNKNOWN_SESSION" }, { status: 404 });
 			}
 
-			// Never settle the same order twice. An order already completed, or
-			// already paid and settled through Flutterwave, must not get a second
-			// release under a different proof id.
 			const existingTrade = await getOrHydrateSharedTrade(rawTradeId, address);
 			if (existingTrade?.lifecycleState === "COMPLETED") {
 				return NextResponse.json({ error: "TRADE_ALREADY_SETTLED" }, { status: 409 });
-			}
-			if (existingTrade?.paymentState === "CONFIRMED" && existingTrade.activeTxRef) {
-				return NextResponse.json(
-					{ error: "PAYMENT_ALREADY_CONFIRMED_BY_PROVIDER" },
-					{ status: 409 },
-				);
 			}
 
 			const proofSummary = await executeRustSessionVerification({
 				sessionId: record.sessionId,
 				buyerAddress: address,
-				paymentStatus: body.paymentStatus ?? "completed",
 				fallbackContext: {
 					tradeId: numericTradeId,
 					amountUnits: Number(record.amount) || 500000,
@@ -234,57 +219,30 @@ export async function POST(
 			record.rustEscrowEvaluation = evalRes;
 			record.updatedAt = new Date();
 
+			// A TLSNotary proof is supporting evidence only. USDC is released solely
+			// on a payment the provider itself confirmed (webhook or verify API), via
+			// the same idempotent settlement the payment watcher uses.
+			let releaseBlockedReason: string | null = null;
 			if (evalRes.authorized && proofSummary.verified) {
-				record.status = "oracle_pending";
-				const sharedTrade = await getOrHydrateSharedTrade(rawTradeId, address);
-				const buyerWallet = sharedTrade?.buyerAddress || address;
-				const onChainListingId = resolveOnChainListingId(rawTradeId);
-				const usdcUnits = BigInt(sharedTrade?.usdcAmountUnits ?? 0);
-
-				try {
-					if (onChainListingId === null || usdcUnits <= 0n) {
-						throw new Error("Trade has no on-chain escrow listing to settle");
-					}
-					const settled = await oracleSettleToBuyer({
-						listingId: onChainListingId,
-						buyerAddress: buyerWallet,
-						amountUnits: usdcUnits,
-						proofId: proofSummary.on_chain_proof_id_bytes32,
-					});
-
-					const settledHash = settled.transactionHash ?? sharedTrade?.txHash;
-					if (!settledHash) {
-						throw new Error("Escrow settlement returned no confirmed transaction hash");
-					}
-					record.oracleTransactionHash = settledHash;
-					record.status = "completed";
-				} catch (err) {
-					console.error("Oracle on-chain settlement error during TLSN verify:", err);
-					record.status = "verified";
-				}
-
-				if (record.oracleTransactionHash) {
+				record.status = "verified";
+				const confirmed = getProviderConfirmedPayment(rawTradeId);
+				if (!confirmed) {
+					releaseBlockedReason = "PAYMENT_NOT_CONFIRMED_BY_PROVIDER";
+				} else {
 					try {
-					transitionSellerPayoutState(rawTradeId, "initiate");
-					transitionSellerPayoutState(rawTradeId, "confirm");
-					transitionEscrowReleaseState(rawTradeId, "request_release", {
-						txHash: record.oracleTransactionHash,
-						proofId: proofSummary.on_chain_proof_id_bytes32,
-					});
-					if (record.oracleTransactionHash) {
-						transitionEscrowReleaseState(rawTradeId, "confirm_on_chain", {
-							txHash: record.oracleTransactionHash,
-							proofId: proofSummary.on_chain_proof_id_bytes32,
+						const settledTrade = await settleAndReleaseEscrowAfterPaymentConfirmed({
+							tradeId: rawTradeId,
+							txRef: confirmed.txRef,
+							flwTxId: confirmed.flwTxId ?? 0,
 						});
+						if (settledTrade.txHash) {
+							record.oracleTransactionHash = settledTrade.txHash;
+							record.status = "completed";
+						}
+					} catch (err) {
+						console.error("Escrow settlement error during TLSN verify:", err);
+						releaseBlockedReason = err instanceof Error ? err.message : "SETTLEMENT_FAILED";
 					}
-					} catch {
-						// Ignore if already transitioned
-					}
-
-					completePeerTrade(rawTradeId, {
-						proofId: proofSummary.on_chain_proof_id_bytes32,
-						txHash: record.oracleTransactionHash,
-					});
 				}
 			} else {
 				record.status = "failed";
@@ -292,7 +250,8 @@ export async function POST(
 
 			return NextResponse.json({
 				verified: proofSummary.verified,
-				authorizedForRelease: evalRes.authorized,
+				authorizedForRelease: evalRes.authorized && !releaseBlockedReason,
+				releaseBlockedReason,
 				sessionId: record.sessionId,
 				verificationId: record.verificationId,
 				tradeId: rawTradeId,

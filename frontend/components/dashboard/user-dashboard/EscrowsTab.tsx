@@ -118,8 +118,8 @@ export function EscrowsTab({
 										className="rounded-md px-4 py-2 text-xs font-semibold text-ink border border-line hover:bg-subtle transition-colors disabled:opacity-60"
 									>
 										{verifyingTradeId === trade.tradeId
-											? "Verifying Proof..."
-											: "Verify & Release"}
+											? "Checking payment…"
+											: "Check payment"}
 									</button>
 								)}
 

@@ -34,6 +34,9 @@ fn test_state() -> AppState {
         max_proof_bytes: 512 * 1024,
         session_ttl_secs: 900,
         max_transcript_age_secs: 3600,
+        allow_synthetic_proofs: false,
+        payment_reconcile_url: None,
+        payment_reconcile_secret: None,
     };
 
     let mut pay_cfg = PaymentConfig::default();

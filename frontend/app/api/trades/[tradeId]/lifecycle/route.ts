@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth/wallet";
 import { oracleSettleToBuyer, paymentProofId, verifyEscrowTx } from "@/lib/oracle/escrow";
+import { settleAndReleaseEscrowAfterPaymentConfirmed } from "@/lib/payments/flutterwaveServer";
+import { reconcilePayments } from "@/lib/payments/watcher";
 import {
 	cancelPeerTradeUser,
+	getProviderConfirmedPayment,
 	getPaymentAttemptByRef,
 	getSharedTrade,
 	getOrHydrateSharedTrade,
@@ -33,6 +36,12 @@ export async function GET(
 		const trade = await getOrHydrateSharedTrade(tradeId, expectedAddress);
 		if (!trade) {
 			return NextResponse.json({ error: "TRADE_NOT_FOUND" }, { status: 404 });
+		}
+
+		// Nudge the payment watcher for this order (throttled, non-blocking) so a
+		// completed payment is picked up even if the webhook is late or missing.
+		if (trade.activeTxRef && trade.lifecycleState !== "COMPLETED") {
+			void reconcilePayments({ tradeId }).catch(() => {});
 		}
 
 		const attempt = trade.activeTxRef
@@ -83,6 +92,27 @@ export async function POST(
 			tradeId,
 			user.walletAddress,
 		);
+
+		// Only the order's buyer or seller may act on it, and only through the
+		// operations a person legitimately performs. Payout, refund completion and
+		// release bookkeeping are driven by the server (webhook / payment watcher).
+		const callerAddr = user.walletAddress.toLowerCase();
+		const callerIsSeller = updatedTrade?.sellerAddress.toLowerCase() === callerAddr;
+		const callerIsBuyer = updatedTrade?.buyerAddress?.toLowerCase() === callerAddr;
+		const SERVER_ONLY = new Set(["refund_complete", "escrow_request_release", "escrow_hold_revert", "payout_hold"]);
+		const SELLER_ONLY = new Set(["payout_initiate", "payout_confirm"]);
+		if (body.operation && body.operation !== "cancel") {
+			if (!updatedTrade) throw new Error("TRADE_NOT_FOUND");
+			if (!callerIsSeller && !callerIsBuyer) {
+				throw new Error("Authentication mismatch: not a party to this trade");
+			}
+			if (SERVER_ONLY.has(body.operation)) {
+				return NextResponse.json({ error: "OPERATION_NOT_ALLOWED" }, { status: 403 });
+			}
+			if (SELLER_ONLY.has(body.operation) && !callerIsSeller) {
+				return NextResponse.json({ error: "OPERATION_NOT_ALLOWED" }, { status: 403 });
+			}
+		}
 
 		switch (body.operation) {
 			case "cancel":
@@ -151,23 +181,28 @@ export async function POST(
 				} else if (sharedTrade.txHash && sharedTrade.lifecycleState === "COMPLETED") {
 					resolvedTxHash = sharedTrade.txHash;
 				} else {
-					// Oracle release moves the seller's USDC, so it needs either the
-					// seller's own authorization or a provider-confirmed fiat payment.
-					const paymentConfirmed = sharedTrade.paymentState === "CONFIRMED";
-					if (!isSeller && !paymentConfirmed) {
+					const confirmed = getProviderConfirmedPayment(tradeId);
+					if (confirmed) {
+						// Provider-confirmed payment: same idempotent settlement the
+						// webhook and payment watcher use (one proof id per payment).
+						updatedTrade = await settleAndReleaseEscrowAfterPaymentConfirmed({
+							tradeId,
+							txRef: confirmed.txRef,
+							flwTxId: confirmed.flwTxId ?? 0,
+						});
+						break;
+					}
+					if (!isSeller) {
 						throw new Error(
-							"Authentication mismatch: only the seller can release before payment is confirmed",
+							"PAYMENT_NOT_CONFIRMED_BY_PROVIDER: the payment provider hasn't confirmed this payment yet",
 						);
 					}
+					// The seller chose to release their own USDC without a provider payment.
 					const listingId = resolveOnChainListingId(tradeId);
 					if (listingId === null || !sharedTrade.buyerAddress) {
 						throw new Error("This trade has no on-chain escrow to release");
 					}
-					const proof = paymentProofId(
-						isSeller ? "SELLER-RELEASE" : "PAYMENT-RELEASE",
-						tradeId,
-						sharedTrade.activeTxRef ?? sharedTrade.id,
-					);
+					const proof = paymentProofId("SELLER-RELEASE", tradeId, sharedTrade.activeTxRef ?? sharedTrade.id);
 					const settled = await oracleSettleToBuyer({
 						listingId,
 						buyerAddress: sharedTrade.buyerAddress,

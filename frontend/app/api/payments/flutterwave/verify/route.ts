@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth/wallet";
 import { verifyFlutterwaveTransactionServerSide } from "@/lib/payments/flutterwaveServer";
-import { getTradeAuditEvents } from "@/lib/trades/tradeStore";
+import { getOrHydrateSharedTrade, getTradeAuditEvents } from "@/lib/trades/tradeStore";
 
 export async function POST(request: NextRequest) {
 	try {
 		const expectedAddress = request.headers.get("x-wallet-address") || undefined;
-		await getAuthenticatedUser(expectedAddress);
+		const user = await getAuthenticatedUser(expectedAddress);
 
 		const body = (await request.json().catch(() => ({}))) as {
 			tradeId?: string;
@@ -23,6 +23,18 @@ export async function POST(request: NextRequest) {
 				{ error: "MISSING_TRADE_OR_TX_REF" },
 				{ status: 400 },
 			);
+		}
+
+		// Only the order's buyer or seller may ask for a re-check. The check itself
+		// always asks Flutterwave; nothing the caller sends can mark it paid.
+		const shared = await getOrHydrateSharedTrade(tradeId, user.walletAddress);
+		const caller = user.walletAddress.toLowerCase();
+		if (
+			shared &&
+			shared.sellerAddress.toLowerCase() !== caller &&
+			shared.buyerAddress?.toLowerCase() !== caller
+		) {
+			throw new Error("Authentication mismatch: not a party to this trade");
 		}
 
 		const { trade, attempt, deduplicated } =

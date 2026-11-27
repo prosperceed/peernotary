@@ -56,10 +56,26 @@ function RateBadge() {
 	);
 }
 
+/** Tracks the md breakpoint so only one WalletButton is mounted (header on desktop, menu on mobile). */
+function useIsDesktop() {
+	const [isDesktop, setIsDesktop] = useState<boolean | null>(null);
+	useEffect(() => {
+		const mq = window.matchMedia("(min-width: 768px)");
+		const sync = () => setIsDesktop(mq.matches);
+		sync();
+		mq.addEventListener("change", sync);
+		return () => mq.removeEventListener("change", sync);
+	}, []);
+	return isDesktop;
+}
+
 function WalletButton({
 	onAuthChange,
+	inMenu = false,
 }: {
 	onAuthChange?: (authenticated: boolean) => void;
+	/** Full-width layout for the mobile menu; the account panel shows inline. */
+	inMenu?: boolean;
 }) {
 	const [mounted, setMounted] = useState(false);
 	const { address, chainId, isConnected } = useAccount();
@@ -227,7 +243,7 @@ function WalletButton({
 		`${addr.slice(0, 6)}…${addr.slice(-4)}`;
 
 	const errorLine = error ? (
-		<p className="flex max-w-[220px] items-center gap-1 text-right text-xs leading-tight text-amber-700">
+		<p className={cn("flex items-center gap-1 text-xs leading-tight text-amber-700", inMenu ? "text-left" : "max-w-[220px] text-right")}>
 			<AlertTriangle size={12} className="shrink-0" />
 			{error}
 		</p>
@@ -236,11 +252,14 @@ function WalletButton({
 	// ── STATE 1: Not connected ────────────────────────────────────────────────
 	if (!mounted || !isConnected || !address) {
 		return (
-			<div className="flex flex-col items-end gap-1">
-				<button onClick={() => void handleConnect()} disabled={busy} className="btn-primary h-9 rounded-full px-4">
+			<div className={cn("flex flex-col gap-1.5", !inMenu && "items-end")}>
+				<button
+					onClick={() => void handleConnect()}
+					disabled={busy}
+					className={cn("btn-primary rounded-full px-4", inMenu ? "h-10 w-full" : "h-9")}
+				>
 					{busy ? <Loader2 size={15} className="animate-spin" /> : <Wallet size={15} strokeWidth={1.75} />}
-					<span className="hidden sm:inline">{busy ? "Connecting…" : "Connect wallet"}</span>
-					<span className="sm:hidden">{busy ? "…" : "Connect"}</span>
+					{busy ? "Connecting…" : "Connect wallet"}
 				</button>
 				{errorLine}
 			</div>
@@ -251,20 +270,24 @@ function WalletButton({
 	if (!authenticated) {
 		const isWrongChain = chainId !== arcChain.id;
 		return (
-			<div className="flex items-center gap-2">
-				<span className="hidden font-mono text-xs text-ink-3 sm:inline">{truncate(address)}</span>
-				<div className="flex flex-col items-end gap-1">
+			<div className={cn("flex gap-2", inMenu ? "flex-col" : "items-center")}>
+				<span className={cn("font-mono text-xs text-ink-3", inMenu ? "px-1" : "hidden sm:inline")}>{truncate(address)}</span>
+				<div className={cn("flex flex-col gap-1", !inMenu && "items-end")}>
 					{isWrongChain ? (
 						<button
 							onClick={() => void handleWrongChainSwitch()}
 							disabled={busy}
-							className="btn h-9 border border-amber-300 bg-amber-50 px-3.5 text-amber-800 hover:bg-amber-100"
+							className={cn("btn h-9 rounded-full border border-amber-300 bg-amber-50 px-3.5 text-amber-800 hover:bg-amber-100", inMenu && "h-10 w-full")}
 						>
 							{busy ? <Loader2 size={15} className="animate-spin" /> : <AlertTriangle size={15} strokeWidth={1.75} />}
 							{busy ? "Switching…" : "Switch to Arc"}
 						</button>
 					) : (
-						<button onClick={() => void authenticate(address)} disabled={busy} className="btn-primary h-9 rounded-full px-4">
+						<button
+							onClick={() => void authenticate(address)}
+							disabled={busy}
+							className={cn("btn-primary rounded-full px-4", inMenu ? "h-10 w-full" : "h-9")}
+						>
 							{busy ? <Loader2 size={15} className="animate-spin" /> : <PenLine size={15} strokeWidth={1.75} />}
 							{busy ? "Check wallet…" : "Sign in"}
 						</button>
@@ -276,21 +299,8 @@ function WalletButton({
 	}
 
 	// ── STATE 3: Fully connected & authenticated ──────────────────────────────
-	return (
-		<div className="relative" ref={ref}>
-			<button
-				onClick={() => setOpen((v) => !v)}
-				className={cn("btn-secondary h-9 gap-2 rounded-full px-3", open && "bg-subtle")}
-				aria-haspopup="true"
-				aria-expanded={open}
-			>
-				<span className="h-2 w-2 rounded-full bg-accent" aria-label={arcChain.name} />
-				<span className="font-mono text-xs text-ink">{truncate(address)}</span>
-				<ChevronDown size={14} className={cn("text-ink-3 transition-transform", open && "rotate-180")} />
-			</button>
-
-			{open && (
-				<div className="dropdown-enter absolute right-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-card border border-white bg-white/95 shadow-pop backdrop-blur-xl">
+	const accountPanel = (
+		<>
 					<div className="border-b border-line px-4 py-3">
 						<div className="label">Signed in</div>
 						<div className="mt-1 break-all font-mono text-xs text-ink">{address}</div>
@@ -340,6 +350,29 @@ function WalletButton({
 							Disconnect
 						</button>
 					</div>
+		</>
+	);
+
+	if (inMenu) {
+		return <div className="overflow-hidden rounded-xl border border-line bg-white">{accountPanel}</div>;
+	}
+
+	return (
+		<div className="relative" ref={ref}>
+			<button
+				onClick={() => setOpen((v) => !v)}
+				className={cn("btn-secondary h-9 gap-2 rounded-full px-3", open && "bg-subtle")}
+				aria-haspopup="true"
+				aria-expanded={open}
+			>
+				<span className="h-2 w-2 rounded-full bg-accent" aria-label={arcChain.name} />
+				<span className="font-mono text-xs text-ink">{truncate(address)}</span>
+				<ChevronDown size={14} className={cn("text-ink-3 transition-transform", open && "rotate-180")} />
+			</button>
+
+			{open && (
+				<div className="dropdown-enter absolute right-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-card border border-white bg-white/95 shadow-pop backdrop-blur-xl">
+					{accountPanel}
 				</div>
 			)}
 		</div>
@@ -349,9 +382,11 @@ function WalletButton({
 function MobileNavButton({
 	currentView,
 	navLinks,
+	walletSlot,
 }: {
 	currentView: View | null;
 	navLinks: { label: string; view: View; source: string }[];
+	walletSlot?: React.ReactNode;
 }) {
 	const [open, setOpen] = useState(false);
 	const ref = useRef<HTMLDivElement>(null);
@@ -382,23 +417,28 @@ function MobileNavButton({
 			>
 				{open ? <X size={16} /> : <Menu size={16} />}
 			</button>
-			{open && (
-				<div className="dropdown-enter absolute right-0 top-full z-50 mt-2 w-48 rounded-card border border-white bg-white/95 p-1 shadow-pop backdrop-blur-xl">
+			{/* Kept mounted while closed so the wallet's session sync keeps running. */}
+			<div
+				className={cn(
+					"absolute right-0 top-full z-50 mt-3 w-[min(18rem,calc(100vw-1.5rem))] rounded-card border border-white bg-white/95 p-1.5 shadow-pop backdrop-blur-xl",
+					open ? "dropdown-enter" : "hidden",
+				)}
+			>
 					{navLinks.map(({ label, view, source }) => (
 						<Link
 							key={view}
 							href={source}
 							onClick={() => setOpen(false)}
 							className={cn(
-								"block rounded-md px-3 py-2 text-sm",
+								"block rounded-lg px-3 py-2.5 text-sm",
 								currentView === view ? "bg-subtle font-medium text-ink" : "text-ink-2 hover:bg-subtle",
 							)}
 						>
 							{label}
 						</Link>
 					))}
-				</div>
-			)}
+					{walletSlot && <div className="mt-1.5 border-t border-line px-1.5 pb-1.5 pt-3">{walletSlot}</div>}
+			</div>
 		</div>
 	);
 }
@@ -427,7 +467,8 @@ function NavLink({ label, active, source }: { label: string; active: boolean; so
 
 export default function GlobalNav() {
 	const pathname = usePathname();
-	const [isAuthed, setIsAuthed] = useState(false);
+	const [, setIsAuthed] = useState(false);
+	const isDesktop = useIsDesktop();
 
 	const getViewFromPathname = (path: string): View | null => {
 		if (path.startsWith("/dashboard")) return "dashboard";
@@ -446,8 +487,8 @@ export default function GlobalNav() {
 
 	return (
 		<header className="sticky top-0 z-50 px-3 pt-3 sm:px-5">
-			<div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-4 rounded-2xl border border-white/80 bg-white/60 pl-5 pr-2.5 shadow-card backdrop-blur-xl">
-				<div className="flex items-center gap-5">
+			<div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-4 rounded-2xl border border-white/80 bg-white/60 gap-3 pl-4 pr-2.5 shadow-card backdrop-blur-xl sm:pl-5">
+				<div className="flex min-w-0 items-center gap-3 sm:gap-5">
 					<Link href="/" className="font-display text-[16px] font-semibold tracking-tight text-ink">
 						Peer<span className="text-accent">Notary</span>
 					</Link>
@@ -471,8 +512,16 @@ export default function GlobalNav() {
 				</nav>
 				<div className="flex items-center gap-3">
 					<RateBadge />
-					<MobileNavButton currentView={currentView} navLinks={navLinks} />
-					<WalletButton onAuthChange={setIsAuthed} />
+					<MobileNavButton
+						currentView={currentView}
+						navLinks={navLinks}
+						walletSlot={isDesktop === false ? <WalletButton inMenu onAuthChange={setIsAuthed} /> : null}
+					/>
+					{isDesktop !== false && (
+						<div className="hidden md:block">
+							<WalletButton onAuthChange={setIsAuthed} />
+						</div>
+					)}
 				</div>
 			</div>
 		</header>

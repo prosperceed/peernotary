@@ -829,20 +829,14 @@ export default function TradingWidget({
 
 			if (res.ok) {
 				const data = (await res.json()) as { checkoutUrl?: string };
-				if (data.checkoutUrl) {
-					if (
-						data.checkoutUrl.startsWith("https://") &&
-						!data.checkoutUrl.includes(window.location.host)
-					) {
-						window.location.href = data.checkoutUrl;
-						return;
-					}
-					router.push(data.checkoutUrl);
+				// Only leave the app for a real hosted payment page.
+				if (data.checkoutUrl?.startsWith("https://") && !data.checkoutUrl.includes(window.location.host)) {
+					window.location.href = data.checkoutUrl;
 					return;
 				}
 			}
 		} catch {
-			// Continue to internal settlement portal
+			// Fall through to the payment page, which can retry and shows errors.
 		}
 
 		const qs = new URLSearchParams({

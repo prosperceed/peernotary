@@ -54,7 +54,12 @@ export async function POST(request: NextRequest) {
 					? 403
 					: message.includes("EXPIRED") || message.includes("NOT_AWAITING")
 						? 409
-						: 400;
+						: message.includes("FLUTTERWAVE_TIMEOUT")
+							? 504
+							: message.includes("FLUTTERWAVE_")
+								? 502
+								: 400;
+		if (status >= 500) console.error("flutterwave checkout failed:", message);
 		return NextResponse.json({ error: message }, { status });
 	}
 }

@@ -179,6 +179,20 @@ export async function POST(
 				return NextResponse.json({ error: "UNKNOWN_SESSION" }, { status: 404 });
 			}
 
+			// Never settle the same order twice. An order already completed, or
+			// already paid and settled through Flutterwave, must not get a second
+			// release under a different proof id.
+			const existingTrade = await getOrHydrateSharedTrade(rawTradeId, address);
+			if (existingTrade?.lifecycleState === "COMPLETED") {
+				return NextResponse.json({ error: "TRADE_ALREADY_SETTLED" }, { status: 409 });
+			}
+			if (existingTrade?.paymentState === "CONFIRMED" && existingTrade.activeTxRef) {
+				return NextResponse.json(
+					{ error: "PAYMENT_ALREADY_CONFIRMED_BY_PROVIDER" },
+					{ status: 409 },
+				);
+			}
+
 			const proofSummary = await executeRustSessionVerification({
 				sessionId: record.sessionId,
 				buyerAddress: address,

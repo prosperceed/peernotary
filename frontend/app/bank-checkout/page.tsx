@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect, useCallback } from "react";
+import { Suspense, useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -82,6 +82,42 @@ const LIFECYCLE_STEPS: { state: TradeLifecycleState; label: string }[] = [
 	{ state: "COMPLETED", label: "6. Complete" },
 ];
 
+/** fetch with a hard timeout so a stalled request can't leave a spinner forever. */
+async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 45_000): Promise<Response> {
+	const controller = new AbortController();
+	const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+	try {
+		return await fetch(url, { ...init, signal: controller.signal });
+	} catch (err) {
+		if (err instanceof Error && err.name === "AbortError") throw new Error("REQUEST_TIMEOUT");
+		throw err;
+	} finally {
+		window.clearTimeout(timer);
+	}
+}
+
+/** Turns server error codes into something a buyer can act on. */
+function friendlyPaymentError(raw: string | undefined): string {
+	const msg = raw ?? "";
+	if (msg.includes("FLUTTERWAVE_TIMEOUT") || msg.includes("REQUEST_TIMEOUT"))
+		return "The payment provider is taking too long to respond. Please try again.";
+	if (msg.includes("FLUTTERWAVE_UNREACHABLE"))
+		return "We couldn't reach the payment provider. Check your connection and try again.";
+	if (msg.includes("FLUTTERWAVE_CHECKOUT_FAILED"))
+		return `The payment provider rejected the request${msg.includes(":") ? ` (${msg.split(":").slice(1).join(":").trim()})` : ""}.`;
+	if (msg.includes("PAYMENT_NOT_CONFIRMED"))
+		return "No completed payment was found for this order yet. If you just paid, wait a minute and check again.";
+	if (msg.includes("PAYMENT_ATTEMPT_NOT_FOUND"))
+		return "No payment has been started for this order yet. Use the pay button first.";
+	if (msg.includes("EXPIRED")) return "The payment window for this order has closed.";
+	if (msg.includes("NOT_AWAITING_PAYMENT")) return "This order is no longer waiting for payment.";
+	if (msg.includes("SELLER_CANNOT")) return "You can't pay for your own offer.";
+	if (msg.includes("CALLER_NOT")) return "This order belongs to a different buyer wallet.";
+	if (msg.includes("Authentication") || msg.includes("mismatch"))
+		return "Your session has expired. Sign in again from the dashboard.";
+	return msg || "Something went wrong. Please try again.";
+}
+
 function CheckoutSkeleton() {
 	return (
 		<div className="mx-auto max-w-6xl animate-pulse space-y-6">
@@ -114,6 +150,7 @@ function BankCheckoutContent() {
 	const tradeId = searchParams.get("tradeId") || "";
 	const callbackTxRef = searchParams.get("tx_ref") || "";
 	const callbackTransactionId = searchParams.get("transaction_id") || "";
+	const callbackStatus = (searchParams.get("status") || "").toLowerCase();
 	const returnTo = searchParams.get("returnTo") || "/dashboard";
 
 	const [authenticated, setAuthenticated] = useState<boolean | null>(null);
@@ -128,6 +165,17 @@ function BankCheckoutContent() {
 	const [loading, setLoading] = useState(true);
 	const [busyAction, setBusyAction] = useState<string | null>(null);
 	const [errorMsg, setErrorMsg] = useState<string | null>(null);
+	/** Persistent, inline payment problem shown under the pay buttons. */
+	const [payError, setPayError] = useState<string | null>(null);
+	const callbackHandled = useRef(false);
+	const [callbackProblemDismissed, setCallbackProblemDismissed] = useState(false);
+	const callbackProblem =
+		callbackTxRef && callbackStatus === "cancelled"
+			? "Payment was cancelled. No money was taken. You can try again."
+			: callbackTxRef && callbackStatus === "failed"
+				? "The payment didn't go through. No USDC was released. You can try again."
+				: null;
+	const shownPayError = payError ?? (callbackProblemDismissed ? null : callbackProblem);
 	const [statusBanner, setStatusBanner] = useState<string | null>(null);
 	const [copiedRef, setCopiedRef] = useState(false);
 	const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
@@ -164,11 +212,15 @@ function BankCheckoutContent() {
 	}, [address, tradeId]);
 
 	const initializeCheckoutSession = useCallback(async (): Promise<string | undefined> => {
-		if (!address) return;
+		if (!address) {
+			setPayError("Connect your wallet to pay for this order.");
+			return;
+		}
 		setBusyAction("init_checkout");
 		setErrorMsg(null);
+		setPayError(null);
 		try {
-			const res = await fetch("/api/payments/flutterwave/checkout", {
+			const res = await fetchWithTimeout("/api/payments/flutterwave/checkout", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
@@ -190,9 +242,7 @@ function BankCheckoutContent() {
 			};
 
 			if (!res.ok || !data.txRef) {
-				throw new Error(
-					data.error || "Could not initialize Flutterwave checkout.",
-				);
+				throw new Error(data.error || "FLUTTERWAVE_CHECKOUT_FAILED");
 			}
 
 			if (data.hostedMode) setHostedMode(data.hostedMode);
@@ -200,8 +250,7 @@ function BankCheckoutContent() {
 			setAttempt({
 				id: data.attemptId || "",
 				txRef: data.txRef,
-				expectedAmountMinor:
-					data.expectedAmountMinor || trade?.fiatAmountMinor || 0,
+				expectedAmountMinor: data.expectedAmountMinor || 0,
 				expectedCurrency: data.expectedCurrency || "NGN",
 				checkoutUrl: data.checkoutUrl || "",
 				status: "REDIRECT_READY",
@@ -211,23 +260,25 @@ function BankCheckoutContent() {
 			await fetchTradeState();
 			return data.checkoutUrl || undefined;
 		} catch (err) {
-			setErrorMsg(
-				err instanceof Error ? err.message : "Failed to initialize checkout.",
-			);
+			setPayError(friendlyPaymentError(err instanceof Error ? err.message : undefined));
 		} finally {
 			setBusyAction(null);
 		}
 	}, [address, fetchTradeState, tradeId]);
 
 	/** Sends the buyer to Flutterwave's hosted page; they return with ?tx_ref=… */
+	// Always asks the server, which reuses an existing hosted link. Only a real
+	// https page counts: anything else would just reload this page.
 	const handlePayWithFlutterwave = useCallback(async () => {
-		const url = attempt?.checkoutUrl || (await initializeCheckoutSession());
-		if (url) {
-			window.location.assign(url);
-		} else {
-			setErrorMsg("Flutterwave did not return a checkout link. Try again in a moment.");
+		const url = await initializeCheckoutSession();
+		if (!url) return; // initializeCheckoutSession already explained why
+		if (!url.startsWith("https://")) {
+			setPayError("The payment provider didn't return a payment page. Please try again.");
+			return;
 		}
-	}, [attempt?.checkoutUrl, initializeCheckoutSession]);
+		setBusyAction("redirecting");
+		window.location.assign(url);
+	}, [initializeCheckoutSession]);
 
 	useEffect(() => {
 		void fetchTradeState();
@@ -279,75 +330,101 @@ function BankCheckoutContent() {
 		return () => window.clearInterval(id);
 	}, [attempt?.expiresAt, trade?.paymentDeadlineAt]);
 
-	// Automatically verify callback parameters with server (never trust query params directly)
+	// Returning from Flutterwave: verify server-side (never trust query params).
+	// Runs once, honours a cancelled payment, and retries briefly because the
+	// provider can take a few seconds to mark a charge successful.
 	useEffect(() => {
-		if (!authenticated || !address || !callbackTxRef) return;
+		if (!authenticated || !address || !callbackTxRef || callbackHandled.current) return;
+		callbackHandled.current = true;
+
+		const clearCallbackParams = () => {
+			const url = new URL(window.location.href);
+			["tx_ref", "transaction_id", "status"].forEach((k) => url.searchParams.delete(k));
+			window.history.replaceState(null, "", url.toString());
+		};
+
+		// Cancelled/failed returns are shown from `callbackProblem` below; nothing to verify.
+		if (callbackStatus === "cancelled" || callbackStatus === "failed") return;
+
 		const verifyCallback = async () => {
 			setBusyAction("verify_payment");
+			setPayError(null);
+			setStatusBanner("Confirming your payment with Flutterwave…");
+			const delays = [0, 3000, 5000, 8000];
+			let lastError = "";
 			try {
-				const res = await fetch("/api/payments/flutterwave/verify", {
-					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-						"x-wallet-address": address,
-					},
-					body: JSON.stringify({
-						tradeId,
-						txRef: callbackTxRef,
-						flwTransactionId: callbackTransactionId
-							? Number(callbackTransactionId)
-							: undefined,
-					}),
-				});
-				const data = (await res.json().catch(() => ({}))) as {
-					ok?: boolean;
-					trade?: AuthoritativeTradeDetail;
-				};
-				if (res.ok) {
-					await fetchTradeState();
-					if (data.trade?.lifecycleState === "COMPLETED") {
-						setStatusBanner(
-							`Payment confirmed and ${usdcDisplay} USDC released on ${arcChain.name}! Trade is COMPLETED.`,
-						);
-					} else {
-						setStatusBanner(
-							"Payment verified server-side with Flutterwave. Completing settlement...",
-						);
-						await handleCompleteFullSettlementPipeline();
+				for (const delay of delays) {
+					if (delay) await new Promise((r) => window.setTimeout(r, delay));
+					try {
+						const res = await fetchWithTimeout("/api/payments/flutterwave/verify", {
+							method: "POST",
+							headers: { "Content-Type": "application/json", "x-wallet-address": address },
+							body: JSON.stringify({
+								tradeId,
+								txRef: callbackTxRef,
+								flwTransactionId: callbackTransactionId ? Number(callbackTransactionId) : undefined,
+							}),
+						});
+						const data = (await res.json().catch(() => ({}))) as {
+							error?: string;
+							trade?: AuthoritativeTradeDetail;
+						};
+						if (res.ok) {
+							clearCallbackParams();
+							await fetchTradeState();
+							window.dispatchEvent(new CustomEvent("peernotary-balance-refresh"));
+							if (data.trade?.lifecycleState === "COMPLETED") {
+								setStatusBanner(`Payment confirmed. USDC released on ${arcChain.name}.`);
+							} else {
+								setStatusBanner("Payment confirmed. Releasing your USDC…");
+								await handleCompleteFullSettlementPipeline();
+							}
+							return;
+						}
+						lastError = data.error ?? "";
+						// Only "not confirmed yet" is worth waiting for.
+						if (!lastError.includes("PAYMENT_NOT_CONFIRMED")) break;
+					} catch (err) {
+						lastError = err instanceof Error ? err.message : "";
 					}
-					window.dispatchEvent(new CustomEvent("peernotary-balance-refresh"));
 				}
-			} catch {
-				// Let user manually trigger verification if network was momentarily unavailable
+				setStatusBanner(null);
+				setPayError(friendlyPaymentError(lastError));
+				clearCallbackParams();
 			} finally {
 				setBusyAction(null);
 			}
 		};
 		void verifyCallback();
-	}, [
-		address,
-		authenticated,
-		callbackTransactionId,
-		callbackTxRef,
-		fetchTradeState,
-		tradeId,
-	]);
+		// handleCompleteFullSettlementPipeline is recreated each render; this effect must run once per callback.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [address, authenticated, callbackStatus, callbackTransactionId, callbackTxRef, fetchTradeState, tradeId]);
 
 	const handleVerifyPayment = async (
 		simulateScenario?: "exact" | "underpaid",
 	) => {
-		if (!address) return;
+		if (!address) {
+			setPayError("Connect your wallet to check this payment.");
+			return;
+		}
+		const knownTxRef = attempt?.txRef || trade?.activeTxRef;
+		// Outside local simulation, checking status only makes sense once a payment was started.
+		if (!knownTxRef && paymentMode !== "simulated") {
+			setPayError("No payment has been started for this order yet. Use the pay button first.");
+			return;
+		}
 		setBusyAction("verify_payment");
 		setErrorMsg(null);
+		setPayError(null);
 		setStatusBanner(null);
 
 		try {
-			let activeTxRef = attempt?.txRef || trade?.activeTxRef;
+			let activeTxRef = knownTxRef;
 			let expectedMinor =
 				attempt?.expectedAmountMinor || trade?.fiatAmountMinor || 0;
 
 			if (!activeTxRef) {
-				const initRes = await fetch("/api/payments/flutterwave/checkout", {
+				const initRes = await fetchWithTimeout("/api/payments/flutterwave/checkout", {
 					method: "POST",
 					headers: {
 						"Content-Type": "application/json",
@@ -374,7 +451,7 @@ function BankCheckoutContent() {
 					? Math.floor(expectedMinor * 0.85)
 					: expectedMinor;
 
-			const res = await fetch("/api/payments/flutterwave/verify", {
+			const res = await fetchWithTimeout("/api/payments/flutterwave/verify", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
@@ -397,9 +474,7 @@ function BankCheckoutContent() {
 			};
 
 			if (!res.ok) {
-				throw new Error(
-					data.error || "Server-side payment verification failed.",
-				);
+				throw new Error(data.error || "PAYMENT_NOT_CONFIRMED");
 			}
 
 			await fetchTradeState();
@@ -423,177 +498,62 @@ function BankCheckoutContent() {
 				await handleCompleteFullSettlementPipeline();
 			}
 		} catch (err) {
-			setErrorMsg(
-				err instanceof Error ? err.message : "Transaction verification failed.",
-			);
+			setPayError(friendlyPaymentError(err instanceof Error ? err.message : undefined));
 		} finally {
 			setBusyAction(null);
 		}
 	};
 
-	const handleLifecycleOperation = async (
-		operation:
-			| "payout_initiate"
-			| "payout_confirm"
-			| "payout_hold"
-			| "refund_request"
-			| "refund_complete"
-			| "escrow_request_release"
-			| "escrow_confirm_on_chain"
-			| "escrow_hold_revert"
-			| "reconcile_deadline",
-		extra?: { reason?: string; txHash?: string; proofId?: string },
-	) => {
-		if (!address) return;
-		setBusyAction(operation);
-		setErrorMsg(null);
-		setStatusBanner(null);
-
-		try {
-			const res = await fetch(`/api/trades/${tradeId}/lifecycle`, {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					"x-wallet-address": address,
-				},
-				body: JSON.stringify({
-					operation,
-					reason: extra?.reason,
-					txHash: extra?.txHash || undefined,
-					proofId: extra?.proofId || undefined,
-				}),
-			});
-
-			const data = (await res.json()) as {
-				ok?: boolean;
-				error?: string;
-				trade?: AuthoritativeTradeDetail;
-			};
-
-			if (!res.ok) {
-				throw new Error(data.error || "Operation rejected by lifecycle guard.");
-			}
-
-			await fetchTradeState();
-			setStatusBanner(
-				`State updated to ${data.trade?.lifecycleState ?? "next stage"}.`,
-			);
-		} catch (err) {
-			setErrorMsg(
-				err instanceof Error ? err.message : "Could not execute operation.",
-			);
-		} finally {
-			setBusyAction(null);
-		}
-	};
-
+	/**
+	 * Finishes the USDC release after a confirmed payment. Re-running the
+	 * provider verification is idempotent: the server settles on-chain with a
+	 * proof id derived from this payment reference, so it can't pay out twice.
+	 */
 	const handleCompleteFullSettlementPipeline = async () => {
 		if (!address) return;
 		if (trade?.lifecycleState === "COMPLETED") {
-			setStatusBanner(
-				`Trade is already COMPLETED and ${usdcDisplay} USDC released on ${arcChain.name}.`,
-			);
+			setStatusBanner(`USDC already released on ${arcChain.name}.`);
 			window.dispatchEvent(new CustomEvent("peernotary-balance-refresh"));
 			return;
 		}
+		const txRef = attempt?.txRef || trade?.activeTxRef || callbackTxRef;
+		if (!txRef) {
+			setPayError("There's no confirmed payment to release yet.");
+			return;
+		}
 		setBusyAction("full_pipeline");
-		setErrorMsg(null);
-		setStatusBanner(null);
-
+		setPayError(null);
 		try {
-			await handleLifecycleOperation("payout_initiate");
-			await handleLifecycleOperation("payout_confirm");
-
-			let releaseTxHash: `0x${string}` | undefined;
-			let tlsnProofId: string | undefined;
-
-			// 1. Run TLSNotary MPC-TLS verification + Oracle on-chain settlement
-			try {
-				const sessionRes = await fetch(
-					`/api/tlsn/trades/${encodeURIComponent(tradeId)}/verify`,
-					{
-						method: "POST",
-						headers: {
-							"Content-Type": "application/json",
-							"x-wallet-address": address,
-						},
-						body: JSON.stringify({
-							action: "create_session",
-							fiatAmountMinor:
-								trade?.fiatAmountMinor ?? attempt?.expectedAmountMinor ?? 0,
-							fiatCurrency: trade?.fiatCurrency ?? "NGN",
-							bankCode: trade?.bankCode ?? "058",
-							sellerAccountHash: trade?.accountMasked ?? tradeId,
-						}),
-					},
-				);
-				const sessionData = (await sessionRes.json()) as {
-					session?: { sessionId: string };
-				};
-				const sessionId = sessionData.session?.sessionId;
-				if (sessionId) {
-					const proofRes = await fetch(
-						`/api/tlsn/trades/${encodeURIComponent(tradeId)}/verify`,
-						{
-							method: "POST",
-							headers: {
-								"Content-Type": "application/json",
-								"x-wallet-address": address,
-							},
-							body: JSON.stringify({
-								action: "execute_proof",
-								sessionId,
-								fiatAmountMinor:
-									trade?.fiatAmountMinor ?? attempt?.expectedAmountMinor ?? 0,
-								fiatCurrency: trade?.fiatCurrency ?? "NGN",
-								bankCode: trade?.bankCode ?? "058",
-								sellerAccountHash: trade?.accountMasked ?? tradeId,
-							}),
-						},
-					);
-					if (proofRes.ok) {
-						const proofData = (await proofRes.json()) as {
-							proofId?: string;
-							oracleTransactionHash?: string;
-						};
-						if (proofData.proofId) tlsnProofId = proofData.proofId;
-						if (
-							proofData.oracleTransactionHash &&
-							proofData.oracleTransactionHash.startsWith("0x")
-						) {
-							releaseTxHash = proofData.oracleTransactionHash as `0x${string}`;
-						}
-					}
-				}
-			} catch (tlsnErr) {
-				console.warn("TLSN verification step warning:", tlsnErr);
-			}
-
-			// 2. If seller is connected directly on-chain and oracle didn't settle yet, allow direct release
-			if (
-				!releaseTxHash &&
-				tradeId &&
-				trade?.sellerAddress?.toLowerCase() === address.toLowerCase()
-			) {
-				releaseTxHash = (await escrow.releaseIfSellerCan(tradeId)) ?? undefined;
-			}
-
-			await handleLifecycleOperation("escrow_request_release", {
-				txHash: releaseTxHash,
-				proofId: tlsnProofId,
+			const expectedMinor = attempt?.expectedAmountMinor || trade?.fiatAmountMinor || 0;
+			const res = await fetchWithTimeout("/api/payments/flutterwave/verify", {
+				method: "POST",
+				headers: { "Content-Type": "application/json", "x-wallet-address": address },
+				body: JSON.stringify({
+					tradeId,
+					txRef,
+					...(paymentMode === "simulated"
+						? { simulatedAmountMinor: expectedMinor, simulatedCurrency: "NGN" }
+						: {}),
+				}),
 			});
-			await handleLifecycleOperation("escrow_confirm_on_chain", {
-				txHash: releaseTxHash,
-				proofId: tlsnProofId,
-			});
+			const data = (await res.json().catch(() => ({}))) as {
+				error?: string;
+				trade?: AuthoritativeTradeDetail;
+			};
+			if (!res.ok) throw new Error(data.error || "RELEASE_FAILED");
 			await fetchTradeState();
-			setStatusBanner(
-				`TLSNotary proof verified and ${usdcDisplay} USDC released on ${arcChain.name}${releaseTxHash ? ` (Tx: ${releaseTxHash.slice(0, 10)}...)` : ""}. Trade is COMPLETED.`,
-			);
 			window.dispatchEvent(new CustomEvent("peernotary-balance-refresh"));
+			if (data.trade?.lifecycleState === "COMPLETED") {
+				setStatusBanner(`USDC released to your wallet on ${arcChain.name}.`);
+			} else {
+				setPayError("Your payment is confirmed, but the release hasn't finished yet. Try again in a minute.");
+			}
 		} catch (err) {
-			setErrorMsg(
-				err instanceof Error ? err.message : "Settlement pipeline halted.",
+			const msg = err instanceof Error ? err.message : "";
+			setPayError(
+				msg.includes("RELEASE_FAILED") || msg.includes("settle") || msg.includes("escrow")
+					? "Your payment is confirmed, but the on-chain release failed. Try again in a minute; your USDC stays locked for you until it succeeds."
+					: friendlyPaymentError(msg),
 			);
 		} finally {
 			setBusyAction(null);
@@ -869,6 +829,25 @@ function BankCheckoutContent() {
 						))}
 					</dl>
 
+					{shownPayError && (
+						<div
+							role="alert"
+							className="flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+						>
+							<span>{shownPayError}</span>
+							<button
+								type="button"
+								onClick={() => {
+								setPayError(null);
+								setCallbackProblemDismissed(true);
+							}}
+								className="shrink-0 text-xs font-medium text-red-700 hover:underline"
+							>
+								Dismiss
+							</button>
+						</div>
+					)}
+
 					{currentLifecycle === "AWAITING_PAYMENT" && (
 						<div className="space-y-3">
 							{paymentMode === "simulated" ? (
@@ -891,12 +870,16 @@ function BankCheckoutContent() {
 										onClick={() => void handlePayWithFlutterwave()}
 										className="btn-primary h-12 w-full"
 									>
-										{busyAction === "init_checkout" ? (
+										{busyAction === "init_checkout" || busyAction === "redirecting" ? (
 											<RefreshCw size={15} className="animate-spin" />
 										) : (
 											<Lock size={15} />
 										)}
-										Pay ₦{fiatMajorNgn} securely
+										{busyAction === "init_checkout"
+											? "Preparing secure payment…"
+											: busyAction === "redirecting"
+												? "Opening Flutterwave…"
+												: `Pay ₦${fiatMajorNgn} securely`}
 									</button>
 									<button
 										type="button"
@@ -907,7 +890,7 @@ function BankCheckoutContent() {
 										{busyAction === "verify_payment" || busyAction === "full_pipeline" ? (
 											<RefreshCw size={15} className="animate-spin" />
 										) : null}
-										I&apos;ve paid, check status
+										{busyAction === "verify_payment" ? "Checking payment…" : "I've paid, check status"}
 									</button>
 									{IS_TESTNET && (
 										<div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">

@@ -1751,10 +1751,9 @@ export function createOrReuseCheckoutAttempt(
 	const txRef =
 		customTxRef ||
 		`PN-FLW-${tradeId}-${randomUUID().replace(/-/g, "").slice(0, 16)}`;
-	const majorNgn = (shared.fiatAmountMinor / 100).toFixed(2);
-	const checkoutUrl =
-		customCheckoutUrl ||
-		`/bank-checkout?tradeId=${encodeURIComponent(tradeId)}&tx_ref=${encodeURIComponent(txRef)}&amountNgn=${encodeURIComponent(majorNgn)}&bank=${encodeURIComponent(shared.bankName)}&flw_checkout=1`;
+	// Empty until the payment provider returns a hosted link. A local placeholder
+	// here made "Pay" reload /bank-checkout and auto-verify an unpaid order.
+	const checkoutUrl = customCheckoutUrl || "";
 
 	const attempt: PaymentAttemptInfo = {
 		id: randomUUID(),

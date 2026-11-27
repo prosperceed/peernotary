@@ -8,6 +8,7 @@ import {
 	createOrReuseCheckoutAttempt,
 	getPaymentAttemptByRef,
 	getSharedTrade,
+	persistPaymentAttemptToSupabase,
 	recordVerifiedFlutterwavePayment,
 	resolveOnChainListingId,
 	transitionEscrowReleaseState,
@@ -105,6 +106,42 @@ export function verifyFlutterwaveWebhookSignature(params: {
 	return false;
 }
 
+/**
+ * Creates a Flutterwave hosted payment link. Test mode can take several
+ * seconds, so each try gets 20s and timeouts, network errors and 5xx
+ * responses are retried once with the same tx_ref (Flutterwave reuses it).
+ */
+async function requestHostedLink(secretKey: string, payload: Record<string, unknown>): Promise<string> {
+	let lastError: Error = new Error("FLUTTERWAVE_CHECKOUT_FAILED");
+	for (let tryNo = 1; tryNo <= 2; tryNo++) {
+		let res: Response;
+		try {
+			res = await fetch(`${getFlwBaseUrl()}/payments`, {
+				method: "POST",
+				headers: { Authorization: `Bearer ${secretKey}`, "Content-Type": "application/json" },
+				body: JSON.stringify(payload),
+				cache: "no-store",
+				signal: AbortSignal.timeout(20_000),
+			});
+		} catch (err) {
+			const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+			lastError = new Error(timedOut ? "FLUTTERWAVE_TIMEOUT" : "FLUTTERWAVE_UNREACHABLE");
+			continue;
+		}
+
+		const body = (await res.json().catch(() => ({}))) as {
+			status?: string;
+			message?: string;
+			data?: { link?: string };
+		};
+		if (res.ok && body.status === "success" && body.data?.link) return body.data.link;
+
+		lastError = new Error(`FLUTTERWAVE_CHECKOUT_FAILED: ${body.message ?? `HTTP ${res.status}`}`);
+		if (res.status < 500) break; // 4xx won't succeed on retry
+	}
+	throw lastError;
+}
+
 export async function initializeFlutterwaveStandardCheckout(params: {
 	tradeId: string;
 	buyerAddress: string;
@@ -123,55 +160,36 @@ export async function initializeFlutterwaveStandardCheckout(params: {
 	const secretKey = getFlwSecretKey();
 
 	if (secretKey && trade) {
-		const redirectUrl = `${params.originUrl.replace(/\/$/, "")}/bank-checkout?tradeId=${encodeURIComponent(params.tradeId)}&tx_ref=${encodeURIComponent(attempt.txRef)}`;
-		try {
-			const res = await fetch(`${getFlwBaseUrl()}/payments`, {
-				method: "POST",
-				headers: {
-					Authorization: `Bearer ${secretKey}`,
-					"Content-Type": "application/json",
-				},
-				body: JSON.stringify({
-					tx_ref: attempt.txRef,
-					amount: minorUnitsToDecimalString(attempt.expectedAmountMinor),
-					currency: attempt.expectedCurrency,
-					redirect_url: redirectUrl,
-					customer: {
-						email: `${params.buyerAddress.toLowerCase()}@wallet.peernotary.io`,
-						name: `PeerNotary Buyer (${params.buyerAddress.slice(0, 6)}...${params.buyerAddress.slice(-4)})`,
-					},
-					meta: {
-						trade_id: params.tradeId,
-						attempt_id: attempt.id,
-						buyer_address: params.buyerAddress.toLowerCase(),
-						seller_address: trade.sellerAddress.toLowerCase(),
-						expected_amount_minor: String(attempt.expectedAmountMinor),
-					},
-					customizations: {
-						title: `PeerNotary Escrow Trade #${params.tradeId}`,
-						description: `Fiat settlement for Arc Escrow Trade #${params.tradeId}`,
-					},
-				}),
-				cache: "no-store",
-				signal: AbortSignal.timeout(10_000),
-			});
-
-			if (res.ok) {
-				const body = (await res.json()) as {
-					status?: string;
-					data?: { link?: string };
-				};
-				if (body.status === "success" && body.data?.link) {
-					attempt.checkoutUrl = body.data.link;
-					return { attempt, hostedMode: "live_api", paymentMode };
-				}
-			}
-			const detail = await res.text().catch(() => "");
-			throw new Error(`FLUTTERWAVE_CHECKOUT_FAILED (${res.status}): ${detail.slice(0, 160)}`);
-		} catch (err) {
-			// A configured key means real Flutterwave only: never fall back to a fake portal.
-			throw err instanceof Error ? err : new Error("FLUTTERWAVE_CHECKOUT_FAILED");
+		// Reuse a hosted link Flutterwave already issued for this attempt.
+		if (attempt.checkoutUrl.startsWith("https://")) {
+			return { attempt, hostedMode: "live_api", paymentMode };
 		}
+
+		const redirectUrl = `${params.originUrl.replace(/\/$/, "")}/bank-checkout?tradeId=${encodeURIComponent(params.tradeId)}&tx_ref=${encodeURIComponent(attempt.txRef)}`;
+		const link = await requestHostedLink(secretKey, {
+			tx_ref: attempt.txRef,
+			amount: minorUnitsToDecimalString(attempt.expectedAmountMinor),
+			currency: attempt.expectedCurrency,
+			redirect_url: redirectUrl,
+			customer: {
+				email: `${params.buyerAddress.toLowerCase()}@wallet.peernotary.io`,
+				name: `PeerNotary Buyer (${params.buyerAddress.slice(0, 6)}...${params.buyerAddress.slice(-4)})`,
+			},
+			meta: {
+				trade_id: params.tradeId,
+				attempt_id: attempt.id,
+				buyer_address: params.buyerAddress.toLowerCase(),
+				seller_address: trade.sellerAddress.toLowerCase(),
+				expected_amount_minor: String(attempt.expectedAmountMinor),
+			},
+			customizations: {
+				title: `PeerNotary order #${params.tradeId}`,
+				description: `Payment for escrow order #${params.tradeId}`,
+			},
+		});
+		attempt.checkoutUrl = link;
+		persistPaymentAttemptToSupabase(attempt);
+		return { attempt, hostedMode: "live_api", paymentMode };
 	}
 
 	if (paymentMode !== "simulated") throw new Error("TRADE_NOT_FOUND");
